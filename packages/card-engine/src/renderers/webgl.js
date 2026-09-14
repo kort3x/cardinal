@@ -235,20 +235,27 @@ function flowEntries(content) {
 }
 
 export function flowTransitionPolicy(previousContent, nextContent) {
-  if (!previousContent) return { preserveBottom: false, deferFlowIds: [] };
+  if (!previousContent) return { preserveBottom: false, deferFlowIds: [], gapIndex: null };
   const previousFlow = flowEntries(previousContent);
   const nextFlow = flowEntries(nextContent);
   const previousIds = new Set(previousFlow.map(({ element }) => element.id));
   const nextIds = new Set(nextFlow.map(({ element }) => element.id));
-  const removedBeforeSurvivor = previousFlow.some(({ element }, index) => !nextIds.has(element.id)
+  const removedIndex = previousFlow.findIndex(({ element }, index) => !nextIds.has(element.id)
     && previousFlow.slice(index + 1).some(({ element: later }) => nextIds.has(later.id)));
-  const addedBeforeSurvivor = nextFlow.some(({ element }, index) => elementVisible(element) && !previousIds.has(element.id)
+  const addedIndex = nextFlow.findIndex(({ element }, index) => elementVisible(element) && !previousIds.has(element.id)
     && nextFlow.slice(index + 1).some(({ element: later }) => previousIds.has(later.id)));
+  const removedBeforeSurvivor = removedIndex !== -1;
+  const addedBeforeSurvivor = addedIndex !== -1;
   const preserveBottom = removedBeforeSurvivor || addedBeforeSurvivor;
   const deferFlowIds = nextFlow
     .filter(({ element }) => elementVisible(element) && !previousIds.has(element.id))
     .map(({ element }) => element.id);
-  return { preserveBottom, deferFlowIds };
+  const gapIndex = addedBeforeSurvivor
+    ? nextFlow.slice(0, addedIndex).filter(({ element }) => previousIds.has(element.id)).length
+    : removedBeforeSurvivor
+      ? previousFlow.slice(0, removedIndex).filter(({ element }) => nextIds.has(element.id)).length
+      : null;
+  return { preserveBottom, deferFlowIds, gapIndex };
 }
 
 function imageFrom(images, element, fallback) {
@@ -298,7 +305,7 @@ function drawImageElement(context, element, dimensions, x, y, width, height, ima
   return height;
 }
 
-export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false, deferFlowIds = [] } = {}) {
+export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false, deferFlowIds = [], gapIndex = null } = {}) {
   context.fillStyle = content?.background ?? "#ffffff";
   context.fillRect(0, 0, dimensions.width, dimensions.height);
   const inner = 18;
@@ -314,15 +321,14 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
       || String(first.element.id).localeCompare(String(second.element.id)));
   const flowHeights = flow.map(({ element }) => flowElementHeight(context, element, dimensions, innerWidth));
   const requiredHeight = inner + flowHeights.reduce((total, height) => total + height + 10, 0) + 8;
-  const extraGap = preserveBottom && flow.length > 1
-    ? Math.max(0, dimensions.height - requiredHeight) / (flow.length - 1)
-    : 0;
-  const leadingGap = preserveBottom && flow.length === 1
+  const transientGap = preserveBottom && Number.isInteger(gapIndex) && gapIndex >= 0 && gapIndex <= flow.length
     ? Math.max(0, dimensions.height - requiredHeight)
     : 0;
-  let cursor = inner + leadingGap;
+  let cursor = inner;
 
-  for (const [{ element }, elementHeight] of flow.map((entry, index) => [entry, flowHeights[index]])) {
+  for (const [index, { element }] of flow.entries()) {
+    const elementHeight = flowHeights[index];
+    if (index === gapIndex) cursor += transientGap;
     const type = element.type;
     if (type === "text") {
       const color = element.style?.variant === "flavour" || element.id === "flavour"
@@ -336,7 +342,7 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
     } else {
       drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, inner, cursor, innerWidth, "#a85f3f");
     }
-    cursor += elementHeight + 10 + extraGap;
+    cursor += elementHeight + 10;
   }
 
   for (const { element } of overlays) {
@@ -686,14 +692,15 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted[contentStateName] = content;
       mounted[contentStateKeyName] = structureKey;
     }
-    const transition = mounted[transitionName] ?? { preserveBottom: false, deferFlowIds: [] };
+    const transition = mounted[transitionName] ?? { preserveBottom: false, deferFlowIds: [], gapIndex: null };
     const isResizing = Math.abs(dimensions.height - targetDimensions.height) > 0.0001;
     const isGrowing = dimensions.height < targetDimensions.height - 0.0001;
     const options = {
       preserveBottom: isResizing && transition.preserveBottom,
       deferFlowIds: isResizing && isGrowing ? transition.deferFlowIds : [],
+      gapIndex: transition.gapIndex,
     };
-    const key = JSON.stringify([contentKey(content, dimensions), options.preserveBottom === true, options.deferFlowIds]);
+    const key = JSON.stringify([contentKey(content, dimensions), options.preserveBottom === true, options.deferFlowIds, options.gapIndex]);
     const keyName = `${side}Key`;
     if (mounted[keyName] === key) {
       if (!isResizing) mounted[transitionName] = null;

@@ -231,12 +231,16 @@ test("auto-height reflow keeps the bottom element anchored while the gap closes"
   };
   const after = { elements: [before.elements[0], before.elements[2]] };
 
-  assert.equal(flowTransitionPolicy(before, after).preserveBottom, true);
+  const removalPolicy = flowTransitionPolicy(before, after);
+  const additionPolicy = flowTransitionPolicy(after, before);
+  assert.equal(removalPolicy.preserveBottom, true);
+  assert.equal(removalPolicy.gapIndex, 1);
   assert.equal(flowTransitionPolicy(before, { elements: before.elements.slice(0, 2) }).preserveBottom, false);
-  assert.equal(flowTransitionPolicy(after, before).preserveBottom, true);
-  assert.deepEqual(flowTransitionPolicy(after, before).deferFlowIds, ["middle"]);
-  assert.equal(positions(after, { preserveBottom: true })[1], positions(before)[2]);
-  assert.equal(positions(after)[1] < positions(after, { preserveBottom: true })[1], true);
+  assert.equal(additionPolicy.preserveBottom, true);
+  assert.equal(additionPolicy.gapIndex, 1);
+  assert.deepEqual(additionPolicy.deferFlowIds, ["middle"]);
+  assert.equal(positions(after, removalPolicy)[1], positions(before)[2]);
+  assert.equal(positions(after)[1] < positions(after, removalPolicy)[1], true);
 });
 
 test("auto-height additions do not place incoming flow before the shell grows", () => {
@@ -246,16 +250,27 @@ test("auto-height additions do not place incoming flow before the shell grows", 
     fillRect() {},
     measureText(text) { return { width: text.length * 8 }; },
   };
-  drawCardTextureContent(context, {
+  const previous = {
     elements: [
       { id: "top", type: "text", content: { text: "Top" }, layout: { mode: "flow", order: 0 } },
-      { id: "incoming", type: "text", content: { text: "Incoming" }, layout: { mode: "flow", order: 1 } },
+      { id: "upper", type: "text", content: { text: "Upper" }, layout: { mode: "flow", order: 1 } },
       { id: "bottom", type: "text", content: { text: "Bottom" }, layout: { mode: "flow", order: 2 } },
     ],
-  }, { width: 180, height: 116 }, null, { preserveBottom: true, deferFlowIds: new Set(["incoming"]) });
+  };
+  const next = {
+    elements: [
+      { id: "top", type: "text", content: { text: "Top" }, layout: { mode: "flow", order: 0 } },
+      { id: "upper", type: "text", content: { text: "Upper" }, layout: { mode: "flow", order: 1 } },
+      { id: "incoming", type: "text", content: { text: "Incoming" }, layout: { mode: "flow", order: 2 } },
+      { id: "bottom", type: "text", content: { text: "Bottom" }, layout: { mode: "flow", order: 3 } },
+    ],
+  };
+  const policy = flowTransitionPolicy(previous, next);
+  drawCardTextureContent(context, next, { width: 180, height: 130 }, null, policy);
 
-  assert.deepEqual(calls.map(([, text]) => text), ["Top", "Bottom"]);
-  assert.equal(calls[1][3], 78);
+  assert.deepEqual(calls.map(([, text]) => text), ["Top", "Upper", "Bottom"]);
+  assert.equal(calls[1][3], 48);
+  assert.equal(calls[2][3], 92);
 });
 
 test("hidden preserved elements reserve flow space without rendering", () => {
