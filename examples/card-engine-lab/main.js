@@ -230,9 +230,12 @@ function renderCardList() {
   const items = state.desired.cards.map((card, index) => {
     const label = document.createElement("label");
     const input = document.createElement("input");
+    const depth = document.createElement("output");
     input.type = "checkbox";
     input.checked = selectedCardIds.has(card.id);
     input.setAttribute("aria-label", `Select card ${index + 1}`);
+    depth.className = "card-z";
+    depth.dataset.cardId = card.id;
     input.addEventListener("change", () => {
       if (input.checked) selectedCardIds.add(card.id);
       else selectedCardIds.delete(card.id);
@@ -240,11 +243,20 @@ function renderCardList() {
       updateStatus();
       renderCardList();
     });
-    label.append(input, document.createTextNode(`Card ${index + 1}`));
+    label.append(input, document.createTextNode(`Card ${index + 1}`), depth);
     return label;
   });
   cardList.replaceChildren(...items);
   selectionStatus.textContent = `${selectedCardIds.size} of ${state.desired.cards.length} selected`;
+  updateCardListDepth(state);
+}
+
+function updateCardListDepth(state = scene.snapshot()) {
+  for (const depth of cardList.querySelectorAll(".card-z")) {
+    const visual = state.visual.find(({ cardId }) => cardId === depth.dataset.cardId);
+    const z = visual?.pose.z;
+    depth.textContent = z === undefined ? "z —" : `z ${z.toFixed(1)}`;
+  }
 }
 
 function syncControlsFromSelection() {
@@ -264,6 +276,7 @@ function syncControlsFromSelection() {
 
 function updateStatus() {
   const state = scene.snapshot();
+  updateCardListDepth(state);
   const card = currentCard(state);
   const visual = card && state.visual.find(({ cardId }) => cardId === card.id);
   const pose = visual?.pose;
@@ -274,7 +287,7 @@ function updateStatus() {
   rendererStatus.textContent = `Renderer: ${rendererLabel}${projectionLabel}${state.rendererReason && state.rendererReason !== "css" ? ` — ${state.rendererReason}` : ""}`;
   const physicalSide = visual?.physicalSide ?? "unknown";
   status.textContent = pose
-    ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}`
+    ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · z ${pose.z.toFixed(1)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}`
     : `${state.desired.cards.length} cards · 0 selected`;
   selectionStatus.textContent = `${selectedCardIds.size} of ${state.desired.cards.length} selected`;
 }
