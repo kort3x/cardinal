@@ -8,8 +8,8 @@ it is not a browser acceptance sign-off.
 - OS: macOS 26.6.2, build 25G83
 - GPU: Apple M4, 10 cores, Metal 4
 - Chrome: 152.0.7977.83
+- Firefox: 155.0.1
 - Display: 5120 × 1440 at 120 Hz
-- Firefox: not installed on the reference machine
 - Safari version: not recorded
 
 ## Evidence available
@@ -22,6 +22,11 @@ it is not a browser acceptance sign-off.
   and the adapter refreshes mounted card content after restoration.
 - A real Chrome context-loss run reported `webgl-context-lost`, then
   `webgl-context-restored`; the canvas and one mounted card remained available.
+
+Firefox was exercised headlessly through WebDriver BiDi on the same machine. It
+reported WebGL 2.0 (`Apple M1, or similar` under Firefox's software compositor),
+the required orthographic renderer status, and successful context loss/restoration
+with the mounted card still available.
 
 ## Chrome performance sample
 
@@ -42,6 +47,14 @@ scene settled after the animation completed, but this remains outside a responsi
 supported envelope. Texture memory was not exposed by the browser API and was not
 estimated from unrelated process memory.
 
+Firefox's 1-second post-batching cohort samples were:
+
+| Cards | Setup | Median frame | P95 frame | Missed frames over 20 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 1 ms | 8 ms | 9 ms | 0 |
+| 6 | 39 ms | 8 ms | 9 ms | 0 |
+| 50 | 234 ms | 8 ms | 10 ms | 0 |
+
 ## Still required before issue #2 can close
 
 - Run the documented lab and consumer smoke scenarios in Chromium, Firefox, and
@@ -50,7 +63,7 @@ estimated from unrelated process memory.
 - Record frame timing, missed frames, input latency, texture memory, card counts,
   and landing error for the agreed reference device.
 - Capture real-browser context-loss and restoration evidence.
-- Record Safari's exact version and run the smoke matrix in Safari and Firefox for
-  the remaining browser families.
+- Record Safari's exact version and run the smoke matrix in Safari; Firefox's
+  automated evidence is now captured above.
 
 Issue #2 remains In progress until those gates have evidence.
