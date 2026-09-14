@@ -534,8 +534,8 @@ scaleSlider.addEventListener("input", () => queueControl("scale"));
 flipAxis.addEventListener("change", () => {
   stopContinuousFlip();
 });
-shape.addEventListener("change", startScene);
-faceCount.addEventListener("change", startScene);
+shape.addEventListener("change", () => startScene());
+faceCount.addEventListener("change", () => startScene());
 
 addCardButton.addEventListener("click", () => {
   const cards = sceneCards();
