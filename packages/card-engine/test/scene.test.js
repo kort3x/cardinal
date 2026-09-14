@@ -233,6 +233,7 @@ test("auto-height reflow keeps the bottom element anchored while the gap closes"
 
   assert.equal(flowTransitionPolicy(before, after).preserveBottom, true);
   assert.equal(flowTransitionPolicy(before, { elements: before.elements.slice(0, 2) }).preserveBottom, false);
+  assert.equal(flowTransitionPolicy(after, before).preserveBottom, true);
   assert.deepEqual(flowTransitionPolicy(after, before).deferFlowIds, ["middle"]);
   assert.equal(positions(after, { preserveBottom: true })[1], positions(before)[2]);
   assert.equal(positions(after)[1] < positions(after, { preserveBottom: true })[1], true);
@@ -251,9 +252,10 @@ test("auto-height additions do not place incoming flow before the shell grows", 
       { id: "incoming", type: "text", content: { text: "Incoming" }, layout: { mode: "flow", order: 1 } },
       { id: "bottom", type: "text", content: { text: "Bottom" }, layout: { mode: "flow", order: 2 } },
     ],
-  }, { width: 180, height: 86 }, null, { deferFlowIds: new Set(["incoming"]) });
+  }, { width: 180, height: 116 }, null, { preserveBottom: true, deferFlowIds: new Set(["incoming"]) });
 
   assert.deepEqual(calls.map(([, text]) => text), ["Top", "Bottom"]);
+  assert.equal(calls[1][3], 78);
 });
 
 test("hidden preserved elements reserve flow space without rendering", () => {

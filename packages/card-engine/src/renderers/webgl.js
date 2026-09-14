@@ -240,8 +240,11 @@ export function flowTransitionPolicy(previousContent, nextContent) {
   const nextFlow = flowEntries(nextContent);
   const previousIds = new Set(previousFlow.map(({ element }) => element.id));
   const nextIds = new Set(nextFlow.map(({ element }) => element.id));
-  const preserveBottom = previousFlow.some(({ element }, index) => !nextIds.has(element.id)
+  const removedBeforeSurvivor = previousFlow.some(({ element }, index) => !nextIds.has(element.id)
     && previousFlow.slice(index + 1).some(({ element: later }) => nextIds.has(later.id)));
+  const addedBeforeSurvivor = nextFlow.some(({ element }, index) => elementVisible(element) && !previousIds.has(element.id)
+    && nextFlow.slice(index + 1).some(({ element: later }) => previousIds.has(later.id)));
+  const preserveBottom = removedBeforeSurvivor || addedBeforeSurvivor;
   const deferFlowIds = nextFlow
     .filter(({ element }) => elementVisible(element) && !previousIds.has(element.id))
     .map(({ element }) => element.id);
@@ -314,7 +317,10 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
   const extraGap = preserveBottom && flow.length > 1
     ? Math.max(0, dimensions.height - requiredHeight) / (flow.length - 1)
     : 0;
-  let cursor = inner;
+  const leadingGap = preserveBottom && flow.length === 1
+    ? Math.max(0, dimensions.height - requiredHeight)
+    : 0;
+  let cursor = inner + leadingGap;
 
   for (const [{ element }, elementHeight] of flow.map((entry, index) => [entry, flowHeights[index]])) {
     const type = element.type;
@@ -682,10 +688,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     }
     const transition = mounted[transitionName] ?? { preserveBottom: false, deferFlowIds: [] };
     const isResizing = Math.abs(dimensions.height - targetDimensions.height) > 0.0001;
-    const isShrinking = dimensions.height > targetDimensions.height + 0.0001;
     const isGrowing = dimensions.height < targetDimensions.height - 0.0001;
     const options = {
-      preserveBottom: isResizing && isShrinking && transition.preserveBottom,
+      preserveBottom: isResizing && transition.preserveBottom,
       deferFlowIds: isResizing && isGrowing ? transition.deferFlowIds : [],
     };
     const key = JSON.stringify([contentKey(content, dimensions), options.preserveBottom === true, options.deferFlowIds]);
