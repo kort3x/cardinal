@@ -1,0 +1,10 @@
+{
+  "name": "cardinal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm --prefix packages/card-engine test",
+    "test:chrome": "node scripts/chrome-lab.mjs --headless --scenario elements",
+    "show:chrome": "node scripts/chrome-lab.mjs --show"
+  }
+}

@@ -49,13 +49,13 @@ Observed successful paths:
 
 All listed paths passed in all three browsers. Chrome and Firefox also verified
 that adding one element to a two-card selection creates the element on both
-card shells. It is evidence for the current behavior, not a replacement for a
-checked-in browser automation test suite.
+card shells. The Chrome `elements` scenario is now checked into the repository;
+the Firefox and Safari passes remain additional external browser evidence.
 
 ## Remaining gaps
 
-- The browser-control run was scripted externally for this audit; it is not yet
-  a checked-in browser automation test suite.
+- The checked-in Chrome scenario does not yet run the same controls in Firefox
+  or Safari; those browser passes remain manual/external evidence.
 - Visual screenshot review of every added/reordered element during oblique
   motion remains manual; the DOM/accessibility checks above do not prove pixel
   quality.
