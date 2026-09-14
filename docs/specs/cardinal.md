@@ -431,6 +431,15 @@ The WebGL renderer extrudes and bevels that profile into the card's closed volum
 The initial built-in profiles are `rounded-rectangle` and `shield`; shape profiles
 do not change the scene's motion or face-transition interface.
 
+Cards are fixed-size by default. A card may opt into content-driven height with
+`sizing: { mode: "content", minHeight?, maxHeight? }`; width remains the
+configured card or template width. The engine measures the active face's visible
+flow elements, clamps the result to the optional bounds, and uses the existing
+resize channel to animate the shell. Overlay elements and reflow-collapsed
+elements contribute no height. This policy applies to element add/remove,
+show/hide, and content updates; fixed-size cards only reflow their remaining
+content.
+
 Movement alone preserves the current internal geometry. Explicit content or
 presentation changes may reshape the card, including during movement. Depth uniformly scales
 the entire card, including text; there is no implicit independent font scaling or LOD switch.

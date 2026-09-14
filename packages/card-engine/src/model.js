@@ -22,6 +22,22 @@ function normalizeDimensions(dimensions) {
   return { width: dimensions.width, height: dimensions.height };
 }
 
+function normalizeSizing(sizing) {
+  if (sizing === undefined) return undefined;
+  if (!sizing || typeof sizing !== "object") throw new TypeError("Card sizing requires an object");
+  const mode = sizing.mode ?? "fixed";
+  if (mode !== "fixed" && mode !== "content") throw new TypeError(`Unknown card sizing mode: ${mode}`);
+  for (const name of ["minHeight", "maxHeight"]) {
+    if (sizing[name] !== undefined && (!Number.isFinite(sizing[name]) || sizing[name] <= 0)) {
+      throw new RangeError(`Card sizing ${name} must be positive and finite`);
+    }
+  }
+  if (sizing.minHeight !== undefined && sizing.maxHeight !== undefined && sizing.minHeight > sizing.maxHeight) {
+    throw new RangeError("Card sizing minHeight cannot exceed maxHeight");
+  }
+  return { ...copy(sizing), mode };
+}
+
 function legacyElements(face) {
   const visibility = face.elements && !Array.isArray(face.elements) ? face.elements : {};
   const elements = [];
@@ -115,6 +131,7 @@ export function normalizeSnapshot(snapshot) {
     }
     const normalizedCard = { ...copy(card), pose: normalizePose(card.pose) };
     if (card.dimensions !== undefined) normalizedCard.dimensions = normalizeDimensions(card.dimensions);
+    if (card.sizing !== undefined) normalizedCard.sizing = normalizeSizing(card.sizing);
     normalizedCard.faces = Object.fromEntries(Object.entries(card.faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
     if (card.back) normalizedCard.back = normalizeFace(card.back);
     return normalizedCard;

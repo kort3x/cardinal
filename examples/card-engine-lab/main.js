@@ -10,6 +10,7 @@ const selectAllButton = document.querySelector("#select-all");
 const selectionStatus = document.querySelector("#selection-status");
 const shape = document.querySelector("#shape");
 const faceCount = document.querySelector("#face-count");
+const cardSizing = document.querySelector("#card-sizing");
 const cardWidthSlider = document.querySelector("#card-width");
 const cardHeightSlider = document.querySelector("#card-height");
 const reduced = document.querySelector("#reduced");
@@ -133,6 +134,7 @@ function configuredCard(sourceCard) {
     ...sourceCard,
     faces: Object.fromEntries(faces.map((face) => [face.id, face])),
     template: shape.value,
+    sizing: cardSizing.value === "content" ? { mode: "content", minHeight: 120, maxHeight: 480 } : { mode: "fixed" },
   };
   delete card.faceCycleNextFaceId;
   if (!faces.some(({ id }) => id === card.activeFaceId)) card.activeFaceId = faces[0].id;
@@ -332,7 +334,7 @@ function applyElementOperation(operation) {
   const operations = selectedElementOperations(operation);
   if (operations.length === 0) return;
   try {
-    run(operations, { immediate: true });
+    run(operations);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = `Element update failed: ${message}`;
@@ -508,6 +510,7 @@ function updateControlLabels() {
   moveYValue.textContent = moveYSlider.value;
   cardWidthValue.textContent = cardWidthSlider.value;
   cardHeightValue.textContent = cardHeightSlider.value;
+  cardHeightSlider.disabled = cardSizing.value === "content";
   rotateValue.textContent = `${rotateSlider.value}°`;
   scaleValue.textContent = `${Math.round(scale * 100)}%`;
   flipXValue.textContent = `${flipX}°`;
@@ -675,6 +678,7 @@ flipAxis.addEventListener("change", () => {
 });
 shape.addEventListener("change", () => startScene());
 faceCount.addEventListener("change", () => startScene());
+cardSizing.addEventListener("change", () => startScene());
 
 addCardButton.addEventListener("click", () => {
   const cards = sceneCards();

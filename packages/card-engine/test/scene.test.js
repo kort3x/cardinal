@@ -300,6 +300,45 @@ test("card elements can be added to the physical back", async () => {
   scene.destroy();
 });
 
+test("content-sized cards animate height changes when flow elements are removed", async () => {
+  const clock = testClock();
+  const contentCard = {
+    ...card,
+    sizing: { mode: "content", minHeight: 120, maxHeight: 480 },
+    faces: {
+      front: {
+        elements: [
+          { id: "title", type: "text", content: { text: "Title" }, layout: { mode: "flow" } },
+          { id: "image", type: "image", content: { src: "art.svg" }, layout: { mode: "flow" } },
+          { id: "flavour", type: "text", content: { text: "A longer description." }, layout: { mode: "flow" } },
+        ],
+      },
+    },
+  };
+  const scene = createCardScene({ clock, renderer: () => ({ update() {}, destroy() {} }), motion: { clock, duration: 700 } });
+  scene.apply({ cards: [contentCard], zones: [zone] });
+  const initialHeight = scene.snapshot().visual[0].pose.height;
+
+  const transition = scene.transact([{ type: "element", cardId: "card-1", action: "remove", elementId: "flavour" }]);
+  assert.equal(scene.snapshot().desired.cards[0].dimensions, undefined);
+  assert.equal(scene.snapshot().visual[0].pose.height, initialHeight);
+  clock.tick(350);
+  assert.equal(scene.snapshot().visual[0].pose.height < initialHeight, true);
+  clock.tick(350);
+  await transition.finished;
+  assert.equal(scene.snapshot().visual[0].pose.height < initialHeight, true);
+  scene.destroy();
+});
+
+test("fixed-size cards keep their dimensions when flow elements are removed", async () => {
+  const scene = createCardScene({ renderer: () => ({ update() {}, destroy() {} }) });
+  scene.apply({ cards: [card], zones: [zone] });
+  const transition = scene.transact([{ type: "element", cardId: "card-1", action: "remove", elementId: "flavour" }], { immediate: true });
+  await transition.finished;
+  assert.equal(scene.snapshot().visual[0].pose.height, 250);
+  scene.destroy();
+});
+
 test("resize commits dimensions immediately and animates the visible size", async () => {
   const clock = testClock();
   const scene = createCardScene({ clock, renderer: () => ({ update() {}, destroy() {} }), motion: { clock, duration: 700 } });

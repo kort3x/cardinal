@@ -41,6 +41,21 @@ const scene = createCardScene({
 Cards using `template: "shield"` keep the same motion and face-transition
 interface as rounded-rectangle cards.
 
+Cards are fixed-size by default. Opt into content-driven height while keeping a
+stable width with a sizing policy:
+
+```js
+const card = {
+  ...cardDefinition,
+  sizing: { mode: "content", minHeight: 120, maxHeight: 480 },
+};
+```
+
+Visible flow elements contribute to the measured height. Removing, hiding,
+showing, or adding one animates the shell to its new height; overlay elements
+and reflow-collapsed elements do not contribute. Fixed-size cards keep their
+configured dimensions while their remaining content reflows.
+
 By default, a card has one logical front face and one shared back. Cards may opt
 into multiple logical front faces with `faceCycle`. Returning to
 the physical front advances to the next named face and wraps back to the first;

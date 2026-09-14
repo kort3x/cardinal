@@ -306,6 +306,17 @@ export function createCardScene(config = {}) {
     scheduleChannel(cardId, channelName, target, { transition, operationIndex });
   }
 
+  function scheduleContentResize(cardId, targetPose, transition, operationIndex) {
+    const current = cardPose(cardId);
+    const changedChannels = ["width", "height"].filter((channelName) => Math.abs(current[channelName] - targetPose[channelName]) > 0.0001);
+    if (changedChannels.length === 0) {
+      transition.results[operationIndex].status = "settled";
+      return;
+    }
+    schedule(cardId, changedChannels[0], targetPose[changedChannels[0]], transition, operationIndex);
+    for (const channelName of changedChannels.slice(1)) scheduleChannel(cardId, channelName, targetPose[channelName]);
+  }
+
   function cancelAllChannels(status) {
     for (const [cardId, cardChannels] of channels) {
       for (const channelName of Object.keys(cardChannels)) cancelChannel(cardId, channelName, status);
@@ -507,7 +518,7 @@ export function createCardScene(config = {}) {
     desired = next;
     const targets = solveAllPoses(next, camera, config.templates);
     const affected = new Set(operations.map((operation) => operation.cardId));
-    if (operations.some((operation) => operation.type === "resize")) {
+    if (operations.some((operation) => operation.type === "resize" || operation.type === "element")) {
       for (const [cardId, targetPose] of targets) {
         const current = cardPose(cardId);
         if (current && (Math.abs(current.x - targetPose.x) > 0.0001 || Math.abs(current.y - targetPose.y) > 0.0001)) affected.add(cardId);
@@ -544,8 +555,7 @@ export function createCardScene(config = {}) {
           }
         },
         element: (operationIndex) => {
-          transition.results[operationIndex].remaining = 0;
-          transition.results[operationIndex].status = "settled";
+          scheduleContentResize(cardId, targetPose, transition, operationIndex);
         },
       };
       for (const operationIndex of operationIndexes) {
