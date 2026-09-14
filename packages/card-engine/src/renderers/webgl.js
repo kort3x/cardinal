@@ -180,6 +180,25 @@ function elementVisible(content, element) {
   return content?.elements?.[element] !== false;
 }
 
+export function drawCardTextureContent(context, content, dimensions, image = null) {
+  context.fillStyle = content?.background ?? "#ffffff";
+  context.fillRect(0, 0, dimensions.width, dimensions.height);
+  context.fillStyle = content?.textColor ?? "#17212b";
+  context.font = "700 18.4px system-ui, sans-serif";
+  context.textBaseline = "top";
+  if (elementVisible(content, "title")) {
+    drawLines(context, wrapText(context, content?.title, dimensions.width - 36), 18, 18, 21);
+  }
+  if (elementVisible(content, "image") && content?.image && image) {
+    context.drawImage(image, 18, 66, dimensions.width - 36, 120);
+  }
+  if (elementVisible(content, "flavour")) {
+    context.fillStyle = content?.mutedTextColor ?? "#78838c";
+    context.font = "14.4px system-ui, sans-serif";
+    drawLines(context, wrapText(context, content?.flavour, dimensions.width - 36), 18, dimensions.height - 70, 20);
+  }
+}
+
 function logicalFaceContent(card, side) {
   const activeFace = card.faces[card.activeFaceId] ?? {};
   if (side === "back") return card.back ?? { title: "Concealed", flavour: "" };
@@ -269,6 +288,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   element.append(accessibilityLayer);
 
   const cards = new Map();
+  const imageCache = new Map();
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
   resizeObserver?.observe(element);
   let stageSize = elementSize(element);
@@ -291,6 +311,31 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     webgl.render(renderScene, camera);
   }
 
+  function cachedImage(source) {
+    const existing = imageCache.get(source);
+    if (existing) return existing;
+    let resolveImage;
+    let rejectImage;
+    const promise = new Promise((resolve, reject) => {
+      resolveImage = resolve;
+      rejectImage = reject;
+    });
+    const image = new Image();
+    const entry = { image, loaded: false, promise };
+    image.onload = () => {
+      entry.loaded = true;
+      resolveImage(image);
+    };
+    image.onerror = () => rejectImage(new Error(`Card image failed to load: ${source}`));
+    imageCache.set(source, entry);
+    image.src = source;
+    if (image.complete && image.naturalWidth > 0) {
+      entry.loaded = true;
+      resolveImage(image);
+    }
+    return entry;
+  }
+
   function makeTexture(content, dimensions) {
     const resolution = Math.min(4, Math.max(2, (globalThis.devicePixelRatio || 1) * 2));
     const canvas2d = document.createElement("canvas");
@@ -299,34 +344,20 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const context = canvas2d.getContext("2d");
     if (!context) return null;
     context.scale(resolution, resolution);
-    context.fillStyle = content?.background ?? "#ffffff";
-    context.fillRect(0, 0, dimensions.width, dimensions.height);
-    context.fillStyle = content?.textColor ?? "#17212b";
-    context.font = "700 18.4px system-ui, sans-serif";
-    context.textBaseline = "top";
-    if (elementVisible(content, "title")) {
-      drawLines(context, wrapText(context, content?.title, dimensions.width - 36), 18, 18, 21);
-    }
-    if (elementVisible(content, "image") && content?.image) {
-      const image = new Image();
-      image.alt = content.imageAlt ?? "";
-      image.onload = () => {
-        context.drawImage(image, 18, 66, dimensions.width - 36, 120);
-        texture.needsUpdate = true;
-        render();
-      };
-      image.src = content.image;
-    }
-    if (elementVisible(content, "flavour")) {
-      context.fillStyle = content?.mutedTextColor ?? "#78838c";
-      context.font = "14.4px system-ui, sans-serif";
-      drawLines(context, wrapText(context, content?.flavour, dimensions.width - 36), 18, dimensions.height - 70, 20);
-    }
     const texture = new THREE.CanvasTexture(canvas2d);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = webgl.capabilities.getMaxAnisotropy();
+    const imageSource = elementVisible(content, "image") ? content?.image : null;
+    const imageEntry = imageSource ? cachedImage(imageSource) : null;
+    const redraw = (image) => {
+      drawCardTextureContent(context, content, dimensions, image);
+      texture.needsUpdate = true;
+      render();
+    };
+    drawCardTextureContent(context, content, dimensions, imageEntry?.loaded ? imageEntry.image : null);
+    if (imageEntry && !imageEntry.loaded) imageEntry.promise.then(redraw, () => {});
     return texture;
   }
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
-import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
+import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent } from "../src/renderers/webgl.js";
 
 const card = {
   id: "card-1",
@@ -148,6 +148,26 @@ test("card face geometries use normalized texture coordinates", () => {
   assert.equal(Math.min(...values) >= 0, true);
   assert.equal(Math.max(...values) <= 1, true);
   geometry.dispose();
+});
+
+test("card texture redraws reuse a loaded image synchronously", () => {
+  const calls = [];
+  const context = {
+    fillText(...args) { calls.push(["fillText", ...args]); },
+    drawImage(...args) { calls.push(["drawImage", ...args]); },
+    fillRect(...args) { calls.push(["fillRect", ...args]); },
+    measureText(text) { return { width: text.length * 8 }; },
+  };
+  const image = { id: "cached-card-image" };
+
+  drawCardTextureContent(
+    context,
+    { title: "The Cardinal", image: "/cardinal.svg", flavour: "A bright beginning." },
+    { width: 180, height: 250 },
+    image,
+  );
+
+  assert.equal(calls.some(([name, value]) => name === "drawImage" && value === image), true);
 });
 
 test("a scene can use an injected renderer adapter", () => {
