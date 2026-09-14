@@ -42,7 +42,10 @@ async function labIsReady() {
 async function ensureLabServer() {
   if (await labIsReady()) return undefined;
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const server = spawn(npm, ["--prefix", "examples/card-engine-lab", "start"], { stdio: "ignore" });
+  const server = spawn(npm, ["--prefix", "examples/card-engine-lab", "start"], {
+    detached: keepOpen,
+    stdio: "ignore",
+  });
   const started = Date.now();
   while (Date.now() - started < 10000) {
     if (await labIsReady()) {
@@ -89,7 +92,7 @@ async function ensureChrome() {
       "--no-default-browser-check",
       ...(headless ? ["--headless=new"] : []),
       "about:blank",
-    ], { stdio: "ignore" });
+    ], { detached: keepOpen, stdio: "ignore" });
     if (keepOpen) chrome.unref();
     return { targets: await waitForChrome(), process: chrome };
   }
