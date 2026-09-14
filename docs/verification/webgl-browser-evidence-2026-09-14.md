@@ -9,8 +9,8 @@ it is not a browser acceptance sign-off.
 - GPU: Apple M4, 10 cores, Metal 4
 - Chrome: 152.0.7977.83
 - Firefox: 155.0.1
+- Safari: 26.6.2
 - Display: 5120 × 1440 at 120 Hz
-- Safari version: not recorded
 
 ## Evidence available
 
@@ -30,6 +30,11 @@ with the mounted card still available.
 
 Three repeated Firefox full-spin cycles completed with a stable renderer status
 and no reported JavaScript errors after the flip-angle canonicalization fix.
+
+Safari was exercised through WebDriver on the same machine. It reported WebGL
+2.0 (`WebKit WebGL`), the required orthographic renderer status, successful context
+loss/restoration with the mounted card intact, and three repeated full-spin cycles
+that settled successfully.
 
 ## Chrome performance sample
 
@@ -58,15 +63,22 @@ Firefox's 1-second post-batching cohort samples were:
 | 6 | 39 ms | 8 ms | 9 ms | 0 |
 | 50 | 234 ms | 8 ms | 10 ms | 0 |
 
+Safari's 1-second post-batching cohort samples were:
+
+| Cards | Setup | Median frame | P95 frame | Missed frames over 20 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 2 ms | 17 ms | 18 ms | 1 |
+| 6 | 68 ms | 17 ms | 20 ms | 2 |
+| 50 | 301 ms | 17 ms | 21 ms | 3 |
+
 ## Still required before issue #2 can close
 
-- Run the documented lab and consumer smoke scenarios in Chromium, Firefox, and
+- Run the remaining documented visual checks in Chromium, Firefox, and
   WebKit/Safari, including edge-on and oblique views, X/Y/both-axis flips, reduced
   motion, resizing, and disposal.
 - Record frame timing, missed frames, input latency, texture memory, card counts,
   and landing error for the agreed reference device.
-- Capture real-browser context-loss and restoration evidence.
-- Record Safari's exact version and run the smoke matrix in Safari; Firefox's
-  automated evidence is now captured above.
+- Texture memory is still not exposed by the browser API and needs a defined
+  measurement method or browser tooling capture.
 
 Issue #2 remains In progress until those gates have evidence.
