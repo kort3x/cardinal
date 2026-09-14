@@ -354,6 +354,14 @@ export function createCardFaceGeometry(shape, dimensions) {
   return geometry;
 }
 
+export function textureDimensionsForPose(card, pose, templates = {}) {
+  const dimensions = cardDimensions(card, templates);
+  const template = templates[card.template] ?? {};
+  const sizing = card.sizing ?? template.sizing;
+  if (sizing?.mode !== "content" || !Number.isFinite(pose?.height)) return dimensions;
+  return { width: dimensions.width, height: Math.max(1, pose.height) };
+}
+
 function physicalSide(pose) {
   const facing = Math.cos(radians(pose.flipX ?? 0)) * Math.cos(radians(pose.flipY ?? pose.flipAngle ?? 0));
   if (Math.abs(facing) < 0.000001) return "edge";
@@ -589,7 +597,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     oldBackGeometry.dispose();
   }
 
-  function updateTexture(mounted, side, content, dimensions) {
+function updateTexture(mounted, side, content, dimensions) {
     const key = contentKey(content, dimensions);
     const keyName = `${side}Key`;
     if (mounted[keyName] === key) return;
@@ -604,8 +612,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function update(card, pose) {
-    const textureDimensions = cardDimensions(card, templates);
-    const dimensions = { width: pose.width ?? textureDimensions.width, height: pose.height ?? textureDimensions.height };
+    const targetDimensions = cardDimensions(card, templates);
+    const dimensions = { width: pose.width ?? targetDimensions.width, height: pose.height ?? targetDimensions.height };
+    const textureDimensions = textureDimensionsForPose(card, pose, templates);
     const thickness = pose.thickness ?? cardThickness(card, templates);
     const mounted = mount(card, textureDimensions, thickness);
     updateGeometry(mounted, card, dimensions, thickness);

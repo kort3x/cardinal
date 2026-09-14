@@ -503,6 +503,11 @@ intrinsic size triggers a fresh solve and continuous retargeting. Avoid circular
 fit calculations by measuring content against the template's constrained width
 before applying zone fit and explicit scale.
 
+During an auto-height morph, render content against the current visible shell
+height so elements retain their size while the shell changes. Fixed-size and
+explicit resize textures may retain canonical target dimensions to keep text
+wrapping stable.
+
 The card's configured anchor remains attached to its animated pose as dimensions
 change. Default to the center; a top-center anchor allows shortening upward from
 the bottom while keeping the top edge fixed. Compensate pivot transforms as needed

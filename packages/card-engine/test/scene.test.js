@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
-import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent } from "../src/renderers/webgl.js";
+import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent, textureDimensionsForPose } from "../src/renderers/webgl.js";
 
 const card = {
   id: "card-1",
@@ -198,6 +198,17 @@ test("card images preserve their intrinsic aspect ratio during resize", () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].length, 5);
   assert.equal(calls[0][3] / calls[0][4], 400 / 240);
+});
+
+test("auto-height textures use the current animated height", () => {
+  const autoCard = {
+    ...card,
+    sizing: { mode: "content" },
+  };
+  const textureDimensions = textureDimensionsForPose(autoCard, { height: 180 });
+
+  assert.equal(textureDimensions.height, 180);
+  assert.equal(textureDimensionsForPose(card, { height: 180 }).height, 250);
 });
 
 test("hidden preserved elements reserve flow space without rendering", () => {
