@@ -133,9 +133,12 @@ independent stacking order from animation timing or DOM/mesh insertion order.
 The default local layer spacing is `8` scene units, separating the default
 6-unit cuboids. `arrangement.depthStep` is a finite, non-negative minimum; the
 solver increases the actual spacing when adjacent cards' scaled thicknesses
-require it, including for mixed card scales. WebGL treats each resolved card layer as an ordered
-rendering layer: it clears the previous card's depth buffer before drawing the
-next card, preserving intentional overlap even while a card rotates or flips.
+require it, including for mixed card scales. The scene-wide solver also compares
+resolved X/Y footprints across zone boundaries and adds a physical depth layer
+when cards that started apart are moved into overlap. WebGL treats each resolved
+card layer as an ordered rendering layer: it clears the previous card's depth
+buffer before drawing the next card, preserving intentional overlap even while a
+card rotates or flips.
 
 The initial spatial model is a projected 2.5D stage: x/y plus real continuous depth
 in the scene model. The default orthographic camera keeps a card's apparent shape,

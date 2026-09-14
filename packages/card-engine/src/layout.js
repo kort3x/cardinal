@@ -44,6 +44,7 @@ export function solveCardPose(card, zone, index = 0, camera, templates, layerOff
 export function solveAllPoses(snapshot, camera, templates) {
   const cards = new Map(snapshot.cards.map((card) => [card.id, card]));
   const poses = new Map();
+  const placedCards = [];
   let drawOrder = 0;
   for (const zone of snapshot.zones) {
     let layerOffset = 0;
@@ -56,7 +57,25 @@ export function solveAllPoses(snapshot, camera, templates) {
         const physicalStep = (previousDepth + currentDepth) / 2 + CARD_LAYER_GAP;
         layerOffset += Math.max(configuredStep, physicalStep);
       }
-      poses.set(cardId, { ...solveCardPose(card, zone, index, camera, templates, layerOffset), drawOrder });
+      const pose = { ...solveCardPose(card, zone, index, camera, templates, layerOffset), drawOrder };
+      const dimensions = cardDimensions(card, templates);
+      const angle = Math.abs((pose.angle * Math.PI) / 180);
+      const unrotatedWidth = dimensions.width * pose.scale;
+      const unrotatedHeight = dimensions.height * pose.scale;
+      const footprint = {
+        width: Math.abs(unrotatedWidth * Math.cos(angle)) + Math.abs(unrotatedHeight * Math.sin(angle)),
+        height: Math.abs(unrotatedWidth * Math.sin(angle)) + Math.abs(unrotatedHeight * Math.cos(angle)),
+      };
+      const renderedDepth = CARD_DEPTH * pose.scale * pose.depthScale;
+      for (const placed of placedCards) {
+        const overlaps = Math.abs(pose.x - placed.pose.x) < (footprint.width + placed.footprint.width) / 2
+          && Math.abs(pose.y - placed.pose.y) < (footprint.height + placed.footprint.height) / 2;
+        if (!overlaps) continue;
+        const requiredZ = placed.pose.z + (placed.renderedDepth + renderedDepth) / 2 + CARD_LAYER_GAP;
+        pose.z = Math.max(pose.z, requiredZ);
+      }
+      poses.set(cardId, pose);
+      placedCards.push({ pose, footprint, renderedDepth });
       previousDepth = currentDepth;
       drawOrder += 1;
     });

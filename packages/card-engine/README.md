@@ -110,7 +110,9 @@ consume those values rather than inventing per-card Z positions.
 Cards in one zone use their `zone.cardIds` sequence as stable bottom-to-top order.
 `arrangement.depthStep` is a minimum spacing: it defaults to `8` scene units, and
 the solver increases it when adjacent cards' scaled 3D thickness requires more
-room. A zone may set another finite, non-negative minimum. `drawOrder` is resolved
-across the complete scene, and WebGL clears the previous card's depth layer before
-drawing the next card so intentional overlap remains deterministic during rotation
-and flipping.
+room. A zone may set another finite, non-negative minimum. The scene also checks
+resolved card footprints across zones; when cards overlap in X/Y, it creates a
+separate physical layer even if they started in different zones. `drawOrder` is
+resolved across the complete scene, and WebGL clears the previous card's depth
+layer before drawing the next card so intentional overlap remains deterministic
+during rotation and flipping.

@@ -224,6 +224,21 @@ test("orthographic layout does not apply perspective depth scaling", () => {
   scene.destroy();
 });
 
+test("moving cards from separate zones into overlap resolves a new depth layer", () => {
+  const firstCard = { ...card, positionMode: "absolute", pose: { x: 140, y: 240, scale: 2 } };
+  const secondCard = { ...card, id: "card-2", positionMode: "absolute", pose: { x: 720, y: 240, scale: 2 } };
+  const secondZone = { ...zone, id: "other-table", cardIds: [secondCard.id] };
+  const scene = createCardScene();
+  scene.apply({ cards: [firstCard, secondCard], zones: [{ ...zone, cardIds: [firstCard.id] }, secondZone] });
+
+  scene.transact([{ type: "move", cardId: secondCard.id, position: { x: firstCard.pose.x, y: firstCard.pose.y } }], { immediate: true });
+
+  const [first, second] = scene.snapshot().visual;
+  assert.equal(first.pose.z, 0);
+  assert.equal(second.pose.z, 13);
+  scene.destroy();
+});
+
 test("the default headless scene is not reported as CSS", () => {
   const scene = createCardScene();
 
