@@ -27,6 +27,9 @@
       .control-row output { color: #f4c95d; text-align: right; }
       .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; color: #bdcbd0; font-size: 0.9rem; }
       .presets button { padding: 6px 8px; font-size: 0.9rem; }
+      #card-list { display: flex; flex-wrap: wrap; gap: 6px; }
+      #card-list label { padding: 6px 8px; cursor: pointer; }
+      #selection-status { margin-bottom: 0; }
       .motion-actions { margin-top: 0; }
       #stage { width: 900px; max-width: 100%; height: 500px; margin: 0 auto; border: 1px solid #314c55; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #244554, #142631 70%); }
       #status { min-height: 1.5em; color: #f4c95d; }
@@ -36,7 +39,7 @@
   <body>
     <main>
       <h1>Cardinal Card Lab</h1>
-      <p>One card · persistent shell · independent motion channels · simultaneous X/Y flips</p>
+      <p>Persistent card shells · independent motion channels · separate or multi-card control · simultaneous X/Y flips</p>
       <div class="toolbar motion-actions" aria-label="Animated card actions">
         <button id="move">Animate move</button>
         <button id="rotate">Animate rotate</button>
@@ -47,6 +50,19 @@
         <label><input id="reduced" type="checkbox"> Reduced motion</label>
       </div>
       <section class="control-panel" aria-label="Card controls">
+        <div class="control-section" aria-label="Card selection controls">
+          <fieldset class="control-group">
+            <legend>Cards</legend>
+            <div id="card-list" role="group" aria-label="Cards in the lab"></div>
+            <div class="presets">
+              <button id="add-card" type="button">Add card</button>
+              <button id="remove-cards" type="button">Remove selected</button>
+              <button id="select-all" type="button">Select all</button>
+            </div>
+            <p id="selection-status" aria-live="polite"></p>
+          </fieldset>
+        </div>
+
         <div class="control-section" aria-label="Card model controls">
           <fieldset class="control-group">
             <legend>Shape</legend>
