@@ -2,6 +2,10 @@ import { cardDimensions } from "./layout.js";
 
 const noop = () => {};
 
+export function createHeadlessRenderer({ reason = "no-element" } = {}) {
+  return { type: "headless", reason, mount: noop, update: noop, remove: noop, destroy: noop };
+}
+
 export function createRenderer({ element, templates = {}, reason = "css" } = {}) {
   if (!element || typeof document === "undefined") {
     return { type: "css", reason, mount: noop, update: noop, remove: noop, destroy: noop };

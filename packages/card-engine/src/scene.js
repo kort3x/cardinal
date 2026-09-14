@@ -1,7 +1,7 @@
 import { cardById, normalizePose, normalizeSnapshot, zoneById } from "./model.js";
 import { solveAllPoses } from "./layout.js";
 import { createClock, interpolate, shortestAngleTarget } from "./motion.js";
-import { createRenderer } from "./renderer.js";
+import { createHeadlessRenderer, createRenderer } from "./renderer.js";
 import { createWebGLRenderer } from "./renderers/webgl.js";
 
 const copy = (value) => structuredClone(value);
@@ -21,6 +21,13 @@ function flipChannel(axis) {
 function spinChannel(axis) {
   return `spin${axis.toUpperCase()}`;
 }
+
+const operationResultChannels = {
+  move: () => 2,
+  rotate: () => 1,
+  scale: () => 1,
+  face: (operation) => flipAxes(operation.axis).length,
+};
 
 function flipValue(pose, axis) {
   return pose[flipChannel(axis)] ?? (axis === "y" ? pose.flipAngle : 0);
@@ -65,11 +72,26 @@ function physicalSide(pose) {
   return facing > 0 ? "front" : "back";
 }
 
+function visualPose(card, pose) {
+  const flipAxis = card.flipAxis ?? "y";
+  const flipY = card.pose.flipY ?? card.pose.flipAngle ?? (card.faceUp ? 0 : 180);
+  const flipX = card.pose.flipX ?? 0;
+  return {
+    ...pose,
+    flipAxis,
+    flipX,
+    flipY,
+    flipAngle: flipAxis === "x" ? flipX : flipY,
+  };
+}
+
 export function createCardScene(config = {}) {
   const clock = config.motion?.clock ?? createClock();
   const reducedMotion = Boolean(config.motion?.reducedMotion);
   const duration = config.motion?.duration ?? 320;
-  const createRendererAdapter = config.renderer ?? (config.renderMode === "css" ? createRenderer : createWebGLRenderer);
+  const createRendererAdapter = config.renderer ?? (
+    config.renderMode === "css" ? createRenderer : config.element ? createWebGLRenderer : createHeadlessRenderer
+  );
   const renderer = createRendererAdapter({
     element: config.element,
     templates: config.templates,
@@ -163,7 +185,7 @@ export function createCardScene(config = {}) {
           if (channelName === "flipX" || channelName === "flipY") setFlipValue(pose, channel.axis, channel.to);
           else pose[channelName] = channel.to;
           delete cardChannels[channelName];
-          settleTicket(channel.ticket, "settled");
+          if (channel.ticket) settleTicket(channel.ticket, "settled");
         }
       }
       if (Object.keys(cardChannels).length === 0) channels.delete(cardId);
@@ -242,7 +264,7 @@ export function createCardScene(config = {}) {
     return true;
   }
 
-  function schedule(cardId, channelName, target, transition, operationIndex) {
+  function scheduleChannel(cardId, channelName, target, { transition, operationIndex, immediate = false } = {}) {
     const pose = cardPose(cardId);
     const isFlip = channelName === "flipX" || channelName === "flipY";
     const axis = isFlip ? channelName.slice(-1).toLowerCase() : null;
@@ -250,19 +272,19 @@ export function createCardScene(config = {}) {
     const targetValue = channelName === "angle" || isFlip
       ? shortestAngleTarget(current, target)
       : target;
-    const ticket = { transition, operationIndex, status: null };
-    transition.pending += 1;
+    const ticket = transition ? { transition, operationIndex, status: null } : null;
+    if (ticket) transition.pending += 1;
     if (Math.abs(current - targetValue) < 0.0001) {
       if (isFlip) setFlipValue(pose, axis, targetValue);
       else pose[channelName] = targetValue;
-      settleTicket(ticket, "skipped");
+      if (ticket) settleTicket(ticket, "skipped");
       return;
     }
     cancelChannel(cardId, channelName);
-    if (reducedMotion || transition.immediate) {
+    if (reducedMotion || immediate || transition?.immediate) {
       if (isFlip) setFlipValue(pose, axis, targetValue);
       else pose[channelName] = targetValue;
-      settleTicket(ticket, "settled");
+      if (ticket) settleTicket(ticket, "settled");
       return;
     }
     const cardChannels = channels.get(cardId) ?? {};
@@ -277,6 +299,10 @@ export function createCardScene(config = {}) {
     channels.set(cardId, cardChannels);
   }
 
+  function schedule(cardId, channelName, target, transition, operationIndex) {
+    scheduleChannel(cardId, channelName, target, { transition, operationIndex });
+  }
+
   function cancelAllChannels(status) {
     for (const [cardId, cardChannels] of channels) {
       for (const channelName of Object.keys(cardChannels)) cancelChannel(cardId, channelName, status);
@@ -285,27 +311,53 @@ export function createCardScene(config = {}) {
 
   function apply(inputSnapshot) {
     const next = normalizeSnapshot(inputSnapshot);
+    if (desired) sample(clock.now());
+    const previousDesired = desired;
+    const previousVisual = new Map(visual);
     cancelAllChannels("superseded");
-    if (desired) {
+    if (previousDesired) {
       const nextIds = new Set(next.cards.map((card) => card.id));
-      for (const card of desired.cards) if (!nextIds.has(card.id)) renderer.remove(card.id);
+      for (const card of previousDesired.cards) if (!nextIds.has(card.id)) renderer.remove(card.id);
     }
     desired = next;
     const poses = solveAllPoses(desired, config.camera, config.templates);
     visual = new Map([...poses].map(([cardId, pose]) => {
       const card = desired.cards.find((candidate) => candidate.id === cardId);
-      const flipAxis = card.flipAxis ?? "y";
-      const flipY = card.pose.flipY ?? card.pose.flipAngle ?? (card.faceUp ? 0 : 180);
-      const flipX = card.pose.flipX ?? 0;
+      const previousPose = previousVisual.get(cardId);
+      const target = visualPose(card, pose);
+      if (!previousPose) return [cardId, target];
       return [cardId, {
-        ...pose,
-        flipAxis,
-        flipX,
-        flipY,
-        flipAngle: flipAxis === "x" ? flipX : flipY,
+        ...target,
+        x: previousPose.x,
+        y: previousPose.y,
+        angle: previousPose.angle,
+        scale: previousPose.scale,
+        flipX: previousPose.flipX,
+        flipY: previousPose.flipY,
+        flipAngle: previousPose.flipAngle,
       }];
     }));
+    if (previousDesired) {
+      for (const [cardId, targetPose] of poses) {
+        if (!previousVisual.has(cardId)) continue;
+        const target = visualPose(desired.cards.find((card) => card.id === cardId), targetPose);
+        scheduleChannel(cardId, "x", target.x);
+        scheduleChannel(cardId, "y", target.y);
+        scheduleChannel(cardId, "angle", target.angle);
+        scheduleChannel(cardId, "scale", target.scale);
+        scheduleChannel(cardId, "flipX", target.flipX);
+        scheduleChannel(cardId, "flipY", target.flipY);
+        const current = cardPose(cardId);
+        current.z = target.z;
+        current.depthScale = target.depthScale;
+        current.tiltX = target.tiltX;
+        current.tiltY = target.tiltY;
+        current.pivotX = target.pivotX;
+        current.pivotY = target.pivotY;
+      }
+    }
     renderAll();
+    ensureFrame();
     emit("change", snapshot());
   }
 
@@ -325,18 +377,15 @@ export function createCardScene(config = {}) {
     };
     transition.results.forEach((result, index) => {
       const operation = operations[index];
-      result.remaining = operation.type === "move"
-        ? 2
-        : operation.type === "face" ? flipAxes(operation.axis).length : 1;
+      const channelCount = operationResultChannels[operation.type];
+      if (!channelCount) throw new TypeError(`Unknown operation: ${operation.type}`);
+      result.remaining = channelCount(operation);
     });
     transition.finished = new Promise((resolve) => { transition.resolve = resolve; });
-    transitions.add(transition);
 
-    for (const [operationIndex, operation] of operations.entries()) {
-      const card = cards.get(operation.cardId);
-      if (!card) throw new Error(`Unknown card: ${operation.cardId}`);
-      const pose = card.pose ?? normalizePose();
-      if (operation.type === "move") {
+    const applyOperations = {
+      move(operation, card) {
+        const pose = card.pose ?? normalizePose();
         if (operation.position) {
           card.pose = { ...pose, ...operation.position };
           card.positionMode = "absolute";
@@ -350,13 +399,16 @@ export function createCardScene(config = {}) {
         } else {
           throw new TypeError("Move requires position or destination zone");
         }
-      } else if (operation.type === "rotate") {
+      },
+      rotate(operation, card) {
         if (!Number.isFinite(operation.angle)) throw new TypeError("Rotate angle must be finite");
-        card.pose = { ...pose, angle: operation.angle };
-      } else if (operation.type === "scale") {
+        card.pose = { ...(card.pose ?? normalizePose()), angle: operation.angle };
+      },
+      scale(operation, card) {
         if (!Number.isFinite(operation.factor) || operation.factor <= 0) throw new RangeError("Scale factor must be positive and finite");
-        card.pose = { ...pose, scale: operation.factor };
-      } else if (operation.type === "face") {
+        card.pose = { ...(card.pose ?? normalizePose()), scale: operation.factor };
+      },
+      face(operation, card, operationIndex) {
         if (operation.face !== "faceUp" && operation.face !== "faceDown") throw new TypeError("Face must be faceUp or faceDown");
         const axes = flipAxes(operation.axis ?? card.flipAxis ?? "y");
         const wasFaceUp = card.faceUp;
@@ -377,7 +429,7 @@ export function createCardScene(config = {}) {
         }
         card.flipAxis = axes[0];
         card.flipAxes = axes;
-        card.pose = { ...pose };
+        card.pose = { ...(card.pose ?? normalizePose()) };
         if (operation.angle !== undefined) {
           for (const axis of axes) setFlipValue(card.pose, axis, angleForAxis(operation.angle, axis));
         } else {
@@ -386,10 +438,18 @@ export function createCardScene(config = {}) {
             if (axis === "y") delete card.pose.flipAngle;
           }
         }
-      } else {
-        throw new TypeError(`Unknown operation: ${operation.type}`);
-      }
+      },
+    };
+
+    for (const [operationIndex, operation] of operations.entries()) {
+      const card = cards.get(operation.cardId);
+      if (!card) throw new Error(`Unknown card: ${operation.cardId}`);
+      const handler = applyOperations[operation.type];
+      if (!handler) throw new TypeError(`Unknown operation: ${operation.type}`);
+      handler(operation, card, operationIndex);
     }
+
+    transitions.add(transition);
 
     const previous = desired;
     desired = next;
@@ -402,12 +462,15 @@ export function createCardScene(config = {}) {
       const current = cardPose(cardId);
       const oldCard = previous.cards.find((candidate) => candidate.id === cardId);
       const operationIndexes = operations.flatMap((operation, index) => operation.cardId === cardId ? [index] : []);
-      for (const operationIndex of operationIndexes) {
-        const operation = operations[operationIndex];
-        if (operation.type === "move") schedule(cardId, "x", targetPose.x, transition, operationIndex), schedule(cardId, "y", targetPose.y, transition, operationIndex);
-        if (operation.type === "rotate") schedule(cardId, "angle", targetPose.angle, transition, operationIndex);
-        if (operation.type === "scale") schedule(cardId, "scale", targetPose.scale, transition, operationIndex);
-        if (operation.type === "face") {
+      const scheduleOperations = {
+        move: (operationIndex) => {
+          schedule(cardId, "x", targetPose.x, transition, operationIndex);
+          schedule(cardId, "y", targetPose.y, transition, operationIndex);
+        },
+        rotate: (operationIndex) => schedule(cardId, "angle", targetPose.angle, transition, operationIndex),
+        scale: (operationIndex) => schedule(cardId, "scale", targetPose.scale, transition, operationIndex),
+        face: (operationIndex) => {
+          const operation = operations[operationIndex];
           const axes = flipAxes(operation.axis ?? card.flipAxis ?? "y");
           current.flipAxis = axes[0];
           for (const axis of axes) {
@@ -417,7 +480,11 @@ export function createCardScene(config = {}) {
               : angleForAxis(operation.angle, axis);
             schedule(cardId, flipChannel(axis), targetAngle, transition, operationIndex);
           }
-        }
+        },
+      };
+      for (const operationIndex of operationIndexes) {
+        const operation = operations[operationIndex];
+        scheduleOperations[operation.type](operationIndex);
       }
       if (oldCard && oldCard.faceUp !== card.faceUp && !operations.some((operation) => operation.cardId === cardId && operation.type === "face")) {
         schedule(cardId, "flipY", card.faceUp ? 0 : 180, transition, operationIndexes[0] ?? 0);

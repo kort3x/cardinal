@@ -20,7 +20,7 @@ responsive geometry, multiple arrangements, and project-controlled presentation.
 Cards can change shape as content changes, receive dynamic elements, attach to
 other cards, and participate in multi-card selection and dragging.
 
-Card geometry is implemented as a true rounded cuboid behind the same
+Card geometry is implemented as a true beveled rounded cuboid behind the same
 scene interface. WebGL is required by default. The CSS renderer remains available
 only as an explicit prototype mode; its implementation is deferred to [issue #16](https://github.com/kort3x/cardinal/issues/16).
 

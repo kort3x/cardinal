@@ -117,6 +117,10 @@ function desiredSnapshot() {
   };
 }
 
+function currentCard() {
+  return scene.snapshot().desired.cards[0];
+}
+
 let scene;
 let spinHandle;
 let spinning = false;
@@ -268,13 +272,13 @@ document.querySelector("#move").addEventListener("click", () => {
 });
 
 document.querySelector("#rotate").addEventListener("click", () => {
-  const angle = normalizeAngle(scene.snapshot().desired.cards[0].pose.angle + 45);
+  const angle = normalizeAngle(currentCard().pose.angle + 45);
   setControls({ angle });
   run([{ type: "rotate", cardId: baseCard.id, angle }]);
 });
 
 document.querySelector("#scale").addEventListener("click", () => {
-  const factor = scene.snapshot().desired.cards[0].pose.scale > 1 ? 1 : 1.25;
+  const factor = currentCard().pose.scale > 1 ? 1 : 1.25;
   scaleTo(factor);
 });
 
@@ -287,7 +291,7 @@ document.querySelectorAll("[data-scale]").forEach((button) => {
 
 document.querySelector("#flip").addEventListener("click", () => {
   stopContinuousFlip();
-  const face = scene.snapshot().desired.cards[0].faceUp ? "faceDown" : "faceUp";
+  const face = currentCard().faceUp ? "faceDown" : "faceUp";
   setControls({ faceUp: face === "faceUp" });
   run([{
     type: "face",
@@ -343,7 +347,7 @@ document.querySelectorAll("[data-flip]").forEach((button) => {
 
 document.querySelector("#combined").addEventListener("click", () => {
   stopContinuousFlip();
-  const cardState = scene.snapshot().desired.cards[0];
+  const cardState = currentCard();
   const face = cardState.faceUp ? "faceDown" : "faceUp";
   const reversalFace = face === "faceUp" ? "faceDown" : "faceUp";
   const angle = normalizeAngle(cardState.pose.angle + 180);

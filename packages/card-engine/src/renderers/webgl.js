@@ -1,8 +1,9 @@
 import * as THREE from "three";
-import { createRenderer as createCssRenderer } from "../renderer.js";
+import { createHeadlessRenderer } from "../renderer.js";
+import { cardDimensions } from "../layout.js";
 
-const noop = () => {};
 const radians = (degrees) => degrees * Math.PI / 180;
+const CARD_BEVEL_SIZE = 1.2;
 const zeroShaderPrecision = Object.freeze({ rangeMin: 0, rangeMax: 0, precision: 0 });
 const webglContextAttributes = Object.freeze({
   alpha: true,
@@ -116,8 +117,12 @@ export function createCardShape(shapeDefinition, dimensions) {
 }
 
 export function createCardFaceMaterial() {
+  return createCardFaceSurfaceMaterial(0xffffff);
+}
+
+function createCardFaceSurfaceMaterial(color) {
   return new THREE.MeshStandardMaterial({
-    color: 0xffffff,
+    color,
     roughness: 0.8,
     metalness: 0,
     side: THREE.DoubleSide,
@@ -130,16 +135,7 @@ export function createCardFaceMaterial() {
 }
 
 function createCardFaceBaseMaterial(color) {
-  return new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.8,
-    metalness: 0,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  });
+  return createCardFaceSurfaceMaterial(color);
 }
 
 function contentKey(content, dimensions) {
@@ -158,15 +154,41 @@ function contentKey(content, dimensions) {
 
 function logicalFaceContent(card, side) {
   const activeFace = card.faces[card.activeFaceId] ?? {};
-  if (!card.faceCycle) return side === "front" ? activeFace : card.back ?? { title: "Concealed", flavour: "" };
-  if (!card.faceCycleNextFaceId) return side === "front" ? activeFace : card.back ?? { title: "Concealed", flavour: "" };
+  if (side === "back") return card.back ?? { title: "Concealed", flavour: "" };
+  if (!card.faceCycle || !card.faceCycleNextFaceId) return activeFace;
 
   const destinationFace = card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? activeFace;
-  return side === "front" ? destinationFace : card.back ?? { title: "Concealed", flavour: "" };
+  return destinationFace;
+}
+
+export function createCardGeometry(shape, { depth = 6, bevelSize = CARD_BEVEL_SIZE } = {}) {
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: bevelSize,
+    bevelSize,
+    bevelSegments: 4,
+    curveSegments: 24,
+  });
+  geometry.translate(0, 0, -depth / 2);
+  return geometry;
+}
+
+function physicalSide(pose) {
+  const facing = Math.cos(radians(pose.flipX ?? 0)) * Math.cos(radians(pose.flipY ?? pose.flipAngle ?? 0));
+  if (Math.abs(facing) < 0.000001) return "edge";
+  return facing > 0 ? "front" : "back";
+}
+
+function accessibleContent(card, pose) {
+  const side = physicalSide(pose);
+  if (side === "edge") return { side, content: { title: "Card edge" } };
+  if (side === "back") return { side, content: card.back ?? { title: "Concealed card" } };
+  return { side, content: card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? {} };
 }
 
 export function createWebGLRenderer({ element, templates = {} } = {}) {
-  if (!element) return createCssRenderer({ element, templates, reason: "no-element" });
+  if (!element) return createHeadlessRenderer({ reason: "no-element" });
   if (typeof document === "undefined") throw new Error("Cardinal WebGL renderer requires a browser document");
 
   const canvas = document.createElement("canvas");
@@ -198,6 +220,9 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
   element.classList.add("cardinal-stage");
   element.append(canvas);
   element.classList.add("cardinal-stage--webgl");
+  const accessibilityLayer = document.createElement("div");
+  accessibilityLayer.className = "cardinal-webgl-accessibility";
+  element.append(accessibilityLayer);
 
   const cards = new Map();
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
@@ -261,25 +286,24 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     const height = dimensions.height;
     const depth = 6;
     const shape = createCardShape(card.shape ?? templates[card.template]?.shape, { width, height });
-    const geometry = new THREE.ExtrudeGeometry(shape, {
-      depth,
-      bevelEnabled: false,
-      curveSegments: 24,
+    const geometry = createCardGeometry(shape, { depth });
+    const faceShape = createCardShape(card.shape ?? templates[card.template]?.shape, {
+      width: Math.max(1, width - CARD_BEVEL_SIZE * 2),
+      height: Math.max(1, height - CARD_BEVEL_SIZE * 2),
     });
-    geometry.translate(0, 0, -depth / 2);
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0 });
     const sideMaterial = new THREE.MeshStandardMaterial({ color: 0x727d86, roughness: 0.75, metalness: 0 });
     const body = new THREE.Mesh(geometry, [bodyMaterial, sideMaterial]);
-    const frontBaseGeometry = new THREE.ShapeGeometry(shape);
-    const backBaseGeometry = new THREE.ShapeGeometry(shape);
+    const frontBaseGeometry = new THREE.ShapeGeometry(faceShape);
+    const backBaseGeometry = new THREE.ShapeGeometry(faceShape);
     const frontBaseMaterial = createCardFaceBaseMaterial(0xffffff);
     const backBaseMaterial = createCardFaceBaseMaterial(0x17212b);
     const frontBase = new THREE.Mesh(frontBaseGeometry, frontBaseMaterial);
     const backBase = new THREE.Mesh(backBaseGeometry, backBaseMaterial);
     const frontMaterial = createCardFaceMaterial();
     const backMaterial = createCardFaceMaterial();
-    const front = new THREE.Mesh(new THREE.ShapeGeometry(shape), frontMaterial);
-    const back = new THREE.Mesh(new THREE.ShapeGeometry(shape), backMaterial);
+    const front = new THREE.Mesh(new THREE.ShapeGeometry(faceShape), frontMaterial);
+    const back = new THREE.Mesh(new THREE.ShapeGeometry(faceShape), backMaterial);
     frontBase.renderOrder = 1;
     backBase.renderOrder = 1;
     front.renderOrder = 2;
@@ -299,7 +323,13 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     bodyGroup.add(faceGroup);
     cardGroup.add(pivotGroup);
     renderScene.add(cardGroup);
-    const mounted = { cardGroup, pivotGroup, bodyGroup, faceGroup, front, back, frontMaterial, backMaterial, frontBaseGeometry, backBaseGeometry, frontBaseMaterial, backBaseMaterial, geometry, bodyMaterial, sideMaterial, frontTexture: null, backTexture: null, frontKey: null, backKey: null, width, height };
+    const accessibilityShell = document.createElement("article");
+    accessibilityShell.className = "cardinal-webgl-card";
+    accessibilityShell.dataset.cardId = card.id;
+    accessibilityShell.setAttribute("tabindex", "0");
+    accessibilityShell.setAttribute("role", "button");
+    accessibilityLayer.append(accessibilityShell);
+    const mounted = { cardGroup, pivotGroup, bodyGroup, faceGroup, front, back, frontMaterial, backMaterial, frontBaseGeometry, backBaseGeometry, frontBaseMaterial, backBaseMaterial, geometry, bodyMaterial, sideMaterial, accessibilityShell, frontTexture: null, backTexture: null, frontKey: null, backKey: null, width, height };
     cards.set(card.id, mounted);
     return mounted;
   }
@@ -330,6 +360,14 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     mounted.bodyGroup.rotation.set(radians(pose.tiltX), radians(pose.tiltY), radians(pose.angle));
     mounted.faceGroup.rotation.order = "YXZ";
     mounted.faceGroup.rotation.set(radians(pose.flipX ?? 0), radians(pose.flipY ?? pose.flipAngle ?? 0), 0);
+    const accessible = accessibleContent(card, pose);
+    const accessibleText = [
+      accessible.side === "back" ? "Concealed card" : accessible.content.title,
+      accessible.content.imageAlt,
+      accessible.content.flavour,
+    ].filter(Boolean).join(". ");
+    mounted.accessibilityShell.textContent = accessibleText || "Card";
+    mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
     updateTexture(mounted, "front", logicalFaceContent(card, "front"), dimensions);
     updateTexture(mounted, "back", logicalFaceContent(card, "back"), dimensions);
     render();
@@ -339,6 +377,7 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     const mounted = cards.get(cardId);
     if (!mounted) return;
     renderScene.remove(mounted.cardGroup);
+    mounted.accessibilityShell.remove();
     mounted.geometry.dispose();
     mounted.frontBaseGeometry.dispose();
     mounted.backBaseGeometry.dispose();
@@ -357,7 +396,9 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
   resize();
   return {
     type: "webgl",
-    mount: noop,
+    mount(card) {
+      return mount(card, cardDimensions(card, templates));
+    },
     update,
     remove,
     destroy() {
@@ -365,6 +406,7 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
       for (const cardId of cards.keys()) remove(cardId);
       webgl.dispose();
       canvas.remove();
+      accessibilityLayer.remove();
       element.classList.remove("cardinal-stage--webgl");
     },
   };

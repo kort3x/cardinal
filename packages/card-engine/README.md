@@ -6,6 +6,10 @@ issue visual/state changes through `transact()`. The renderer seam uses the true
 3D WebGL adapter by default; CSS is available only when explicitly selected with
 `renderMode: "css"` for prototype/testing use.
 
+When no DOM element is supplied, the scene uses a headless adapter for
+deterministic state tests. This is not a renderer or a CSS fallback; browser
+scenes require an available WebGL context.
+
 ```js
 const scene = createCardScene({ element, motion });
 

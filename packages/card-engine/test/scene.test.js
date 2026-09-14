@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createCardScene } from "../src/index.js";
-import { createCardFaceMaterial, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
+import { createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
 
 const card = {
   id: "card-1",
@@ -96,6 +96,17 @@ test("WebGL face materials render content above the solid cuboid caps", () => {
   material.dispose();
 });
 
+test("a rounded cuboid geometry includes a real bevel", () => {
+  const geometry = createCardGeometry(
+    createCardShape("rounded-rectangle", { width: 180, height: 250 }),
+  );
+
+  assert.equal(geometry.parameters.options.bevelEnabled, true);
+  assert.equal(geometry.parameters.options.bevelSegments, 4);
+  assert.equal(geometry.parameters.options.bevelSize, 1.2);
+  geometry.dispose();
+});
+
 test("a scene can use an injected renderer adapter", () => {
   const calls = [];
   const renderer = () => ({
@@ -140,6 +151,35 @@ test("a scene applies one card and exposes its committed state", () => {
   assert.equal(committed.cards[0].activeFaceId, card.activeFaceId);
   assert.equal(committed.cards[0].faceUp, true);
   assert.deepEqual(scene.snapshot().desired.zones, [zone]);
+});
+
+test("the default headless scene is not reported as CSS", () => {
+  const scene = createCardScene();
+
+  assert.equal(scene.snapshot().renderer, "headless");
+  assert.equal(scene.snapshot().rendererReason, "no-element");
+  scene.destroy();
+});
+
+test("apply retargets from the currently displayed pose", () => {
+  const clock = testClock();
+  const scene = createCardScene({ motion: { clock, duration: 320 } });
+  scene.apply({ cards: [card], zones: [zone] });
+  scene.transact([{ type: "move", cardId: "card-1", position: { x: 400, y: 220 } }]);
+  clock.tick(160);
+  const inFlightX = scene.snapshot().visual[0].pose.x;
+
+  scene.apply({
+    cards: [{ ...card, positionMode: "absolute", pose: { x: 500, y: 220 } }],
+    zones: [zone],
+  });
+
+  assert.equal(scene.snapshot().visual[0].pose.x, inFlightX);
+  assert.equal(scene.snapshot().settling, true);
+  clock.tick(320);
+  assert.equal(scene.snapshot().visual[0].pose.x, 500);
+  assert.equal(scene.snapshot().settling, false);
+  scene.destroy();
 });
 
 test("one transaction composes move, rotation, scale, and flip", async () => {
