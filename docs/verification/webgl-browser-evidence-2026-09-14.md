@@ -78,7 +78,7 @@ The checked-in Chrome acceptance scenario was run after the visual review:
 ```text
 npm run test:chrome:acceptance
 9 checks passed
-input latency: 2.60 ms
+input latency: 0.80 ms
 landing delta: 0 px
 ```
 
