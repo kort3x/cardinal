@@ -18,7 +18,7 @@ if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid Chrome port: 
 if (typeof WebSocket !== "function") {
   throw new Error("Chrome automation requires Node 22+ with the built-in WebSocket API");
 }
-if (scenario !== "elements") throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
+if (scenario !== "elements" && scenario !== "acceptance") throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -154,7 +154,7 @@ const elementScenario = String.raw`(async () => {
     .find((candidate) => candidate.querySelector(".element-name")?.textContent.startsWith(prefix));
   const record = (label, predicate) => {
     const current = state();
-    results.push({ label, pass: Boolean(predicate(current)), status: current.status });
+    results.push({ label, pass: typeof predicate === "function" ? Boolean(predicate(current)) : Boolean(predicate), status: current.status });
   };
   const step = async (label, action, predicate) => {
     await action();
@@ -246,6 +246,70 @@ const elementScenario = String.raw`(async () => {
   return { ok: results.every((result) => result.pass), results };
 })()`;
 
+const acceptanceScenario = String.raw`(async () => {
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const results = [];
+  const state = () => ({
+    renderer: document.querySelector("#renderer-status")?.textContent ?? "",
+    status: document.querySelector("#status")?.textContent ?? "",
+    shells: document.querySelectorAll(".cardinal-webgl-card").length,
+  });
+  const record = (label, predicate) => {
+    const current = state();
+    results.push({ label, pass: typeof predicate === "function" ? Boolean(predicate(current)) : Boolean(predicate), status: current.status });
+  };
+  const click = (selector) => document.querySelector(selector)?.click();
+  const setValue = (selector, value) => {
+    const element = document.querySelector(selector);
+    if (!element) throw new Error("Missing " + selector);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(element, String(value));
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  const waitForStable = async (milliseconds = 850) => {
+    await sleep(milliseconds);
+    return state();
+  };
+  const readX = (status) => Number(status.match(/ · x (-?\d+)/)?.[1]);
+
+  await sleep(700);
+  record("baseline WebGL card", (current) => current.renderer.includes("Three.js WebGL")
+    && current.status.includes("physical front") && current.shells === 1);
+
+  const inputStarted = performance.now();
+  setValue("#move-x", 760);
+  const inputLatencyMs = await new Promise((resolve) => requestAnimationFrame(() => resolve(performance.now() - inputStarted)));
+  const moved = await waitForStable();
+  const landingDeltaPx = Math.abs(readX(moved.status) - 760);
+  record("move lands at target", (current) => readX(current.status) === 760 && current.status.includes("stable"));
+
+  click("#rotate");
+  record("rotate settles", (await waitForStable()).status.includes("angle 45°"));
+  click("#scale");
+  record("scale settles", (await waitForStable()).status.includes("scale 1.00"));
+  click("#flip");
+  record("flip settles on back", (await waitForStable()).status.includes("physical back"));
+
+  setValue("#flip-x-slider", 60);
+  setValue("#flip-y-slider", 45);
+  record("simultaneous X/Y flip settles", (await waitForStable()).status.includes("physical front"));
+  setValue("#flip-y-slider", 90);
+  record("edge-on pose keeps one shell", (await waitForStable()).status.includes("physical edge") && state().shells === 1);
+
+  click("#combined");
+  const combined = await waitForStable(1300);
+  record("combined move rotate scale flip settles", combined.status.includes("stable") && state().shells === 1);
+
+  click("#reduced");
+  const reduced = await waitForStable();
+  record("reduced motion settles immediately", reduced.status.includes("stable") && !reduced.status.includes("animating"));
+
+  return {
+    ok: results.every((result) => result.pass),
+    results,
+    measurements: { inputLatencyMs, landingDeltaPx },
+  };
+})()`;
+
 async function run() {
   const server = await ensureLabServer();
   let chrome;
@@ -258,7 +322,7 @@ async function run() {
     await connection.command("Page.navigate", { url: labUrl });
     await delay(1200);
     const evaluation = await connection.command("Runtime.evaluate", {
-      expression: elementScenario,
+      expression: scenario === "elements" ? elementScenario : acceptanceScenario,
       awaitPromise: true,
       returnByValue: true,
     });
@@ -266,6 +330,7 @@ async function run() {
     const report = evaluation.result?.value;
     for (const result of report?.results ?? []) console.log(`${result.pass ? "PASS" : "FAIL"} ${result.label}: ${result.status}`);
     if (!report || report.ok !== true) throw new Error("Chrome lab scenario failed");
+    if (report.measurements) console.log(`Chrome measurements: input latency ${report.measurements.inputLatencyMs.toFixed(2)} ms · landing delta ${report.measurements.landingDeltaPx.toFixed(0)} px`);
     console.log(`Chrome lab scenario '${scenario}' passed (${report.results.length} checks)`);
   } finally {
     connection?.socket.close();

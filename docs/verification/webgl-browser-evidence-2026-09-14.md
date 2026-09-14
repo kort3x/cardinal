@@ -52,8 +52,8 @@ browser `requestAnimationFrame` intervals, not a product target.
 The post-batching 200-card sample produced six frames during the 1-second
 observation window and its first frame arrived about 896 ms after the action. The
 scene settled after the animation completed, but this remains outside a responsive
-supported envelope. Texture memory was not exposed by the browser API and was not
-estimated from unrelated process memory.
+supported envelope. The managed texture estimate is recorded below; browser and
+driver overhead are intentionally excluded.
 
 Firefox's 1-second post-batching cohort samples were:
 
@@ -71,14 +71,51 @@ Safari's 1-second post-batching cohort samples were:
 | 6 | 68 ms | 17 ms | 20 ms | 2 |
 | 50 | 301 ms | 17 ms | 21 ms | 3 |
 
+## Acceptance run and measurement method
+
+The checked-in Chrome acceptance scenario was run after the visual review:
+
+```text
+npm run test:chrome:acceptance
+9 checks passed
+input latency: 2.60 ms
+landing delta: 0 px
+```
+
+The scenario covers a settled move, rotate, scale, face-down transition,
+simultaneous X/Y flip, edge-on pose, combined motion, and reduced motion. The
+landing delta is the absolute difference between the requested X position and
+the settled pose reported by the lab. Input latency is the time from dispatching
+the range-input event to the next `requestAnimationFrame` sample; it is a
+responsiveness sample, not a complete end-to-end device latency measurement.
+
+For texture memory, Cardinal uses a managed RGBA8 estimate because WebGL does
+not expose driver allocation totals. Each content canvas is allocated at
+`min(4, max(2, devicePixelRatio * 2))` resolution, with no mipmaps. The estimate
+is therefore:
+
+```text
+sum(canvas.width * canvas.height * 4) for every front/back texture
+```
+
+On the reference display (`devicePixelRatio = 1`), the default content-sized
+card is 180×257 CSS pixels, so each side is 360×514 texels and both sides use
+approximately 1,480,320 bytes (1.41 MiB) per mounted card. This excludes driver
+overhead and decoded source-image memory. At that content size, 50 cards are
+approximately 70.6 MiB and 200 cards approximately 282.8 MiB by the same
+estimate.
+
+The Chrome visual review covered face-on, oblique X/Y rotation at 200% scale,
+and edge-on Y rotation. The rounded silhouette stayed closed, the side volume
+remained coherent, and front content stayed readable in the inspected captures.
+
 ## Still required before issue #2 can close
 
-- Run the remaining documented visual checks in Chromium, Firefox, and
-  WebKit/Safari, including edge-on and oblique views, X/Y/both-axis flips, reduced
-  motion, resizing, and disposal.
-- Record frame timing, missed frames, input latency, texture memory, card counts,
-  and landing error for the agreed reference device.
-- Texture memory is still not exposed by the browser API and needs a defined
-  measurement method or browser tooling capture.
+- Run the same documented visual checks in Firefox and WebKit/Safari, including
+  edge-on and oblique views, X/Y/both-axis flips, reduced motion, resizing, and
+  disposal.
+- Capture the managed texture estimate and acceptance measurements in those
+  browsers using the same method; the Chrome input/landing sample and texture
+  estimate are now recorded above.
 
 Issue #2 remains In progress until those gates have evidence.
