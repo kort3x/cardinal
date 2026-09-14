@@ -109,13 +109,20 @@ The Chrome visual review covered face-on, oblique X/Y rotation at 200% scale,
 and edge-on Y rotation. The rounded silhouette stayed closed, the side volume
 remained coherent, and front content stayed readable in the inspected captures.
 
+The Safari acceptance run used Safari 26.6.2 at a 1600×1000 desktop viewport.
+All 10 checks passed for baseline WebGL, move, rotate, scale, face-down,
+simultaneous X/Y flip, edge-on pose, oblique 200% content, combined motion, and
+reduced motion. Safari measured a 5 ms next-frame input sample and a 0 px landing
+delta. Its managed texture estimate was 1.41 MiB for the default card at
+`devicePixelRatio = 1`. The inspected face-on, oblique, and edge-on captures
+showed the card, side volume, and content surfaces without the earlier off-stage
+blank result from the smaller 800×600 window.
+
 ## Still required before issue #2 can close
 
-- Run the same documented visual checks in Firefox and WebKit/Safari, including
-  edge-on and oblique views, X/Y/both-axis flips, reduced motion, resizing, and
-  disposal.
-- Capture the managed texture estimate and acceptance measurements in those
-  browsers using the same method; the Chrome input/landing sample and texture
-  estimate are now recorded above.
+- Run the same documented visual checks in Firefox, including edge-on and
+  oblique views, X/Y/both-axis flips, reduced motion, resizing, and disposal.
+- Capture the managed texture estimate and acceptance measurements in Firefox
+  using the same method; Chrome and Safari measurements are now recorded above.
 
 Issue #2 remains In progress until those gates have evidence.
