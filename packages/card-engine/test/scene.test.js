@@ -104,6 +104,10 @@ test("a rounded cuboid geometry includes a real bevel", () => {
   assert.equal(geometry.parameters.options.bevelEnabled, true);
   assert.equal(geometry.parameters.options.bevelSegments, 4);
   assert.equal(geometry.parameters.options.bevelSize, 1.2);
+  const position = geometry.getAttribute("position");
+  const zValues = Array.from({ length: position.count }, (_, index) => position.getZ(index));
+  assert.equal(Math.min(...zValues) >= -3.001, true);
+  assert.equal(Math.max(...zValues) <= 3.001, true);
   geometry.dispose();
 });
 

@@ -162,15 +162,16 @@ function logicalFaceContent(card, side) {
 }
 
 export function createCardGeometry(shape, { depth = 6, bevelSize = CARD_BEVEL_SIZE } = {}) {
+  const extrusionDepth = Math.max(0.1, depth - bevelSize * 2);
   const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth,
+    depth: extrusionDepth,
     bevelEnabled: true,
     bevelThickness: bevelSize,
     bevelSize,
     bevelSegments: 4,
     curveSegments: 24,
   });
-  geometry.translate(0, 0, -depth / 2);
+  geometry.translate(0, 0, -extrusionDepth / 2);
   return geometry;
 }
 
