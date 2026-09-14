@@ -14,7 +14,7 @@ it is not a browser acceptance sign-off.
 
 ## Evidence available
 
-- The deterministic card-engine suite passes: 58 tests.
+- The deterministic card-engine suite passes: 60 tests.
 - The user confirmed after reboot that WebGL is active in Chrome and Safari.
 - The lab reports the WebGL renderer and orthographic camera when initialization
   succeeds; CSS fallback is not automatically selected.
@@ -27,6 +27,9 @@ Firefox was exercised headlessly through WebDriver BiDi on the same machine. It
 reported WebGL 2.0 (`Apple M1, or similar` under Firefox's software compositor),
 the required orthographic renderer status, and successful context loss/restoration
 with the mounted card still available.
+
+Three repeated Firefox full-spin cycles completed with a stable renderer status
+and no reported JavaScript errors after the flip-angle canonicalization fix.
 
 ## Chrome performance sample
 

@@ -846,6 +846,20 @@ test("continuous spinning supports the x flip axis", () => {
   scene.stopSpin("card-1");
 });
 
+test("a face transition canonicalizes a flip angle after continuous spinning", () => {
+  const clock = testClock();
+  const scene = createCardScene({ motion: { clock, duration: 100 } });
+  scene.apply({ cards: [card], zones: [zone] });
+
+  scene.spin("card-1", { axis: "y", speed: 360 });
+  clock.tick(1000);
+  scene.stopSpin("card-1");
+  scene.transact([{ type: "face", cardId: "card-1", face: "faceUp", axis: "y", angle: 0 }], { immediate: true });
+
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 0);
+  scene.destroy();
+});
+
 test("face retargeting takes the shortest path after continuous spinning", async () => {
   const clock = testClock();
   const scene = createCardScene({ motion: { clock, duration: 320 } });
@@ -858,7 +872,7 @@ test("face retargeting takes the shortest path after continuous spinning", async
   clock.tick(160);
   assert.equal(scene.snapshot().visual[0].pose.flipAngle, 405);
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 360);
+  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 0);
   await transition.finished;
 });
 

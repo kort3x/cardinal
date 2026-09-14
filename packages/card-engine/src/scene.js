@@ -194,7 +194,7 @@ export function createCardScene(config = {}) {
         renderCard(cardId, { render: false });
         needsRender = true;
         if (progress >= 1) {
-          if (channelName === "flipX" || channelName === "flipY") setFlipValue(pose, channel.axis, channel.to);
+          if (channelName === "flipX" || channelName === "flipY") setFlipValue(pose, channel.axis, channel.restingTarget ?? channel.to);
           else pose[channelName] = channel.to;
           delete cardChannels[channelName];
           if (channel.ticket) settleTicket(channel.ticket, "settled");
@@ -288,14 +288,14 @@ export function createCardScene(config = {}) {
     const ticket = transition ? { transition, operationIndex, status: null } : null;
     if (ticket) transition.pending += 1;
     if (Math.abs(current - targetValue) < 0.0001) {
-      if (isFlip) setFlipValue(pose, axis, targetValue);
+      if (isFlip) setFlipValue(pose, axis, target);
       else pose[channelName] = targetValue;
       if (ticket) settleTicket(ticket, "skipped");
       return;
     }
     cancelChannel(cardId, channelName);
     if (reducedMotion || immediate || transition?.immediate) {
-      if (isFlip) setFlipValue(pose, axis, targetValue);
+      if (isFlip) setFlipValue(pose, axis, target);
       else pose[channelName] = targetValue;
       if (ticket) settleTicket(ticket, "settled");
       return;
@@ -304,6 +304,7 @@ export function createCardScene(config = {}) {
     cardChannels[channelName] = {
       from: current,
       to: targetValue,
+      restingTarget: isFlip ? target : targetValue,
       startedAt: clock.now(),
       duration,
       axis,
