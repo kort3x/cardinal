@@ -1,0 +1,178 @@
+{
+  "repository": "kort3x/cardinal",
+  "project": {
+    "number": 3,
+    "id": "PVT_kwHOANRhQs4BjbBc",
+    "url": "https://github.com/users/kort3x/projects/3"
+  },
+  "specification": {
+    "number": 1,
+    "url": "https://github.com/kort3x/cardinal/issues/1",
+    "id": "I_kwDOUaDZN88AAAABRKU7AA",
+    "transferredFrom": "kort3x/Picko#31"
+  },
+  "issues": [
+    {
+      "key": "01",
+      "number": 2,
+      "id": "I_kwDOUaDZN88AAAABRKVBJw",
+      "url": "https://github.com/kort3x/cardinal/issues/2",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L20",
+      "transferredFrom": "kort3x/Picko#32",
+      "dependencies": []
+    },
+    {
+      "key": "02",
+      "number": 3,
+      "id": "I_kwDOUaDZN88AAAABRKVBxA",
+      "url": "https://github.com/kort3x/cardinal/issues/3",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L3M",
+      "transferredFrom": "kort3x/Picko#33",
+      "dependencies": [
+        2
+      ]
+    },
+    {
+      "key": "03",
+      "number": 4,
+      "id": "I_kwDOUaDZN88AAAABRKVCQQ",
+      "url": "https://github.com/kort3x/cardinal/issues/4",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L38",
+      "transferredFrom": "kort3x/Picko#34",
+      "dependencies": [
+        3
+      ]
+    },
+    {
+      "key": "04",
+      "number": 5,
+      "id": "I_kwDOUaDZN88AAAABRKVCpw",
+      "url": "https://github.com/kort3x/cardinal/issues/5",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L44",
+      "transferredFrom": "kort3x/Picko#35",
+      "dependencies": [
+        4
+      ]
+    },
+    {
+      "key": "05",
+      "number": 6,
+      "id": "I_kwDOUaDZN88AAAABRKVDRQ",
+      "url": "https://github.com/kort3x/cardinal/issues/6",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L50",
+      "transferredFrom": "kort3x/Picko#36",
+      "dependencies": [
+        3
+      ]
+    },
+    {
+      "key": "06",
+      "number": 7,
+      "id": "I_kwDOUaDZN88AAAABRKVDyg",
+      "url": "https://github.com/kort3x/cardinal/issues/7",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L64",
+      "transferredFrom": "kort3x/Picko#37",
+      "dependencies": [
+        4
+      ]
+    },
+    {
+      "key": "07",
+      "number": 8,
+      "id": "I_kwDOUaDZN88AAAABRKVEZw",
+      "url": "https://github.com/kort3x/cardinal/issues/8",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L8w",
+      "transferredFrom": "kort3x/Picko#38",
+      "dependencies": [
+        3
+      ]
+    },
+    {
+      "key": "08",
+      "number": 9,
+      "id": "I_kwDOUaDZN88AAAABRKVE7w",
+      "url": "https://github.com/kort3x/cardinal/issues/9",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L90",
+      "transferredFrom": "kort3x/Picko#39",
+      "dependencies": [
+        8
+      ]
+    },
+    {
+      "key": "09",
+      "number": 10,
+      "id": "I_kwDOUaDZN88AAAABRKVFZA",
+      "url": "https://github.com/kort3x/cardinal/issues/10",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L-g",
+      "transferredFrom": "kort3x/Picko#40",
+      "dependencies": [
+        5,
+        6,
+        9
+      ]
+    },
+    {
+      "key": "10",
+      "number": 11,
+      "id": "I_kwDOUaDZN88AAAABRKVF3g",
+      "url": "https://github.com/kort3x/cardinal/issues/11",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60L_s",
+      "transferredFrom": "kort3x/Picko#41",
+      "dependencies": [
+        3
+      ]
+    },
+    {
+      "key": "11",
+      "number": 12,
+      "id": "I_kwDOUaDZN88AAAABRKVG6A",
+      "url": "https://github.com/kort3x/cardinal/issues/12",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60MAY",
+      "transferredFrom": "kort3x/Picko#42",
+      "dependencies": [
+        5,
+        7
+      ]
+    },
+    {
+      "key": "12",
+      "number": 13,
+      "id": "I_kwDOUaDZN88AAAABRKVHog",
+      "url": "https://github.com/kort3x/cardinal/issues/13",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60MCQ",
+      "transferredFrom": "kort3x/Picko#43",
+      "dependencies": [
+        9,
+        11
+      ]
+    },
+    {
+      "key": "13",
+      "number": 14,
+      "id": "I_kwDOUaDZN88AAAABRKVIVw",
+      "url": "https://github.com/kort3x/cardinal/issues/14",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60MDM",
+      "transferredFrom": "kort3x/Picko#44",
+      "dependencies": [
+        7,
+        13
+      ]
+    },
+    {
+      "key": "14",
+      "number": 15,
+      "id": "I_kwDOUaDZN88AAAABRKVIwQ",
+      "url": "https://github.com/kort3x/cardinal/issues/15",
+      "itemId": "PVTI_lAHOANRhQs4BjbBczg60MEU",
+      "transferredFrom": "kort3x/Picko#45",
+      "dependencies": [
+        6,
+        7,
+        8,
+        10,
+        12,
+        14
+      ]
+    }
+  ]
+}
