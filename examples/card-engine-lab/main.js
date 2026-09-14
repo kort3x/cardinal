@@ -38,7 +38,7 @@ const logicalFaceDefinitions = [
     id: "face-a",
     elements: [
       { id: "title", type: "text", content: { text: "The Cardinal" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
-      { id: "image", type: "image", content: { src: "/examples/card-engine-lab/cardinal.svg", alt: "A stylized red cardinal" }, layout: { mode: "flow", order: 1 } },
+      { id: "image", type: "image", content: { src: "/examples/card-engine-lab/cardinal.png", alt: "A stylized red cardinal" }, layout: { mode: "flow", order: 1 } },
       { id: "flavour", type: "text", content: { text: "One card from the new independent engine." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 2 } },
     ],
     background: "#f4c95d",
@@ -732,7 +732,7 @@ addElementButton.addEventListener("click", () => {
   const id = `${elementType.value}-${nextElementNumber}`;
   nextElementNumber += 1;
   const element = elementType.value === "image"
-    ? { id, type: "image", content: { src: "/examples/card-engine-lab/cardinal.svg", alt: "A stylized red cardinal" }, layout: { mode: "flow" } }
+    ? { id, type: "image", content: { src: "/examples/card-engine-lab/cardinal.png", alt: "A stylized red cardinal" }, layout: { mode: "flow" } }
     : { id, type: "text", content: { text: "New text element" }, layout: { mode: "flow" } };
   applyElementOperation({ action: "add", elementId: id, element });
 });
