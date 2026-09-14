@@ -231,7 +231,8 @@ function updateStatus() {
   const rendererLabel = state.renderer === "webgl"
     ? "Three.js WebGL (true 3D)"
     : state.renderer === "css" ? "CSS (explicit mode)" : state.renderer;
-  rendererStatus.textContent = `Renderer: ${rendererLabel}${state.rendererReason && state.rendererReason !== "css" ? ` — ${state.rendererReason}` : ""}`;
+  const projectionLabel = state.projection ? ` · ${state.projection}` : "";
+  rendererStatus.textContent = `Renderer: ${rendererLabel}${projectionLabel}${state.rendererReason && state.rendererReason !== "css" ? ` — ${state.rendererReason}` : ""}`;
   const physicalSide = visual?.physicalSide ?? "unknown";
   status.textContent = pose
     ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}`

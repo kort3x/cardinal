@@ -20,7 +20,7 @@ Check the lab at `http://localhost:4173/` and the independent consumer at
 
 For each browser, verify:
 
-- the renderer status reports `Three.js WebGL (true 3D)`, never CSS;
+- the renderer status reports `Three.js WebGL (true 3D) · orthographic`, never CSS;
 - the rounded rectangle and shield profiles remain closed, beveled, and coherent
   face-on, edge-on, and oblique;
 - move, rotate, scale, flip, simultaneous X/Y flip, and continuous spin preserve

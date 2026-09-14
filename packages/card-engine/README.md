@@ -21,6 +21,14 @@ scene.transact([
 ]);
 ```
 
+WebGL uses an orthographic camera by default, so moving a card across the stage
+does not change its apparent shape, size, or flip orientation. Perspective remains
+available explicitly when a consuming scene wants camera-relative depth effects:
+
+```js
+const scene = createCardScene({ element, camera: { projection: "perspective" } });
+```
+
 Templates may select a built-in WebGL shape profile:
 
 ```js

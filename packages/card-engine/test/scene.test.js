@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
-import { clearCardDepth, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
+import { clearCardDepth, createCardCamera, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
 
 const card = {
   id: "card-1",
@@ -83,6 +83,22 @@ test("the WebGL shape seam rejects unknown profiles", () => {
     () => createCardShape({ type: "hexagon" }, { width: 180, height: 250 }),
     /Unknown card shape: hexagon/,
   );
+});
+
+test("the WebGL camera defaults to an orthographic stage projection", () => {
+  const camera = createCardCamera({ width: 900, height: 500 });
+
+  assert.equal(camera.isOrthographicCamera, true);
+  assert.equal(camera.left, -450);
+  assert.equal(camera.right, 450);
+  assert.equal(camera.top, 250);
+  assert.equal(camera.bottom, -250);
+});
+
+test("perspective projection is opt-in", () => {
+  const camera = createCardCamera({ projection: "perspective", width: 900, height: 500 });
+
+  assert.equal(camera.isPerspectiveCamera, true);
 });
 
 test("WebGL face materials render content above the solid cuboid caps", () => {

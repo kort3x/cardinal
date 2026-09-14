@@ -137,11 +137,13 @@ rendering layer: it clears the previous card's depth buffer before drawing the
 next card, preserving intentional overlap even while a card rotates or flips.
 
 The initial spatial model is a projected 2.5D stage: x/y plus real continuous depth
-in the scene model. A shared camera derives apparent size; greater distance means
-smaller cards. Individual cards are rendered as true 3D rounded cuboids inside that
-stage, while draw order remains a separate resolved property rather than an
-implicit physics result. Arbitrary tilted zone planes and physically simulated
-cards are outside v1.
+in the scene model. The default orthographic camera keeps a card's apparent shape,
+size, and flip orientation stable as it moves across x/y; depth still controls
+ordering and true 3D side visibility. A consuming scene may opt into a perspective
+camera when camera-relative size and foreshortening are desired. Individual cards
+are rendered as true 3D rounded cuboids inside that stage, while draw order remains
+a separate resolved property rather than an implicit physics result. Arbitrary
+tilted zone planes and physically simulated cards are outside v1.
 
 ## Zone placement and responsive geometry
 
@@ -374,6 +376,11 @@ An operation is never implicitly queued until movement finishes.
   `A → back → B → back → C` as it alternates physical orientation. The
   renderer stages the next logical front during a return from the back; an
   interrupted turn does not advance the cycle.
+  Camera perspective must not choose the logical side: moving a card while it
+  is edge-on may change its apparent angle, but it must not reveal the concealed
+  face for a logically face-up card or the content face for a logically
+  face-down card. At the exact edge orientation, neither large face is treated
+  as the displayed side; only the cuboid edge is visible.
   The primary renderer presents each card as a true closed beveled rounded
   cuboid: two large face surfaces and continuous side geometry spanning the
   shared thickness. CSS fallback implementation is deferred to issue #16; its

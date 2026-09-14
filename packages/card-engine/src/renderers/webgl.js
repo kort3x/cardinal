@@ -27,6 +27,25 @@ export function createSafeWebGLContext(canvas) {
   return normalizeWebGLContext(canvas.getContext("webgl2", webglContextAttributes));
 }
 
+export function createCardCamera({ projection = "orthographic", width = 900, height = 500, distance = 1000, fov = 35, zoom = 1 } = {}) {
+  if (projection !== "orthographic" && projection !== "perspective") {
+    throw new TypeError(`Unknown camera projection: ${projection}`);
+  }
+  if (![width, height, distance, fov, zoom].every(Number.isFinite) || width <= 0 || height <= 0 || distance <= 0 || fov <= 0 || zoom <= 0) {
+    throw new RangeError("Camera dimensions and settings must be positive and finite");
+  }
+
+  const aspect = width / height;
+  const camera = projection === "orthographic"
+    ? new THREE.OrthographicCamera(-width / 2, width / 2, height / 2, -height / 2, 1, 5000)
+    : new THREE.PerspectiveCamera(fov, aspect, 1, 5000);
+  camera.zoom = zoom;
+  camera.position.set(0, 0, distance);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  return camera;
+}
+
 function elementSize(element) {
   const rect = element.getBoundingClientRect?.();
   return {
@@ -192,7 +211,7 @@ function accessibleContent(card, pose) {
   return { side, content: card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? {} };
 }
 
-export function createWebGLRenderer({ element, templates = {} } = {}) {
+export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {} } = {}) {
   if (!element) return createHeadlessRenderer({ reason: "no-element" });
   if (typeof document === "undefined") throw new Error("Cardinal WebGL renderer requires a browser document");
 
@@ -211,7 +230,8 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
   }
 
   const renderScene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(35, 1, 1, 5000);
+  const projection = cameraOptions.projection ?? "orthographic";
+  let camera = createCardCamera({ ...cameraOptions, projection, width: 900, height: 500 });
   const ambient = new THREE.AmbientLight(0xffffff, 1.8);
   const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
   keyLight.position.set(-240, 360, 700);
@@ -239,10 +259,12 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     const pixelRatio = Math.min(2, globalThis.devicePixelRatio || 1);
     webgl.setPixelRatio(pixelRatio);
     webgl.setSize(stageSize.width, stageSize.height, false);
-    camera.aspect = stageSize.width / stageSize.height;
-    camera.position.set(0, 0, 1000);
-    camera.lookAt(0, 0, 0);
-    camera.updateProjectionMatrix();
+    camera = createCardCamera({
+      ...cameraOptions,
+      projection,
+      width: stageSize.width,
+      height: stageSize.height,
+    });
     render();
   }
 
@@ -403,6 +425,7 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
   resize();
   return {
     type: "webgl",
+    projection,
     mount(card) {
       return mount(card, cardDimensions(card, templates));
     },

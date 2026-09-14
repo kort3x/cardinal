@@ -14,8 +14,8 @@ The renderer seam and Three.js dependency are now in place. The lab requires the
 WebGL adapter by default; it does not silently fall back to CSS. CSS development is
 paused in [issue #16](https://github.com/kort3x/cardinal/issues/16), and the current
 CSS adapter is available only through explicit `renderMode: "css"` selection. The first adapter slice renders beveled extruded
-rounded-rectangle and shield profiles, front/back content planes, perspective,
-lighting, depth,
+rounded-rectangle and shield profiles, front/back content planes, orthographic
+projection by default, optional perspective, lighting, and depth,
 and composed X/Y rotations. The scene also supports optional history-dependent
 logical face cycles over the two physical surfaces. Content-quality comparison,
 browser smoke, context loss, and performance gates remain open; the browser

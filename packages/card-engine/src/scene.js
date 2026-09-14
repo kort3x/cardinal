@@ -516,6 +516,7 @@ export function createCardScene(config = {}) {
       settling: channels.size > 0,
       renderer: renderer.type ?? "custom",
       rendererReason: renderer.reason ?? null,
+      projection: renderer.projection ?? null,
     };
   }
 

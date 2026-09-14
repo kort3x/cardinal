@@ -12,7 +12,9 @@ presentation, and a current pose.
 
 **Face**:
 A card presentation state: a named content face or the concealed face. Face
-selection is independent from application-level meaning.
+selection is independent from application-level meaning. Which large face is
+presented is determined by the card's logical face state and orientation, never
+by the camera's position relative to the card.
 
 **Logical face cycle**:
 An optional ordered sequence of named content faces; without one, a card has a
