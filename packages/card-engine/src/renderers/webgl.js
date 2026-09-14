@@ -324,12 +324,15 @@ function logicalFaceContent(card, side) {
 }
 
 export function createCardGeometry(shape, { depth = CARD_DEPTH, bevelSize = CARD_BEVEL_SIZE } = {}) {
-  const extrusionDepth = Math.max(0.1, depth - bevelSize * 2);
+  // The bevel is part of the requested depth. Keep the body inside its depth
+  // envelope so the face layers remain visible even on very thin cards.
+  const safeBevelSize = Math.min(bevelSize, Math.max(0, depth / 2 - 0.06));
+  const extrusionDepth = Math.max(0.001, depth - safeBevelSize * 2);
   const geometry = new THREE.ExtrudeGeometry(shape, {
     depth: extrusionDepth,
     bevelEnabled: true,
-    bevelThickness: bevelSize,
-    bevelSize,
+    bevelThickness: safeBevelSize,
+    bevelSize: safeBevelSize,
     bevelSegments: 4,
     curveSegments: 24,
   });

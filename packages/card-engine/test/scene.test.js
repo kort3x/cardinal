@@ -136,6 +136,19 @@ test("a rounded cuboid geometry includes a real bevel", () => {
   geometry.dispose();
 });
 
+test("a thin cuboid keeps the front content surface outside its bevel", () => {
+  const thickness = 2;
+  const geometry = createCardGeometry(
+    createCardShape("rounded-rectangle", { width: 180, height: 250 }),
+    { depth: thickness },
+  );
+  const position = geometry.getAttribute("position");
+  const maximumZ = Math.max(...Array.from({ length: position.count }, (_, index) => position.getZ(index)));
+
+  assert.equal(maximumZ < thickness / 2 + 0.06, true);
+  geometry.dispose();
+});
+
 test("card face geometries use normalized texture coordinates", () => {
   const dimensions = { width: 176, height: 246 };
   const geometry = createCardFaceGeometry(
