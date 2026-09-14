@@ -3,6 +3,7 @@ import { createCardScene } from "../../packages/card-engine/src/index.js";
 const stage = document.querySelector("#stage");
 const rendererStatus = document.querySelector("#renderer-status");
 const status = document.querySelector("#status");
+const pointerStatus = document.querySelector("#pointer-status");
 const cardList = document.querySelector("#card-list");
 const addCardButton = document.querySelector("#add-card");
 const removeCardsButton = document.querySelector("#remove-cards");
@@ -108,6 +109,40 @@ let selectedCardIds = new Set([baseCard.id]);
 let nextCardNumber = 2;
 let nextElementNumber = 1;
 let renderedElementKey;
+
+function setPointerStatus(state) {
+  pointerStatus.dataset.pointerState = JSON.stringify(state);
+  if (state.status === "not-observed") {
+    pointerStatus.textContent = "Pointer: not observed yet";
+    return;
+  }
+  const viewport = `viewport x ${state.viewportX} · y ${state.viewportY}`;
+  if (!state.insideStage) {
+    pointerStatus.textContent = `Pointer: ${viewport} · outside stage`;
+    return;
+  }
+  pointerStatus.textContent = `Pointer: ${viewport} · scene x ${state.sceneX} · y ${state.sceneY}`;
+}
+
+function updatePointerStatus(event) {
+  const rect = stage.getBoundingClientRect();
+  const insideStage = event.clientX >= rect.left
+    && event.clientX <= rect.right
+    && event.clientY >= rect.top
+    && event.clientY <= rect.bottom;
+  setPointerStatus({
+    status: "observed",
+    insideStage,
+    viewportX: Math.round(event.clientX),
+    viewportY: Math.round(event.clientY),
+    sceneX: Math.round(((event.clientX - rect.left) / rect.width) * 900),
+    sceneY: Math.round(((event.clientY - rect.top) / rect.height) * 500),
+  });
+}
+
+window.addEventListener("pointermove", updatePointerStatus, { passive: true });
+document.addEventListener("mouseleave", () => setPointerStatus({ status: "not-observed" }));
+setPointerStatus({ status: "not-observed" });
 
 function mergeFace(defaultFace, sourceFace = {}) {
   const defaults = defaultFace.elements ?? [];

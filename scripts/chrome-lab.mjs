@@ -165,6 +165,19 @@ const elementScenario = String.raw`(async () => {
   await sleep(700);
   record("baseline WebGL lab", (current) => current.renderer.includes("Three.js WebGL")
     && current.shells === 1 && current.elements.length === 3);
+  await step("track pointer coordinates", () => {
+    const stage = document.querySelector("#stage");
+    const rect = stage.getBoundingClientRect();
+    window.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    }));
+  }, () => {
+    const pointer = JSON.parse(document.querySelector("#pointer-status").dataset.pointerState);
+    return pointer.status === "observed" && pointer.insideStage === true
+      && pointer.sceneX === 450 && pointer.sceneY === 250;
+  });
   await step("hide image", () => click('#element-list input[aria-label="Show image"]'), (current) => {
     const image = current.elements.find((element) => element.name?.startsWith("image"));
     return image?.visible === false && !current.text[0]?.includes("stylized red cardinal");
