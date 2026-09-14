@@ -138,6 +138,12 @@ Gate: record missed frames, input latency, texture memory, context recovery, and
 landing error against agreed reference hardware. Set the supported envelope from
 measurements rather than promising unlimited cards.
 
+The first Chrome sample establishes a provisional envelope: 1–50 selected cards
+kept smooth cohort frame intervals after renderer draw batching, while 200 cards
+showed multi-hundred-millisecond frame gaps and multi-second setup. The 200-card
+population needs a separate optimization pass before it can be considered
+supported; see the dated evidence record for the measurement details.
+
 ## Project changes
 
 - Add the renderer dependency and browser test tooling only with the implementation

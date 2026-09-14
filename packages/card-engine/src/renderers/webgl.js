@@ -485,7 +485,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     for (const mounted of cards.values()) {
       mounted.frontKey = null;
       mounted.backKey = null;
-      if (mounted.lastCard && mounted.lastPose) update(mounted.lastCard, mounted.lastPose);
+      if (mounted.lastCard && mounted.lastPose) update(mounted.lastCard, mounted.lastPose, { render: false });
     }
     render();
   };
@@ -742,7 +742,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (!isResizing) mounted[transitionName] = null;
   }
 
-  function update(card, pose) {
+  function update(card, pose, { render: shouldRender = true } = {}) {
     const targetDimensions = cardDimensions(card, templates);
     const dimensions = { width: pose.width ?? targetDimensions.width, height: pose.height ?? targetDimensions.height };
     const textureDimensions = textureDimensionsForPose(card, pose, templates);
@@ -767,7 +767,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
     updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, targetDimensions);
     updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, targetDimensions);
-    render();
+    if (shouldRender) render();
   }
 
   function remove(cardId) {
@@ -800,6 +800,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       return mount(card, cardDimensions(card, templates), cardThickness(card, templates));
     },
     update,
+    render,
     remove,
     destroy() {
       resizeObserver?.disconnect();

@@ -308,6 +308,32 @@ test("a scene can use an injected renderer adapter", () => {
   assert.deepEqual(calls, ["update:card-1", "destroy"]);
 });
 
+test("a scene batches renderer draws for one animation sample", () => {
+  const clock = testClock();
+  let renders = 0;
+  const renderer = () => ({
+    update() {},
+    render() { renders += 1; },
+    destroy() {},
+  });
+  const cards = [card, { ...card, id: "card-2" }];
+  const scene = createCardScene({ renderer, motion: { clock, duration: 100 } });
+
+  scene.apply({ cards, zones: [{ ...zone, cardIds: cards.map(({ id }) => id) }] });
+  renders = 0;
+  scene.transact(cards.map((candidate, index) => ({
+    type: "move",
+    cardId: candidate.id,
+    position: { x: 180 + index * 220, y: 180 },
+  })));
+  renders = 0;
+
+  clock.tick(50);
+
+  assert.equal(renders, 1);
+  scene.destroy();
+});
+
 test("a scene exposes renderer context status changes", () => {
   let reportStatus;
   const renderer = ({ onStatus }) => {

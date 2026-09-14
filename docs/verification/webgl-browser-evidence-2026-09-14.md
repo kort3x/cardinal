@@ -20,6 +20,27 @@ it is not a browser acceptance sign-off.
   succeeds; CSS fallback is not automatically selected.
 - WebGL context-loss/restoration status propagation is covered by an engine test,
   and the adapter refreshes mounted card content after restoration.
+- A real Chrome context-loss run reported `webgl-context-lost`, then
+  `webgl-context-restored`; the canvas and one mounted card remained available.
+
+## Chrome performance sample
+
+Synthetic lab measurements on the reference Chrome profile used a 1-second
+cohort-animation sample after all listed cards were selected. Frame intervals are
+browser `requestAnimationFrame` intervals, not a product target.
+
+| Cards | Setup | Median frame | P95 frame | Missed frames over 20 ms | Result |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 0.7 ms | 8.3 ms | 9.8 ms | 0 | pass for this sample |
+| 6 | 37.8 ms | 8.3 ms | 9.8 ms | 0 | pass for this sample |
+| 50 | 237.8 ms | 8.3 ms | 9.7 ms | 0 | pass for this sample |
+| 200 | 2,495.3 ms | 8.1 ms | 297 ms | 2 | fails responsiveness sample |
+
+The post-batching 200-card sample produced six frames during the 1-second
+observation window and its first frame arrived about 896 ms after the action. The
+scene settled after the animation completed, but this remains outside a responsive
+supported envelope. Texture memory was not exposed by the browser API and was not
+estimated from unrelated process memory.
 
 ## Still required before issue #2 can close
 
@@ -29,7 +50,7 @@ it is not a browser acceptance sign-off.
 - Record frame timing, missed frames, input latency, texture memory, card counts,
   and landing error for the agreed reference device.
 - Capture real-browser context-loss and restoration evidence.
-- Record Safari's exact version and install/run Firefox for the third browser
-  family.
+- Record Safari's exact version and run the smoke matrix in Safari and Firefox for
+  the remaining browser families.
 
 Issue #2 remains In progress until those gates have evidence.

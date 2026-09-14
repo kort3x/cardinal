@@ -123,14 +123,14 @@ export function createCardScene(config = {}) {
     return visual.get(cardId);
   }
 
-  function renderCard(cardId) {
+  function renderCard(cardId, options = {}) {
     const card = desired?.cards.find((candidate) => candidate.id === cardId);
-    if (card) renderer.update(card, cardPose(cardId));
+    if (card) renderer.update(card, cardPose(cardId), options);
   }
 
-  function renderAll() {
+  function renderAll(options = {}) {
     if (!desired) return;
-    for (const card of desired.cards) renderCard(card.id);
+    for (const card of desired.cards) renderCard(card.id, options);
   }
 
   function settleTicket(ticket, status) {
@@ -165,6 +165,7 @@ export function createCardScene(config = {}) {
   function sample(time = clock.now()) {
     const wasSettling = channels.size > 0;
     let logicalFaceChanged = false;
+    let needsRender = false;
     for (const [cardId, cardChannels] of channels) {
       const pose = cardPose(cardId);
       const card = desired.cards.find((candidate) => candidate.id === cardId);
@@ -182,14 +183,16 @@ export function createCardScene(config = {}) {
           }
           setFlipValue(pose, channel.axis, nextAngle);
           channel.sampledAt = time;
-          renderCard(cardId);
+          renderCard(cardId, { render: false });
+          needsRender = true;
           continue;
         }
         const progress = reducedMotion ? 1 : Math.min(1, Math.max(0, (time - channel.startedAt) / channel.duration));
         const value = interpolate(channel.from, channel.to, progress);
         if (channelName === "flipX" || channelName === "flipY") setFlipValue(pose, channel.axis, value);
         else pose[channelName] = value;
-        renderCard(cardId);
+        renderCard(cardId, { render: false });
+        needsRender = true;
         if (progress >= 1) {
           if (channelName === "flipX" || channelName === "flipY") setFlipValue(pose, channel.axis, channel.to);
           else pose[channelName] = channel.to;
@@ -199,6 +202,7 @@ export function createCardScene(config = {}) {
       }
       if (Object.keys(cardChannels).length === 0) channels.delete(cardId);
     }
+    if (needsRender) renderer.render?.();
     if (logicalFaceChanged && channels.size > 0) emit("change", snapshot());
     if (channels.size > 0 && !frameId) frameId = clock.requestFrame(onFrame);
     if (channels.size === 0) {
@@ -382,7 +386,8 @@ export function createCardScene(config = {}) {
         current.pivotY = target.pivotY;
       }
     }
-    renderAll();
+    renderAll({ render: false });
+    renderer.render?.();
     ensureFrame();
     emit("change", snapshot());
   }
@@ -600,7 +605,8 @@ export function createCardScene(config = {}) {
     } else {
       ensureFrame();
     }
-    renderAll();
+    renderAll({ render: false });
+    renderer.render?.();
     emit("change", snapshot());
     return { finished: transition.finished };
   }
