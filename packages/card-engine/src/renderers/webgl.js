@@ -170,9 +170,14 @@ function contentKey(content, dimensions) {
     content?.background,
     content?.textColor,
     content?.mutedTextColor,
+    content?.elements,
     dimensions.width,
     dimensions.height,
   ]);
+}
+
+function elementVisible(content, element) {
+  return content?.elements?.[element] !== false;
 }
 
 function logicalFaceContent(card, side) {
@@ -285,8 +290,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     context.fillStyle = content?.textColor ?? "#17212b";
     context.font = "700 18.4px system-ui, sans-serif";
     context.textBaseline = "top";
-    drawLines(context, wrapText(context, content?.title, dimensions.width - 36), 18, 18, 21);
-    if (content?.image) {
+    if (elementVisible(content, "title")) {
+      drawLines(context, wrapText(context, content?.title, dimensions.width - 36), 18, 18, 21);
+    }
+    if (elementVisible(content, "image") && content?.image) {
       const image = new Image();
       image.alt = content.imageAlt ?? "";
       image.onload = () => {
@@ -296,9 +303,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       };
       image.src = content.image;
     }
-    context.fillStyle = content?.mutedTextColor ?? "#78838c";
-    context.font = "14.4px system-ui, sans-serif";
-    drawLines(context, wrapText(context, content?.flavour, dimensions.width - 36), 18, dimensions.height - 70, 20);
+    if (elementVisible(content, "flavour")) {
+      context.fillStyle = content?.mutedTextColor ?? "#78838c";
+      context.font = "14.4px system-ui, sans-serif";
+      drawLines(context, wrapText(context, content?.flavour, dimensions.width - 36), 18, dimensions.height - 70, 20);
+    }
     const texture = new THREE.CanvasTexture(canvas2d);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
@@ -391,9 +400,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.faceGroup.rotation.set(radians(pose.flipX ?? 0), radians(pose.flipY ?? pose.flipAngle ?? 0), 0);
     const accessible = accessibleContent(card, pose);
     const accessibleText = [
-      accessible.side === "back" ? "Concealed card" : accessible.content.title,
-      accessible.content.imageAlt,
-      accessible.content.flavour,
+      accessible.side === "back" ? "Concealed card" : elementVisible(accessible.content, "title") ? accessible.content.title : null,
+      accessible.side === "back" || elementVisible(accessible.content, "image") ? accessible.content.imageAlt : null,
+      accessible.side === "back" || elementVisible(accessible.content, "flavour") ? accessible.content.flavour : null,
     ].filter(Boolean).join(". ");
     mounted.accessibilityShell.textContent = accessibleText || "Card";
     mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);

@@ -25,6 +25,11 @@ const rotateValue = document.querySelector("#rotate-value");
 const scaleValue = document.querySelector("#scale-value");
 const flipXValue = document.querySelector("#flip-x-value");
 const flipYValue = document.querySelector("#flip-y-value");
+const elementVisibility = {
+  title: document.querySelector("#element-title"),
+  image: document.querySelector("#element-image"),
+  flavour: document.querySelector("#element-flavour"),
+};
 
 const logicalFaceDefinitions = [
   {
@@ -87,7 +92,11 @@ let selectedCardIds = new Set([baseCard.id]);
 let nextCardNumber = 2;
 
 function configuredCard(sourceCard) {
-  const faces = logicalFaceDefinitions.slice(0, Number(faceCount.value));
+  const faces = logicalFaceDefinitions.slice(0, Number(faceCount.value)).map((face) => ({
+    ...face,
+    ...sourceCard.faces?.[face.id],
+    elements: { ...face.elements, ...sourceCard.faces?.[face.id]?.elements },
+  }));
   const card = {
     ...sourceCard,
     faces: Object.fromEntries(faces.map((face) => [face.id, face])),
@@ -272,6 +281,28 @@ function syncControlsFromSelection() {
     flipX: pose.flipX ?? 0,
     flipY: pose.flipY ?? pose.flipAngle ?? 0,
   });
+  const content = card.faces[card.activeFaceId] ?? {};
+  for (const [name, control] of Object.entries(elementVisibility)) {
+    control.checked = content.elements?.[name] !== false;
+  }
+}
+
+function applyElementVisibility(element, visible) {
+  const cards = sceneCards().map((card) => {
+    if (!selectedCardIds.has(card.id)) return card;
+    const face = card.faces[card.activeFaceId] ?? {};
+    return {
+      ...card,
+      faces: {
+        ...card.faces,
+        [card.activeFaceId]: {
+          ...face,
+          elements: { ...face.elements, [element]: visible },
+        },
+      },
+    };
+  });
+  applyLabCards(cards);
 }
 
 function updateStatus() {
@@ -557,6 +588,10 @@ document.querySelectorAll("[data-flip]").forEach((button) => {
     queueControl("flip", { immediate: false });
   });
 });
+
+for (const [element, control] of Object.entries(elementVisibility)) {
+  control.addEventListener("change", () => applyElementVisibility(element, control.checked));
+}
 
 document.querySelector("#combined").addEventListener("click", () => {
   stopContinuousFlip();
