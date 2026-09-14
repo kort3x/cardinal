@@ -16,6 +16,14 @@ selection is independent from application-level meaning. Which large face is
 presented is determined by the card's logical face state and orientation, never
 by the camera's position relative to the card.
 
+**Element**:
+An independently identified piece of a card face's presentation, such as text,
+image, metadata, badge, control, stamp, counter, sticker, or project-defined
+content. A face may contain zero, one, or many elements, including multiple
+elements of the same type; title, image, and flavour are only example elements.
+Elements may participate in layout or appear as overlays, and their presence and
+visibility are separate concerns.
+
 **Logical face cycle**:
 An optional ordered sequence of named content faces; without one, a card has a
 single logical front face. An orientation-changing
