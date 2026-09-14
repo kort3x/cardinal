@@ -89,13 +89,14 @@ export function createCardScene(config = {}) {
   const clock = config.motion?.clock ?? createClock();
   const reducedMotion = Boolean(config.motion?.reducedMotion);
   const duration = config.motion?.duration ?? 320;
+  const camera = { projection: "orthographic", ...(config.camera ?? {}) };
   const createRendererAdapter = config.renderer ?? (
     config.renderMode === "css" ? createRenderer : config.element ? createWebGLRenderer : createHeadlessRenderer
   );
   const renderer = createRendererAdapter({
     element: config.element,
     templates: config.templates,
-    camera: config.camera,
+    camera,
     motion: config.motion,
   });
   const listeners = new Map();
@@ -320,7 +321,7 @@ export function createCardScene(config = {}) {
       for (const card of previousDesired.cards) if (!nextIds.has(card.id)) renderer.remove(card.id);
     }
     desired = next;
-    const poses = solveAllPoses(desired, config.camera, config.templates);
+    const poses = solveAllPoses(desired, camera, config.templates);
     visual = new Map([...poses].map(([cardId, pose]) => {
       const card = desired.cards.find((candidate) => candidate.id === cardId);
       const previousPose = previousVisual.get(cardId);
@@ -453,7 +454,7 @@ export function createCardScene(config = {}) {
 
     const previous = desired;
     desired = next;
-    const targets = solveAllPoses(next, config.camera, config.templates);
+    const targets = solveAllPoses(next, camera, config.templates);
     const affected = new Set(operations.map((operation) => operation.cardId));
     for (const cardId of affected) {
       const card = cards.get(cardId);

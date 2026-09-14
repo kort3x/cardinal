@@ -198,6 +198,32 @@ test("cards in one zone receive deterministic depth and draw order", () => {
   scene.destroy();
 });
 
+test("zone depth layers separate cards by their rendered thickness", () => {
+  const scaledCard = { ...card, pose: { scale: 2 } };
+  const secondCard = { ...scaledCard, id: "card-2" };
+  const scene = createCardScene();
+  scene.apply({
+    cards: [scaledCard, secondCard],
+    zones: [{ ...zone, cardIds: [scaledCard.id, secondCard.id] }],
+  });
+
+  const [first, second] = scene.snapshot().visual;
+  assert.equal(first.pose.z, 0);
+  assert.equal(second.pose.z, 13);
+  scene.destroy();
+});
+
+test("orthographic layout does not apply perspective depth scaling", () => {
+  const scene = createCardScene({ camera: { projection: "orthographic" } });
+  scene.apply({
+    cards: [card],
+    zones: [{ ...zone, geometry: { ...zone.geometry, depth: 500 } }],
+  });
+
+  assert.equal(scene.snapshot().visual[0].pose.depthScale, 1);
+  scene.destroy();
+});
+
 test("the default headless scene is not reported as CSS", () => {
   const scene = createCardScene();
 

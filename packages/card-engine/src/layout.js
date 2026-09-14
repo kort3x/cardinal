@@ -3,6 +3,7 @@ import { DEFAULT_POSE } from "./model.js";
 export const DEFAULT_CARD_DIMENSIONS = Object.freeze({ width: 180, height: 250 });
 export const CARD_DEPTH = 6;
 export const DEFAULT_CARD_LAYER_STEP = 8;
+export const CARD_LAYER_GAP = 1;
 
 export function cardDimensions(card, templates = {}) {
   const template = templates[card.template] ?? {};
@@ -13,14 +14,14 @@ export function cardDimensions(card, templates = {}) {
 }
 
 export function depthScale(camera, depth) {
+  if (camera?.projection === "orthographic") return 1;
   if (camera?.depthScale) return camera.depthScale(depth);
   return 1 / (1 + Math.max(0, depth) / 1000);
 }
 
-export function solveCardPose(card, zone, index = 0, camera, templates) {
+export function solveCardPose(card, zone, index = 0, camera, templates, layerOffset = 0) {
   const dimensions = cardDimensions(card, templates);
   const gap = zone.arrangement?.gap ?? 16;
-  const depthStep = zone.arrangement?.depthStep ?? DEFAULT_CARD_LAYER_STEP;
   const columns = Math.max(1, Math.floor((zone.geometry.width + gap) / (dimensions.width + gap)));
   const column = index % columns;
   const row = Math.floor(index / columns);
@@ -34,7 +35,7 @@ export function solveCardPose(card, zone, index = 0, camera, templates) {
     ...card.pose,
     x,
     y,
-    z: zone.geometry.depth + index * depthStep,
+    z: zone.geometry.depth + layerOffset,
     scale: card.pose?.scale ?? 1,
     depthScale: depthScale(camera, zone.geometry.depth),
   };
@@ -45,9 +46,18 @@ export function solveAllPoses(snapshot, camera, templates) {
   const poses = new Map();
   let drawOrder = 0;
   for (const zone of snapshot.zones) {
+    let layerOffset = 0;
+    let previousDepth = null;
     zone.cardIds.forEach((cardId, index) => {
       const card = cards.get(cardId);
-      poses.set(cardId, { ...solveCardPose(card, zone, index, camera, templates), drawOrder });
+      const currentDepth = CARD_DEPTH * (card.pose?.scale ?? 1) * depthScale(camera, zone.geometry.depth);
+      if (previousDepth !== null) {
+        const configuredStep = zone.arrangement?.depthStep ?? DEFAULT_CARD_LAYER_STEP;
+        const physicalStep = (previousDepth + currentDepth) / 2 + CARD_LAYER_GAP;
+        layerOffset += Math.max(configuredStep, physicalStep);
+      }
+      poses.set(cardId, { ...solveCardPose(card, zone, index, camera, templates, layerOffset), drawOrder });
+      previousDepth = currentDepth;
       drawOrder += 1;
     });
   }

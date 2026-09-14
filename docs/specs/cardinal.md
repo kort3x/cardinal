@@ -131,8 +131,9 @@ arrangement solver resolves both each card's local depth layer and a scene-wide
 `drawOrder`; the renderer consumes those resolved values and never derives an
 independent stacking order from animation timing or DOM/mesh insertion order.
 The default local layer spacing is `8` scene units, separating the default
-6-unit cuboids, and can be overridden with a finite, non-negative
-`arrangement.depthStep`. WebGL treats each resolved card layer as an ordered
+6-unit cuboids. `arrangement.depthStep` is a finite, non-negative minimum; the
+solver increases the actual spacing when adjacent cards' scaled thicknesses
+require it, including for mixed card scales. WebGL treats each resolved card layer as an ordered
 rendering layer: it clears the previous card's depth buffer before drawing the
 next card, preserving intentional overlap even while a card rotates or flips.
 
