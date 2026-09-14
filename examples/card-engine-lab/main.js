@@ -137,6 +137,45 @@ function desiredSnapshot(cards = sceneCards()) {
   };
 }
 
+function cardFootprint(card) {
+  const scale = card.pose?.scale ?? 1;
+  return {
+    width: (card.dimensions?.width ?? 180) * scale,
+    height: (card.dimensions?.height ?? 250) * scale,
+  };
+}
+
+function footprintsOverlap(first, second, gap) {
+  const firstSize = cardFootprint(first);
+  const secondSize = cardFootprint(second);
+  return Math.abs(first.pose.x - second.pose.x) < (firstSize.width + secondSize.width) / 2 + gap
+    && Math.abs(first.pose.y - second.pose.y) < (firstSize.height + secondSize.height) / 2 + gap;
+}
+
+function nextCardPosition(cards) {
+  const scale = Number(scaleSlider.value);
+  const candidate = { ...baseCard, pose: { x: 450, y: 250, scale } };
+  const offsets = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [-1, 1], [1, -1], [-1, -1],
+  ];
+  const gap = 24;
+  const size = cardFootprint(candidate);
+  const stepX = Math.max(size.width, ...cards.map((card) => cardFootprint(card).width)) + gap;
+  const stepY = Math.max(size.height, ...cards.map((card) => cardFootprint(card).height)) + gap;
+  for (let radius = 0; radius < 12; radius += 1) {
+    const candidates = radius === 0
+      ? [[0, 0]]
+      : offsets.map(([x, y]) => [x * radius, y * radius]);
+    for (const [x, y] of candidates) {
+      const position = { x: 450 + x * stepX, y: 250 + y * stepY };
+      const placed = { ...candidate, pose: { ...candidate.pose, ...position } };
+      if (!cards.some((card) => footprintsOverlap(card, placed, gap))) return position;
+    }
+  }
+  return { x: 450 + cards.length * (size.width + gap), y: 250 };
+}
+
 function currentCard(state = scene.snapshot()) {
   return state.desired.cards.find(({ id }) => selectedCardIds.has(id));
 }
@@ -457,17 +496,16 @@ faceCount.addEventListener("change", startScene);
 
 addCardButton.addEventListener("click", () => {
   const cards = sceneCards();
-  const index = cards.length;
   const id = `cardinal-demo-${nextCardNumber}`;
   nextCardNumber += 1;
+  const position = nextCardPosition(cards);
   cards.push({
     ...baseCard,
     id,
     template: shape.value,
     positionMode: "absolute",
     pose: {
-      x: 220 + (index % 3) * 230,
-      y: 170 + Math.floor(index / 3) * 260,
+      ...position,
       scale: Number(scaleSlider.value),
     },
   });
