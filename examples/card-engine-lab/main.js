@@ -395,6 +395,16 @@ function renderElementList(state = scene.snapshot()) {
       element: { layout: { ...(element.layout ?? {}), mode: mode.value } },
     }));
 
+    const policy = document.createElement("select");
+    policy.setAttribute("aria-label", `Hidden layout policy for ${element.id}`);
+    policy.innerHTML = '<option value="reflow">Hidden: Reflow</option><option value="preserve-space">Hidden: Preserve space</option>';
+    policy.value = element.visibilityMode ?? "reflow";
+    policy.addEventListener("change", () => applyElementOperation({
+      action: "update",
+      elementId: element.id,
+      element: { visibilityMode: policy.value },
+    }));
+
     const actions = document.createElement("div");
     actions.className = "element-actions";
     const moveButton = (label, targetIndex, disabled) => {
@@ -412,7 +422,7 @@ function renderElementList(state = scene.snapshot()) {
     remove.addEventListener("click", () => applyElementOperation({ action: "remove", elementId: element.id }));
     actions.append(remove);
 
-    row.append(visibility, editor, mode, actions);
+    row.append(visibility, editor, mode, policy, actions);
     return row;
   });
   elementList.replaceChildren(...rows);

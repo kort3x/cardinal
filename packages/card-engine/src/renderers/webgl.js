@@ -213,10 +213,14 @@ function elementVisible(element) {
   return element?.visible !== false;
 }
 
-function sortedElements(content) {
+function elementReservesSpace(element) {
+  return elementVisible(element) || element.visibilityMode === "preserve-space";
+}
+
+function sortedElements(content, includePreserved = false) {
   return contentElements(content)
     .map((element, index) => ({ element, index }))
-    .filter(({ element }) => elementVisible(element))
+    .filter(({ element }) => includePreserved ? elementReservesSpace(element) : elementVisible(element))
     .sort((first, second) => (first.element.layout?.order ?? first.index) - (second.element.layout?.order ?? second.index) || first.index - second.index);
 }
 
@@ -234,11 +238,12 @@ function drawTextElement(context, element, dimensions, x, y, width, color, varia
   context.textBaseline = "top";
   const lineHeight = style.lineHeight ?? (isTitle ? 21 : 20);
   const text = wrapText(context, elementText(element), Math.max(1, width));
-  drawLines(context, text, x, y, lineHeight);
+  if (elementVisible(element)) drawLines(context, text, x, y, lineHeight);
   return text.split("\n").length * lineHeight;
 }
 
 function drawImageElement(context, element, dimensions, x, y, width, height, images, fallbackImage) {
+  if (!elementVisible(element)) return height;
   const image = imageFrom(images, element, fallbackImage);
   if (!image) return height;
   context.drawImage(image, x, y, width, height);
@@ -251,10 +256,11 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
   const inner = 18;
   const innerWidth = Math.max(1, dimensions.width - inner * 2);
   const textColor = content?.textColor ?? "#17212b";
-  const entries = sortedElements(content);
+  const entries = sortedElements(content, true);
   const flow = entries.filter(({ element }) => (element.layout?.mode ?? "flow") === "flow");
   const overlays = entries
     .filter(({ element }) => element.layout?.mode === "overlay")
+    .filter(({ element }) => elementVisible(element))
     .sort((first, second) => (first.element.layout?.zIndex ?? 0) - (second.element.layout?.zIndex ?? 0)
       || String(first.element.id).localeCompare(String(second.element.id)));
   let cursor = inner;

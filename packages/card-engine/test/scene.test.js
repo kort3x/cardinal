@@ -170,6 +170,24 @@ test("card texture redraws reuse a loaded image synchronously", () => {
   assert.equal(calls.some(([name, value]) => name === "drawImage" && value === image), true);
 });
 
+test("hidden preserved elements reserve flow space without rendering", () => {
+  const calls = [];
+  const context = {
+    fillText(...args) { calls.push(["fillText", ...args]); },
+    fillRect(...args) { calls.push(["fillRect", ...args]); },
+    measureText(text) { return { width: text.length * 8 }; },
+  };
+  drawCardTextureContent(context, {
+    elements: [
+      { id: "hidden", type: "text", content: { text: "Hidden" }, visible: false, visibilityMode: "preserve-space", layout: { mode: "flow", order: 0 } },
+      { id: "visible", type: "text", content: { text: "Visible" }, layout: { mode: "flow", order: 1 } },
+    ],
+  }, { width: 180, height: 250 });
+
+  assert.deepEqual(calls.filter(([name]) => name === "fillText").map(([, text]) => text), ["Visible"]);
+  assert.equal(calls.find(([name]) => name === "fillText")[3], 48);
+});
+
 test("a scene can use an injected renderer adapter", () => {
   const calls = [];
   const renderer = () => ({

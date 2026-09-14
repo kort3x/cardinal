@@ -28,6 +28,10 @@ export function normalizeElement(element, index = 0) {
   if (typeof element.type !== "string" || element.type.length === 0) {
     throw new TypeError(`Element ${element.id} requires a type`);
   }
+  const visibilityMode = element.visibilityMode ?? "reflow";
+  if (visibilityMode !== "reflow" && visibilityMode !== "preserve-space") {
+    throw new TypeError(`Element ${element.id} has unknown visibility mode: ${visibilityMode}`);
+  }
   const layout = element.layout ?? {};
   const mode = layout.mode ?? "flow";
   if (mode !== "flow" && mode !== "overlay") {
@@ -46,6 +50,7 @@ export function normalizeElement(element, index = 0) {
   return {
     ...copy(element),
     visible: element.visible !== false,
+    visibilityMode,
     layout: { ...layout, mode, order: layout.order ?? index, zIndex: layout.zIndex ?? 0 },
   };
 }
