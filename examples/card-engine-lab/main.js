@@ -13,7 +13,6 @@ const faceCount = document.querySelector("#face-count");
 const reduced = document.querySelector("#reduced");
 const moveXSlider = document.querySelector("#move-x");
 const moveYSlider = document.querySelector("#move-y");
-const moveAllCards = document.querySelector("#move-all-cards");
 const rotateSlider = document.querySelector("#rotate-slider");
 const scaleSlider = document.querySelector("#scale-slider");
 const flipXSlider = document.querySelector("#flip-x-slider");
@@ -394,16 +393,14 @@ let controlsFrame;
 function controlOperations(channels) {
   const operations = [];
   const selected = selectedCards();
-  const moveTargets = moveAllCards.checked ? scene.snapshot().desired.cards : selected;
-  if (selected.length === 0 && moveTargets.length === 0) return operations;
-  const primary = selected[0] ?? moveTargets[0];
+  if (selected.length === 0) return operations;
   if (channels.has("move")) {
     const x = Number(moveXSlider.value);
     const y = Number(moveYSlider.value);
-    for (const card of moveTargets) operations.push({
+    for (const card of selected) operations.push({
       type: "move",
       cardId: card.id,
-      position: { x: x + card.pose.x - primary.pose.x, y: y + card.pose.y - primary.pose.y },
+      position: { x, y },
     });
   }
   if (channels.has("rotate")) {
