@@ -118,11 +118,15 @@ delta. Its managed texture estimate was 1.41 MiB for the default card at
 showed the card, side volume, and content surfaces without the earlier off-stage
 blank result from the smaller 800×600 window.
 
-## Still required before issue #2 can close
+The Firefox acceptance run used Firefox 155.0.1 with a 1280×815 headless desktop
+viewport. All 9 checks passed for baseline WebGL, move, rotate, scale, face-down,
+simultaneous X/Y flip, edge-on pose, combined motion, and reduced motion. Firefox
+measured a 1 ms next-frame input sample and a 0 px landing delta. Its managed
+texture estimate was 1.41 MiB for the default card at `devicePixelRatio = 1`.
+The inspected face-on, edge-on, and oblique 200% captures showed the closed
+rounded cuboid, coherent side volume, and readable card content.
 
-- Run the same documented visual checks in Firefox, including edge-on and
-  oblique views, X/Y/both-axis flips, reduced motion, resizing, and disposal.
-- Capture the managed texture estimate and acceptance measurements in Firefox
-  using the same method; Chrome and Safari measurements are now recorded above.
+## Remaining review
 
-Issue #2 remains In progress until those gates have evidence.
+The Chrome, Firefox, and Safari runtime, motion, measurement, and visual gates
+are now recorded. Issue #2 remains In progress until the final issue review.
