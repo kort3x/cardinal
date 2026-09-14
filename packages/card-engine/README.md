@@ -56,6 +56,16 @@ showing, or adding one animates the shell to its new height; overlay elements
 and reflow-collapsed elements do not contribute. Fixed-size cards keep their
 configured dimensions while their remaining content reflows.
 
+Physical depth defaults to `6` scene units and can be set on a template or
+overridden per card. It can also be changed through a transaction:
+
+```js
+scene.transact([{ type: "thickness", cardId: "card-7", thickness: 12 }]);
+```
+
+Thickness changes animate the closed WebGL cuboid, move both face surfaces with
+the shell, and are included in zone depth separation.
+
 By default, a card has one logical front face and one shared back. Cards may opt
 into multiple logical front faces with `faceCycle`. Returning to
 the physical front advances to the next named face and wraps back to the first;

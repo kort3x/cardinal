@@ -379,6 +379,39 @@ test("an interrupted resize retargets from the current visible dimensions", asyn
   scene.destroy();
 });
 
+test("thickness is a first-class animated card property", async () => {
+  const clock = testClock();
+  const scene = createCardScene({ clock, renderer: () => ({ update() {}, destroy() {} }), motion: { clock, duration: 700 } });
+  scene.apply({ cards: [card], zones: [zone] });
+  assert.equal(scene.snapshot().visual[0].pose.thickness, 6);
+
+  const transition = scene.transact([{ type: "thickness", cardId: "card-1", thickness: 18 }]);
+  assert.equal(scene.snapshot().desired.cards[0].thickness, 18);
+  assert.equal(scene.snapshot().visual[0].pose.thickness, 6);
+  clock.tick(350);
+  assert.equal(scene.snapshot().visual[0].pose.thickness > 6 && scene.snapshot().visual[0].pose.thickness < 18, true);
+  clock.tick(350);
+  await transition.finished;
+  assert.equal(scene.snapshot().visual[0].pose.thickness, 18);
+  scene.destroy();
+});
+
+test("custom thickness controls depth separation between cards", () => {
+  const thickCard = { ...card, thickness: 18 };
+  const secondCard = { ...card, id: "card-2", thickness: 30 };
+  const scene = createCardScene();
+  scene.apply({
+    cards: [thickCard, secondCard],
+    zones: [{ ...zone, cardIds: [thickCard.id, secondCard.id] }],
+  });
+
+  const [first, second] = scene.snapshot().visual;
+  assert.equal(first.pose.thickness, 18);
+  assert.equal(second.pose.thickness, 30);
+  assert.equal(second.pose.z, 25);
+  scene.destroy();
+});
+
 test("cards in one zone receive deterministic depth and draw order", () => {
   const secondCard = { ...card, id: "card-2" };
   const scene = createCardScene();

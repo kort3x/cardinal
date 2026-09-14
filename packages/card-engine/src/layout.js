@@ -1,7 +1,9 @@
 import { DEFAULT_POSE } from "./model.js";
 
 export const DEFAULT_CARD_DIMENSIONS = Object.freeze({ width: 180, height: 250 });
-export const CARD_DEPTH = 6;
+export const DEFAULT_CARD_THICKNESS = 6;
+// Compatibility alias for renderer consumers that used the original constant.
+export const CARD_DEPTH = DEFAULT_CARD_THICKNESS;
 export const DEFAULT_CARD_LAYER_STEP = 8;
 export const CARD_LAYER_GAP = 1;
 export const DEFAULT_CONTENT_MIN_HEIGHT = 120;
@@ -89,6 +91,11 @@ export function cardDimensions(card, templates = {}) {
   return dimensions;
 }
 
+export function cardThickness(card, templates = {}) {
+  const template = templates[card.template] ?? {};
+  return card.thickness ?? template.thickness ?? DEFAULT_CARD_THICKNESS;
+}
+
 export function depthScale(camera, depth) {
   if (camera?.projection === "orthographic") return 1;
   if (camera?.depthScale) return camera.depthScale(depth);
@@ -111,6 +118,7 @@ export function solveCardPose(card, zone, index = 0, camera, templates, layerOff
     ...card.pose,
     width: dimensions.width,
     height: dimensions.height,
+    thickness: cardThickness(card, templates),
     x,
     y,
     z: zone.geometry.depth + layerOffset,
@@ -129,7 +137,7 @@ export function solveAllPoses(snapshot, camera, templates) {
     let previousDepth = null;
     zone.cardIds.forEach((cardId, index) => {
       const card = cards.get(cardId);
-      const currentDepth = CARD_DEPTH * (card.pose?.scale ?? 1) * depthScale(camera, zone.geometry.depth);
+      const currentDepth = cardThickness(card, templates) * (card.pose?.scale ?? 1) * depthScale(camera, zone.geometry.depth);
       if (previousDepth !== null) {
         const configuredStep = zone.arrangement?.depthStep ?? DEFAULT_CARD_LAYER_STEP;
         const physicalStep = (previousDepth + currentDepth) / 2 + CARD_LAYER_GAP;
@@ -144,7 +152,7 @@ export function solveAllPoses(snapshot, camera, templates) {
         width: Math.abs(unrotatedWidth * Math.cos(angle)) + Math.abs(unrotatedHeight * Math.sin(angle)),
         height: Math.abs(unrotatedWidth * Math.sin(angle)) + Math.abs(unrotatedHeight * Math.cos(angle)),
       };
-      const renderedDepth = CARD_DEPTH * pose.scale * pose.depthScale;
+      const renderedDepth = cardThickness(card, templates) * pose.scale * pose.depthScale;
       for (const placed of placedCards) {
         const overlaps = Math.abs(pose.x - placed.pose.x) < (footprint.width + placed.footprint.width) / 2
           && Math.abs(pose.y - placed.pose.y) < (footprint.height + placed.footprint.height) / 2;

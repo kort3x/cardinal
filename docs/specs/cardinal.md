@@ -231,6 +231,7 @@ const transition = scene.transact([
   { type: "rotate", cardId: "card-7", angle: 15 },
   { type: "scale", cardId: "card-7", factor: 1.25 },
   { type: "resize", cardId: "card-7", dimensions: { width: 220, height: 300 } },
+  { type: "thickness", cardId: "card-7", thickness: 12 },
   { type: "face", cardId: "card-7", face: "faceUp", axis: "y" },
 ]);
 
@@ -439,6 +440,14 @@ resize channel to animate the shell. Overlay elements and reflow-collapsed
 elements contribute no height. This policy applies to element add/remove,
 show/hide, and content updates; fixed-size cards only reflow their remaining
 content.
+
+Physical thickness defaults to 6 scene units. Templates may provide
+`thickness`, and cards may override it with a positive finite value. A
+`{ type: "thickness", cardId, thickness }` transaction animates the closed
+cuboid, keeps both face surfaces attached, and causes the arrangement solver to
+recalculate physical layer separation using the new thickness. Thickness is
+independent of uniform visual scale; scale multiplies the configured thickness
+when calculating rendered depth.
 
 Movement alone preserves the current internal geometry. Explicit content or
 presentation changes may reshape the card, including during movement. Depth uniformly scales

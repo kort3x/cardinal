@@ -13,6 +13,7 @@ const faceCount = document.querySelector("#face-count");
 const cardSizing = document.querySelector("#card-sizing");
 const cardWidthSlider = document.querySelector("#card-width");
 const cardHeightSlider = document.querySelector("#card-height");
+const cardThicknessSlider = document.querySelector("#card-thickness");
 const reduced = document.querySelector("#reduced");
 const moveXSlider = document.querySelector("#move-x");
 const moveYSlider = document.querySelector("#move-y");
@@ -26,6 +27,7 @@ const moveXValue = document.querySelector("#move-x-value");
 const moveYValue = document.querySelector("#move-y-value");
 const cardWidthValue = document.querySelector("#card-width-value");
 const cardHeightValue = document.querySelector("#card-height-value");
+const cardThicknessValue = document.querySelector("#card-thickness-value");
 const rotateValue = document.querySelector("#rotate-value");
 const scaleValue = document.querySelector("#scale-value");
 const flipXValue = document.querySelector("#flip-x-value");
@@ -238,8 +240,8 @@ function startScene(cards = sceneCards()) {
     scene = createCardScene({
       element: stage,
       templates: {
-        illustrated: { width: 180, height: 250, shape: "rounded-rectangle" },
-        shield: { width: 180, height: 250, shape: "shield" },
+        illustrated: { width: 180, height: 250, thickness: 6, shape: "rounded-rectangle" },
+        shield: { width: 180, height: 250, thickness: 6, shape: "shield" },
       },
       motion: { reducedMotion: reduced.checked, duration: 700 },
     });
@@ -312,6 +314,7 @@ function syncControlsFromSelection() {
     y: pose.y,
     width: pose.width,
     height: pose.height,
+    thickness: pose.thickness,
     angle: pose.angle,
     scale: pose.scale,
     flipX: pose.flipX ?? 0,
@@ -450,7 +453,7 @@ function updateStatus() {
   rendererStatus.textContent = `Renderer: ${rendererLabel}${projectionLabel}${state.rendererReason && state.rendererReason !== "css" ? ` — ${state.rendererReason}` : ""}`;
   const physicalSide = visual?.physicalSide ?? "unknown";
   status.textContent = pose
-    ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · z ${pose.z.toFixed(1)} · size ${pose.width.toFixed(0)}×${pose.height.toFixed(0)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}`
+    ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · z ${pose.z.toFixed(1)} · size ${pose.width.toFixed(0)}×${pose.height.toFixed(0)} · depth ${pose.thickness.toFixed(1)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}`
     : `${state.desired.cards.length} cards · 0 selected`;
   selectionStatus.textContent = `${selectedCardIds.size} of ${state.desired.cards.length} selected`;
 }
@@ -510,6 +513,7 @@ function updateControlLabels() {
   moveYValue.textContent = moveYSlider.value;
   cardWidthValue.textContent = cardWidthSlider.value;
   cardHeightValue.textContent = cardHeightSlider.value;
+  cardThicknessValue.textContent = cardThicknessSlider.value;
   cardHeightSlider.disabled = cardSizing.value === "content";
   rotateValue.textContent = `${rotateSlider.value}°`;
   scaleValue.textContent = `${Math.round(scale * 100)}%`;
@@ -517,11 +521,12 @@ function updateControlLabels() {
   flipYValue.textContent = `${flipY}°`;
 }
 
-function setControls({ x, y, width, height, angle, scale, faceUp, flipX, flipY } = {}) {
+function setControls({ x, y, width, height, thickness, angle, scale, faceUp, flipX, flipY } = {}) {
   if (x !== undefined) moveXSlider.value = String(x);
   if (y !== undefined) moveYSlider.value = String(y);
   if (width !== undefined) cardWidthSlider.value = String(width);
   if (height !== undefined) cardHeightSlider.value = String(height);
+  if (thickness !== undefined) cardThicknessSlider.value = String(thickness);
   if (angle !== undefined) rotateSlider.value = String(angle);
   if (scale !== undefined) scaleSlider.value = String(scale);
   if (flipX !== undefined) flipXSlider.value = String(flipX);
@@ -580,6 +585,10 @@ function controlOperations(channels) {
   if (channels.has("resize")) {
     const dimensions = { width: Number(cardWidthSlider.value), height: Number(cardHeightSlider.value) };
     for (const card of selected) operations.push({ type: "resize", cardId: card.id, dimensions });
+  }
+  if (channels.has("thickness")) {
+    const thickness = Number(cardThicknessSlider.value);
+    for (const card of selected) operations.push({ type: "thickness", cardId: card.id, thickness });
   }
   if (channels.has("flip")) {
     const flipX = Number(flipXSlider.value);
@@ -666,7 +675,8 @@ spinButton.addEventListener("click", () => {
 });
 
 [moveXSlider, moveYSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("move")));
- [cardWidthSlider, cardHeightSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("resize")));
+[cardWidthSlider, cardHeightSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("resize")));
+cardThicknessSlider.addEventListener("input", () => queueControl("thickness"));
 rotateSlider.addEventListener("input", () => queueControl("rotate"));
 scaleSlider.addEventListener("input", () => queueControl("scale"));
 [flipXSlider, flipYSlider].forEach((slider) => slider.addEventListener("input", () => {

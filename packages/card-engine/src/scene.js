@@ -27,6 +27,7 @@ const operationResultChannels = {
   rotate: () => 1,
   scale: () => 1,
   resize: () => 2,
+  thickness: () => 1,
   face: (operation) => flipAxes(operation.axis).length,
   element: () => 1,
 };
@@ -348,6 +349,7 @@ export function createCardScene(config = {}) {
         scale: previousPose.scale,
         width: previousPose.width,
         height: previousPose.height,
+        thickness: previousPose.thickness,
         flipX: previousPose.flipX,
         flipY: previousPose.flipY,
         flipAngle: previousPose.flipAngle,
@@ -363,6 +365,7 @@ export function createCardScene(config = {}) {
         scheduleChannel(cardId, "scale", target.scale);
         scheduleChannel(cardId, "width", target.width);
         scheduleChannel(cardId, "height", target.height);
+        scheduleChannel(cardId, "thickness", target.thickness);
         scheduleChannel(cardId, "flipX", target.flipX);
         scheduleChannel(cardId, "flipY", target.flipY);
         const current = cardPose(cardId);
@@ -435,6 +438,12 @@ export function createCardScene(config = {}) {
           throw new RangeError("Resize dimensions must be positive and finite");
         }
         card.dimensions = { width, height };
+      },
+      thickness(operation, card) {
+        if (!Number.isFinite(operation.thickness) || operation.thickness <= 0) {
+          throw new RangeError("Thickness must be positive and finite");
+        }
+        card.thickness = operation.thickness;
       },
       face(operation, card, operationIndex) {
         if (operation.face !== "faceUp" && operation.face !== "faceDown") throw new TypeError("Face must be faceUp or faceDown");
@@ -518,10 +527,10 @@ export function createCardScene(config = {}) {
     desired = next;
     const targets = solveAllPoses(next, camera, config.templates);
     const affected = new Set(operations.map((operation) => operation.cardId));
-    if (operations.some((operation) => operation.type === "resize" || operation.type === "element")) {
+    if (operations.some((operation) => ["resize", "thickness", "element"].includes(operation.type))) {
       for (const [cardId, targetPose] of targets) {
         const current = cardPose(cardId);
-        if (current && (Math.abs(current.x - targetPose.x) > 0.0001 || Math.abs(current.y - targetPose.y) > 0.0001)) affected.add(cardId);
+        if (current && (Math.abs(current.x - targetPose.x) > 0.0001 || Math.abs(current.y - targetPose.y) > 0.0001 || Math.abs(current.z - targetPose.z) > 0.0001)) affected.add(cardId);
       }
     }
     for (const cardId of affected) {
@@ -542,6 +551,7 @@ export function createCardScene(config = {}) {
           schedule(cardId, "width", targetPose.width, transition, operationIndex);
           schedule(cardId, "height", targetPose.height, transition, operationIndex);
         },
+        thickness: (operationIndex) => schedule(cardId, "thickness", targetPose.thickness, transition, operationIndex),
         face: (operationIndex) => {
           const operation = operations[operationIndex];
           const axes = flipAxes(operation.axis ?? card.flipAxis ?? "y");
@@ -570,6 +580,7 @@ export function createCardScene(config = {}) {
         schedule(cardId, "flipY", card.faceUp ? 0 : 180, transition, operationIndexes[0] ?? 0);
       }
       current.z = targetPose.z;
+      if (operationIndexes.length === 0) current.thickness = targetPose.thickness;
       current.depthScale = targetPose.depthScale;
       current.drawOrder = targetPose.drawOrder;
       current.tiltX = targetPose.tiltX;

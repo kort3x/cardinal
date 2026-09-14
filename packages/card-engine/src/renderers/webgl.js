@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createHeadlessRenderer } from "../renderer.js";
-import { CARD_DEPTH, cardDimensions } from "../layout.js";
+import { CARD_DEPTH, cardDimensions, cardThickness } from "../layout.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
@@ -484,11 +484,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     return texture;
   }
 
-  function mount(card, dimensions) {
+  function mount(card, dimensions, thickness) {
     if (cards.has(card.id)) return cards.get(card.id);
     const width = dimensions.width;
     const height = dimensions.height;
-    const depth = CARD_DEPTH;
+    const depth = thickness;
     const shape = createCardShape(card.shape ?? templates[card.template]?.shape, { width, height });
     const geometry = createCardGeometry(shape, { depth });
     const faceShape = createCardShape(card.shape ?? templates[card.template]?.shape, {
@@ -538,7 +538,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     accessibilityShell.setAttribute("tabindex", "0");
     accessibilityShell.setAttribute("role", "button");
     accessibilityLayer.append(accessibilityShell);
-    const mounted = { cardGroup, pivotGroup, bodyGroup, faceGroup, front, back, frontMaterial, backMaterial, frontBaseGeometry, backBaseGeometry, frontBaseMaterial, backBaseMaterial, geometry, bodyMaterial, sideMaterial, accessibilityShell, frontTexture: null, backTexture: null, frontKey: null, backKey: null, width, height };
+    const mounted = { cardGroup, pivotGroup, bodyGroup, faceGroup, front, back, frontMaterial, backMaterial, frontBaseGeometry, backBaseGeometry, frontBaseMaterial, backBaseMaterial, geometry, bodyMaterial, sideMaterial, accessibilityShell, frontTexture: null, backTexture: null, frontKey: null, backKey: null, width, height, thickness };
     mounted.body = body;
     mounted.frontBase = frontBase;
     mounted.backBase = backBase;
@@ -546,10 +546,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     return mounted;
   }
 
-  function updateGeometry(mounted, card, dimensions) {
-    if (mounted.width === dimensions.width && mounted.height === dimensions.height) return;
+  function updateGeometry(mounted, card, dimensions, thickness) {
+    if (mounted.width === dimensions.width && mounted.height === dimensions.height && mounted.thickness === thickness) return;
     const shape = createCardShape(card.shape ?? templates[card.template]?.shape, dimensions);
-    const geometry = createCardGeometry(shape, { depth: CARD_DEPTH });
+    const geometry = createCardGeometry(shape, { depth: thickness });
     const faceDimensions = {
       width: Math.max(1, dimensions.width - CARD_BEVEL_SIZE * 2),
       height: Math.max(1, dimensions.height - CARD_BEVEL_SIZE * 2),
@@ -574,6 +574,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.back.geometry = backGeometry;
     mounted.width = dimensions.width;
     mounted.height = dimensions.height;
+    mounted.thickness = thickness;
+    mounted.frontBase.position.z = thickness / 2 + 0.04;
+    mounted.backBase.position.z = -thickness / 2 - 0.04;
+    mounted.front.position.z = thickness / 2 + 0.06;
+    mounted.back.position.z = -thickness / 2 - 0.06;
     oldGeometry.dispose();
     oldFrontBaseGeometry.dispose();
     oldBackBaseGeometry.dispose();
@@ -598,8 +603,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   function update(card, pose) {
     const textureDimensions = cardDimensions(card, templates);
     const dimensions = { width: pose.width ?? textureDimensions.width, height: pose.height ?? textureDimensions.height };
-    const mounted = mount(card, textureDimensions);
-    updateGeometry(mounted, card, dimensions);
+    const thickness = pose.thickness ?? cardThickness(card, templates);
+    const mounted = mount(card, textureDimensions, thickness);
+    updateGeometry(mounted, card, dimensions, thickness);
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
     const x = pose.x - stageSize.width / 2;
     const y = stageSize.height / 2 - pose.y;
@@ -646,7 +652,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     type: "webgl",
     projection,
     mount(card) {
-      return mount(card, cardDimensions(card, templates));
+      return mount(card, cardDimensions(card, templates), cardThickness(card, templates));
     },
     update,
     remove,

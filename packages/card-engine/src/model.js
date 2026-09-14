@@ -22,6 +22,13 @@ function normalizeDimensions(dimensions) {
   return { width: dimensions.width, height: dimensions.height };
 }
 
+function normalizeThickness(thickness) {
+  if (!Number.isFinite(thickness) || thickness <= 0) {
+    throw new RangeError("Card thickness must be positive and finite");
+  }
+  return thickness;
+}
+
 function normalizeSizing(sizing) {
   if (sizing === undefined) return undefined;
   if (!sizing || typeof sizing !== "object") throw new TypeError("Card sizing requires an object");
@@ -131,6 +138,7 @@ export function normalizeSnapshot(snapshot) {
     }
     const normalizedCard = { ...copy(card), pose: normalizePose(card.pose) };
     if (card.dimensions !== undefined) normalizedCard.dimensions = normalizeDimensions(card.dimensions);
+    if (card.thickness !== undefined) normalizedCard.thickness = normalizeThickness(card.thickness);
     if (card.sizing !== undefined) normalizedCard.sizing = normalizeSizing(card.sizing);
     normalizedCard.faces = Object.fromEntries(Object.entries(card.faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
     if (card.back) normalizedCard.back = normalizeFace(card.back);
