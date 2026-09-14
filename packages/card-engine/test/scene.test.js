@@ -2,14 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
+import { normalizeSnapshot } from "../src/model.js";
 import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent, flowTransitionPolicy, textureDimensionsForPose } from "../src/renderers/webgl.js";
+
+function face({ title, image, imageAlt, flavour, ...rest } = {}) {
+  return {
+    ...rest,
+    elements: [
+      title === undefined ? null : { id: "title", type: "text", content: { text: title }, layout: { mode: "flow", order: 0 }, style: { variant: "title" } },
+      image === undefined ? null : { id: "image", type: "image", content: { src: image, alt: imageAlt }, layout: { mode: "flow", order: 1 } },
+      flavour === undefined ? null : { id: "flavour", type: "text", content: { text: flavour }, layout: { mode: "flow", order: 2 }, style: { variant: "flavour" } },
+    ].filter(Boolean),
+  };
+}
 
 const card = {
   id: "card-1",
   activeFaceId: "front",
   faceUp: true,
   faces: {
-    front: { title: "The Cardinal", image: "cardinal.svg", flavour: "A bright beginning." },
+    front: face({ title: "The Cardinal", image: "cardinal.svg", flavour: "A bright beginning." }),
   },
   template: "illustrated",
 };
@@ -175,7 +187,7 @@ test("card texture redraws reuse a loaded image synchronously", () => {
 
   drawCardTextureContent(
     context,
-    { title: "The Cardinal", image: "/cardinal.svg", flavour: "A bright beginning." },
+    face({ title: "The Cardinal", image: "/cardinal.svg", flavour: "A bright beginning." }),
     { width: 180, height: 250 },
     image,
   );
@@ -379,6 +391,100 @@ test("a scene applies one card and exposes its committed state", () => {
   assert.equal(committed.cards[0].activeFaceId, card.activeFaceId);
   assert.equal(committed.cards[0].faceUp, true);
   assert.deepEqual(scene.snapshot().desired.zones, [zone]);
+});
+
+test("card faces require canonical element arrays", () => {
+  const legacyCard = { ...card, faces: { front: { title: "Legacy" } } };
+  assert.throws(
+    () => normalizeSnapshot({ cards: [legacyCard], zones: [zone] }),
+    /Face elements must be an array/,
+  );
+});
+
+test("selection is an ordered engine-owned set and reconciles removed cards", () => {
+  const secondCard = { ...card, id: "card-2" };
+  const twoCardZone = { ...zone, cardIds: [card.id, secondCard.id] };
+  const scene = createCardScene({ renderer: () => ({ update() {}, remove() {}, destroy() {} }) });
+  scene.apply({ cards: [card, secondCard], zones: [twoCardZone] });
+
+  assert.deepEqual(scene.select(["card-2", "card-1"]), {
+    cardIds: ["card-2", "card-1"],
+    primaryCardId: "card-1",
+    anchorCardId: "card-1",
+  });
+  assert.deepEqual(scene.select(["card-2"], { mode: "toggle" }).cardIds, ["card-1"]);
+  scene.apply({ cards: [card], zones: [zone] });
+  assert.deepEqual(scene.snapshot().selection, {
+    cardIds: ["card-1"],
+    primaryCardId: "card-1",
+    anchorCardId: "card-1",
+  });
+  scene.destroy();
+});
+
+test("hit testing delegates scene coordinates to the renderer adapter", () => {
+  let received;
+  const scene = createCardScene({ renderer: () => ({
+    update() {},
+    hitTest(point) { received = point; return { cardId: "card-1", side: "front" }; },
+    destroy() {},
+  }) });
+  scene.apply({ cards: [card], zones: [zone] });
+
+  assert.deepEqual(scene.hitTest({ x: 450, y: 250 }), { cardId: "card-1", side: "front" });
+  assert.deepEqual(received, { x: 450, y: 250 });
+  scene.destroy();
+});
+
+test("target sessions collect eligible card intent without changing selection or membership", () => {
+  const secondCard = { ...card, id: "card-2" };
+  const twoCardZone = { ...zone, cardIds: [card.id, secondCard.id] };
+  const scene = createCardScene({ renderer: () => ({
+    update() {},
+    hitTest() { return { cardId: "card-2", side: "front" }; },
+    destroy() {},
+  }) });
+  scene.apply({ cards: [card, secondCard], zones: [twoCardZone] });
+  scene.select([card.id]);
+
+  const events = [];
+  scene.on("target-start", (intent) => events.push(["start", intent.status]));
+  scene.on("target", (intent) => events.push(["finish", intent.status]));
+  const session = scene.target({ eligibleCardIds: [secondCard.id] });
+
+  assert.deepEqual(session.update({ point: { x: 450, y: 250 } }).cardIds, [secondCard.id]);
+  assert.deepEqual(session.finish(), {
+    id: "target-1",
+    status: "committed",
+    cardIds: [secondCard.id],
+    point: { x: 450, y: 250 },
+  });
+  assert.deepEqual(scene.snapshot().selection.cardIds, [card.id]);
+  assert.deepEqual(scene.snapshot().desired.zones[0].cardIds, [card.id, secondCard.id]);
+  assert.deepEqual(events, [["start", "active"], ["finish", "committed"]]);
+  scene.destroy();
+});
+
+test("project-defined element renderers measure and draw custom elements", () => {
+  const calls = [];
+  const context = {
+    fillText(...args) { calls.push(["fillText", ...args]); },
+    fillRect() {},
+    measureText(text) { return { width: text.length * 8 }; },
+  };
+  drawCardTextureContent(context, {
+    elements: [{ id: "badge", type: "badge", content: { text: "New" }, layout: { mode: "flow" } }],
+  }, { width: 180, height: 80 }, null, {
+    elementRenderers: {
+      badge: {
+        measure: () => 24,
+        draw({ context: target, element, x, y }) {
+          target.fillText(element.content.text, x, y);
+        },
+      },
+    },
+  });
+  assert.deepEqual(calls, [["fillText", "New", 18, 18]]);
 });
 
 test("card elements support repeated types and targeted lifecycle operations", async () => {
@@ -647,7 +753,7 @@ test("one transaction composes move, rotation, scale, and flip", async () => {
   assert.equal(halfway.y, 172.5);
   assert.equal(halfway.angle, 45);
   assert.equal(halfway.scale, 1.125);
-  assert.equal(halfway.flipAngle, 90);
+  assert.equal(halfway.flipY, 90);
 
   clock.tick(160);
   assert.deepEqual(await transition.finished, [
@@ -660,7 +766,7 @@ test("one transaction composes move, rotation, scale, and flip", async () => {
   assert.equal(scene.snapshot().visual[0].pose.x, 400);
   assert.equal(scene.snapshot().visual[0].pose.angle, 90);
   assert.equal(scene.snapshot().visual[0].pose.scale, 1.25);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 180);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 180);
 });
 
 test("a logical face cycle advances independently of physical orientation", () => {
@@ -669,9 +775,9 @@ test("a logical face cycle advances independently of physical orientation", () =
     activeFaceId: "a",
     faceCycle: ["a", "b", "c"],
     faces: {
-      a: { title: "Face A" },
-      b: { title: "Face B" },
-      c: { title: "Face C" },
+      a: face({ title: "Face A" }),
+      b: face({ title: "Face B" }),
+      c: face({ title: "Face C" }),
     },
   };
   const scene = createCardScene({ renderer: () => ({ update() {}, remove() {}, destroy() {} }) });
@@ -701,9 +807,9 @@ test("a logical face cycle commits only after the flip settles", async () => {
     activeFaceId: "a",
     faceCycle: ["a", "b", "c"],
     faces: {
-      a: { title: "Face A" },
-      b: { title: "Face B" },
-      c: { title: "Face C" },
+      a: face({ title: "Face A" }),
+      b: face({ title: "Face B" }),
+      c: face({ title: "Face C" }),
     },
   };
   const scene = createCardScene({ clock, motion: { clock, duration: 320 }, renderer: () => ({ update() {}, remove() {}, destroy() {} }) });
@@ -729,9 +835,9 @@ test("an interrupted logical face transition does not consume a face", async () 
     activeFaceId: "a",
     faceCycle: ["a", "b", "c"],
     faces: {
-      a: { title: "Face A" },
-      b: { title: "Face B" },
-      c: { title: "Face C" },
+      a: face({ title: "Face A" }),
+      b: face({ title: "Face B" }),
+      c: face({ title: "Face C" }),
     },
   };
   const scene = createCardScene({ motion: { clock, duration: 320 }, renderer: () => ({ update() {}, remove() {}, destroy() {} }) });
@@ -754,9 +860,9 @@ test("logical face cycles advance during continuous spinning", () => {
     activeFaceId: "a",
     faceCycle: ["a", "b", "c"],
     faces: {
-      a: { title: "Face A" },
-      b: { title: "Face B" },
-      c: { title: "Face C" },
+      a: face({ title: "Face A" }),
+      b: face({ title: "Face B" }),
+      c: face({ title: "Face C" }),
     },
   };
   const scene = createCardScene({ motion: { clock }, renderer: () => ({ update() {}, remove() {}, destroy() {} }) });
@@ -784,9 +890,9 @@ test("a face transition can target an intermediate flip angle", async () => {
   ]);
 
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 60);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 60);
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 120);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 120);
   assert.equal(scene.snapshot().desired.cards[0].faceUp, false);
   await transition.finished;
 });
@@ -822,14 +928,14 @@ test("a card can spin continuously and stop at its current flip angle", () => {
 
   const spin = scene.spin("card-1", { axis: "y", direction: 1, speed: 180 });
   clock.tick(500);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 90);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 90);
   clock.tick(750);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 225);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 225);
 
   assert.equal(spin.stop(), true);
   assert.equal(scene.snapshot().settling, false);
   clock.tick(500);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 225);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 225);
   assert.equal(scene.stopSpin("card-1"), false);
 });
 
@@ -842,7 +948,7 @@ test("continuous spinning supports the x flip axis", () => {
   clock.tick(500);
 
   assert.equal(scene.snapshot().visual[0].pose.flipAxis, "x");
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, -90);
+  assert.equal(scene.snapshot().visual[0].pose.flipX, -90);
   scene.stopSpin("card-1");
 });
 
@@ -870,9 +976,9 @@ test("face retargeting takes the shortest path after continuous spinning", async
 
   const transition = scene.transact([{ type: "face", cardId: "card-1", face: "faceUp", axis: "y" }]);
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 405);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 405);
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 0);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 0);
   await transition.finished;
 });
 
@@ -915,7 +1021,7 @@ test("reduced motion settles immediately at the same final pose", async () => {
   assert.equal(scene.snapshot().visual[0].pose.x, 400);
   assert.equal(scene.snapshot().visual[0].pose.angle, 90);
   assert.equal(scene.snapshot().visual[0].pose.scale, 1.25);
-  assert.equal(scene.snapshot().visual[0].pose.flipAngle, 180);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 180);
   await transition.finished;
 });
 
@@ -1117,7 +1223,9 @@ test("scaling preserves canonical text line breaks", () => {
     faces: {
       front: {
         ...card.faces.front,
-        flavour: "alpha beta gamma delta epsilon",
+        elements: card.faces.front.elements.map((element) => element.id === "flavour"
+          ? { ...element, content: { text: "alpha beta gamma delta epsilon" } }
+          : element),
       },
     },
   };

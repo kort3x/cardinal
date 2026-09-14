@@ -1,4 +1,4 @@
-import { CARD_DEPTH, cardDimensions } from "./layout.js";
+import { DEFAULT_CARD_THICKNESS, cardDimensions } from "./layout.js";
 
 const noop = () => {};
 
@@ -6,7 +6,7 @@ export function createHeadlessRenderer({ reason = "no-element" } = {}) {
   return { type: "headless", reason, mount: noop, update: noop, remove: noop, destroy: noop };
 }
 
-export function createRenderer({ element, templates = {}, reason = "css" } = {}) {
+export function createRenderer({ element, templates = {}, elementRenderers = {}, reason = "css" } = {}) {
   if (!element || typeof document === "undefined") {
     return { type: "css", reason, mount: noop, update: noop, remove: noop, destroy: noop };
   }
@@ -80,30 +80,38 @@ export function createRenderer({ element, templates = {}, reason = "css" } = {})
   function renderContent(target, content = {}, dimensions) {
     let nodes = contentNodes.get(target);
     if (!nodes) {
-      nodes = {
-        title: document.createElement("h2"),
-        image: document.createElement("img"),
-        flavour: document.createElement("p"),
-      };
-      nodes.title.style.whiteSpace = "pre";
-      nodes.flavour.style.whiteSpace = "pre";
-      target.append(nodes.title, nodes.image, nodes.flavour);
+      nodes = new Map();
       contentNodes.set(target, nodes);
     }
-    const contentKey = JSON.stringify([content.title, content.image, content.imageAlt, content.flavour, dimensions.width, dimensions.height]);
+    const elements = Array.isArray(content.elements) ? content.elements : [];
+    const contentKey = JSON.stringify([elements, dimensions.width, dimensions.height]);
     if (nodes.contentKey === contentKey) return;
     const contentWidth = Math.max(1, dimensions.width - 36);
-    nodes.title.textContent = wrapText(content.title, contentWidth, "700 18.4px system-ui, sans-serif");
-    nodes.image.alt = content.imageAlt ?? "";
-    if (content.image) nodes.image.src = content.image;
-    else nodes.image.removeAttribute("src");
-    nodes.flavour.textContent = wrapText(content.flavour, contentWidth, "14.4px system-ui, sans-serif");
+    const orderedNodes = elements.map((element) => {
+      let node = nodes.get(element.id);
+      if (!node) {
+        node = document.createElement(element.type === "image" ? "img" : element.type === "text" ? "p" : "span");
+        node.style.whiteSpace = "pre";
+        nodes.set(element.id, node);
+      }
+      node.hidden = element.visible === false;
+      if (element.type === "image") {
+        node.alt = element.content?.alt ?? "";
+        if (element.content?.src) node.src = element.content.src;
+        else node.removeAttribute("src");
+      } else {
+        const text = element.type === "text" ? element.content?.text ?? element.content?.value ?? "" : `Unsupported element: ${element.type}`;
+        node.textContent = wrapText(text, contentWidth, element.style?.font ?? "14.4px system-ui, sans-serif");
+      }
+      return node;
+    });
+    target.replaceChildren(...orderedNodes);
     nodes.contentKey = contentKey;
   }
 
   function update(card, pose) {
     const mounted = mount(card);
-    const dimensions = cardDimensions(card, templates);
+    const dimensions = cardDimensions(card, templates, elementRenderers);
     const face = card.faces[card.activeFaceId] ?? {};
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
     const renderedWidth = dimensions.width * renderedScale;
@@ -111,13 +119,13 @@ export function createRenderer({ element, templates = {}, reason = "css" } = {})
     mounted.shell.style.width = `${renderedWidth}px`;
     mounted.shell.style.height = `${renderedHeight}px`;
     mounted.shell.style.setProperty("--card-scale", String(renderedScale));
-    mounted.shell.style.setProperty("--card-depth", `${CARD_DEPTH * renderedScale}px`);
+    mounted.shell.style.setProperty("--card-depth", `${DEFAULT_CARD_THICKNESS * renderedScale}px`);
     mounted.shell.dataset.faceUp = String(card.faceUp);
     mounted.travel.style.transform = `translate3d(${pose.x - renderedWidth / 2}px, ${pose.y - renderedHeight / 2}px, ${pose.z}px)`;
     mounted.body.style.transformOrigin = `${pose.pivotX * 100}% ${pose.pivotY * 100}%`;
     mounted.body.style.transform = `rotate(${pose.angle}deg) rotateX(${pose.tiltX}deg) rotateY(${pose.tiltY}deg)`;
     const flipX = pose.flipX ?? 0;
-    const flipY = pose.flipY ?? pose.flipAngle ?? 0;
+    const flipY = pose.flipY ?? 0;
     mounted.faces.style.transform = `rotateX(${flipX}deg) rotateY(${flipY}deg)`;
     mounted.front.style.transform = "translateZ(calc(var(--card-depth) / 2))";
     mounted.back.style.transform = "rotateY(180deg) translateZ(calc(var(--card-depth) / 2))";
@@ -127,7 +135,7 @@ export function createRenderer({ element, templates = {}, reason = "css" } = {})
     mounted.back.setAttribute("aria-hidden", String(card.faceUp));
     updateExtrusionLayers(mounted.edgeLayers, renderedScale);
     renderContent(mounted.front, face, dimensions);
-    renderContent(mounted.back, card.back ?? { title: "", imageAlt: "Concealed card" }, dimensions);
+    renderContent(mounted.back, card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, dimensions);
   }
 
   function updateExtrusionLayers(edgeLayers, renderedScale) {

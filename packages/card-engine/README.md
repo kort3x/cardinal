@@ -21,6 +21,23 @@ scene.transact([
 ]);
 ```
 
+Faces use one canonical `elements` array. Element IDs are unique within a face,
+and the array may contain repeated element types or project-defined types:
+
+```js
+const face = {
+  background: "#f4c95d",
+  elements: [
+    { id: "title", type: "text", content: { text: "The Cardinal" }, layout: { mode: "flow" } },
+    { id: "art", type: "image", content: { src: "/cardinal.png", alt: "A cardinal" }, layout: { mode: "flow" } },
+    { id: "flavour", type: "text", content: { text: "One card from Cardinal." }, layout: { mode: "flow" } },
+  ],
+};
+```
+
+Legacy top-level `title`, `image`, and `flavour` fields are not accepted. This
+keeps element presence, visibility, order, and layout explicit.
+
 WebGL uses an orthographic camera by default, so moving a card across the stage
 does not change its apparent shape, size, or flip orientation. Perspective remains
 available explicitly when a consuming scene wants camera-relative depth effects:
@@ -103,8 +120,7 @@ scene.transact([{
 
 Angles range from 0° to 180°. Without an angle, a face transition ends at 0°
 or 180° and takes the shortest visual path from the current angle. The visual
-snapshot exposes independent `flipX` and `flipY` values; `flipAngle` remains as
-the single-axis compatibility alias.
+snapshot exposes independent `flipX` and `flipY` values.
 
 For persistent in-place motion, use the spin handle:
 
@@ -141,3 +157,23 @@ separate physical layer even if they started in different zones. `drawOrder` is
 resolved across the complete scene, and WebGL clears the previous card's depth
 layer before drawing the next card so intentional overlap remains deterministic
 during rotation and flipping.
+
+Selection and target intent are engine-owned but do not commit application moves:
+
+```js
+scene.select(["card-7"], { mode: "replace" });
+scene.select(["card-8"], { mode: "add" });
+const target = scene.target({ eligibleCardIds: ["card-9"] });
+target.update({ point: { x: 450, y: 250 } });
+const intent = target.finish();
+```
+
+`scene.hitTest({ x, y })` uses the rendered card orientation and scale and returns
+the hit card and physical side without exposing Three.js objects. `target()`
+returns an intent session; `finish()` reports the chosen IDs but never changes
+zone membership. `cancel()` abandons it. Projects can register renderers for
+additional element types through `elementRenderers`; each renderer may provide
+`measure({ element, width, dimensions })` and
+`draw({ context, element, x, y, width, height, images, content })` callbacks.
+The scene emits `renderer-status` with `reason: "asset-load-failed"` when a
+registered card image cannot be loaded.

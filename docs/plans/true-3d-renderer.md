@@ -24,7 +24,7 @@ performance gates remain open; the browser procedure is documented in
 [WebGL browser smoke checks](../verification/webgl-browser-smoke.md).
 
 The renderer seam is the existing implementation slot with `mount`, `update`,
-`remove`, and `destroy` responsibilities. The WebGL adapter mounts one stable
+`remove`, `hitTest`, and `destroy` responsibilities. The WebGL adapter mounts one stable
 accessible card shell per card while the canvas remains a visual surface. The
 interface stays internal so the scene can select WebGL without exposing Three.js
 objects to callers. The CSS adapter remains useful only when explicitly selected
@@ -116,8 +116,9 @@ Gate: no blur, line-wrap change, texture swimming, or content replacement at 100
 - Route existing move/rotate/scale/flip/spin channels through the WebGL adapter.
 - Keep shell/object identity through interruptions, retargeting, reduced motion, and
   destroy.
-- Add pointer/raycast hit testing only after geometry and content are stable; keep
-  application intent separate from scene mechanics.
+- Keep transformed hit testing in the adapter and expose it through the scene;
+  keep selection and cancellable target intent separate from scene mechanics and
+  application moves.
 
 Gate: current deterministic scene tests remain green, and the lab reproduces the
 combined motion scenarios with one render object per card.
@@ -152,6 +153,10 @@ supported; see the dated evidence record for the measurement details.
 - Keep `scene.js`, `model.js`, `layout.js`, and `motion.js` independent of Three.js.
 - Extend the lab with renderer mode/capability status, camera/depth controls,
   scale presets, X/Y flip controls, and a texture-quality comparison route.
+- Keep card faces as canonical element arrays. Built-in text/image elements are
+  supplemented by project-registered element renderers, whose measurement hooks
+  participate in content-driven sizing and whose draw hooks own custom texture
+  output.
 - Keep CSS fallback implementation paused until [issue #16](https://github.com/kort3x/cardinal/issues/16) is scheduled.
 
 ## Explicit non-goals

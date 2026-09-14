@@ -2,23 +2,12 @@ import { DEFAULT_POSE } from "./model.js";
 
 export const DEFAULT_CARD_DIMENSIONS = Object.freeze({ width: 180, height: 250 });
 export const DEFAULT_CARD_THICKNESS = 6;
-// Compatibility alias for renderer consumers that used the original constant.
-export const CARD_DEPTH = DEFAULT_CARD_THICKNESS;
 export const DEFAULT_CARD_LAYER_STEP = 8;
 export const CARD_LAYER_GAP = 1;
 export const DEFAULT_CONTENT_MIN_HEIGHT = 120;
 
-function legacyElements(content) {
-  const visibility = content?.elements && !Array.isArray(content.elements) ? content.elements : {};
-  const elements = [];
-  if (content?.title !== undefined) elements.push({ id: "title", type: "text", content: { text: content.title }, visible: visibility.title !== false, layout: { mode: "flow", order: 0 }, style: { variant: "title" } });
-  if (content?.image !== undefined) elements.push({ id: "image", type: "image", content: { src: content.image, alt: content.imageAlt }, visible: visibility.image !== false, layout: { mode: "flow", order: 1 } });
-  if (content?.flavour !== undefined) elements.push({ id: "flavour", type: "text", content: { text: content.flavour }, visible: visibility.flavour !== false, layout: { mode: "flow", order: 2 }, style: { variant: "flavour" } });
-  return elements;
-}
-
 function contentElements(content) {
-  return Array.isArray(content?.elements) ? content.elements : legacyElements(content);
+  return content?.elements ?? [];
 }
 
 function elementVisible(element) {
@@ -57,7 +46,13 @@ function textLineCount(text, width, fontSize) {
   }, 0);
 }
 
-function elementFlowHeight(element, width, preferredHeight) {
+function elementFlowHeight(element, width, preferredHeight, elementRenderers = {}, dimensions = { width, height: preferredHeight }) {
+  const renderer = elementRenderers[element.type];
+  if (renderer && typeof renderer.measure === "function") {
+    const measured = renderer.measure({ element, width, dimensions });
+    if (!Number.isFinite(measured) || measured < 0) throw new RangeError(`Element renderer ${element.type} returned an invalid height`);
+    return measured;
+  }
   if (element.type === "image") return element.layout?.height ? preferredHeight * element.layout.height : 120;
   if (element.type === "text") {
     const style = element.style ?? {};
@@ -69,25 +64,25 @@ function elementFlowHeight(element, width, preferredHeight) {
   return 20;
 }
 
-export function contentHeight(content, dimensions, sizing = {}) {
+export function contentHeight(content, dimensions, sizing = {}, elementRenderers = {}) {
   const inner = 18;
   const width = Math.max(1, dimensions.width - inner * 2);
   let cursor = inner;
-  for (const element of flowElements(content)) cursor += elementFlowHeight(element, width, dimensions.height) + 10;
+  for (const element of flowElements(content)) cursor += elementFlowHeight(element, width, dimensions.height, elementRenderers, dimensions) + 10;
   const requiredHeight = cursor + 8;
   const minHeight = sizing.minHeight ?? DEFAULT_CONTENT_MIN_HEIGHT;
   const maxHeight = sizing.maxHeight ?? Infinity;
   return Math.min(maxHeight, Math.max(minHeight, requiredHeight));
 }
 
-export function cardDimensions(card, templates = {}) {
+export function cardDimensions(card, templates = {}, elementRenderers = {}) {
   const template = templates[card.template] ?? {};
   const dimensions = {
     width: card.dimensions?.width ?? template.width ?? DEFAULT_CARD_DIMENSIONS.width,
     height: card.dimensions?.height ?? template.height ?? DEFAULT_CARD_DIMENSIONS.height,
   };
   const sizing = card.sizing ?? template.sizing;
-  if (sizing?.mode === "content") dimensions.height = contentHeight(card.faces?.[card.activeFaceId], dimensions, sizing);
+  if (sizing?.mode === "content") dimensions.height = contentHeight(card.faces?.[card.activeFaceId], dimensions, sizing, elementRenderers);
   return dimensions;
 }
 
@@ -102,8 +97,8 @@ export function depthScale(camera, depth) {
   return 1 / (1 + Math.max(0, depth) / 1000);
 }
 
-export function solveCardPose(card, zone, index = 0, camera, templates, layerOffset = 0) {
-  const dimensions = cardDimensions(card, templates);
+export function solveCardPose(card, zone, index = 0, camera, templates, layerOffset = 0, elementRenderers = {}) {
+  const dimensions = cardDimensions(card, templates, elementRenderers);
   const gap = zone.arrangement?.gap ?? 16;
   const columns = Math.max(1, Math.floor((zone.geometry.width + gap) / (dimensions.width + gap)));
   const column = index % columns;
@@ -127,7 +122,7 @@ export function solveCardPose(card, zone, index = 0, camera, templates, layerOff
   };
 }
 
-export function solveAllPoses(snapshot, camera, templates) {
+export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}) {
   const cards = new Map(snapshot.cards.map((card) => [card.id, card]));
   const poses = new Map();
   const placedCards = [];
@@ -143,8 +138,8 @@ export function solveAllPoses(snapshot, camera, templates) {
         const physicalStep = (previousDepth + currentDepth) / 2 + CARD_LAYER_GAP;
         layerOffset += Math.max(configuredStep, physicalStep);
       }
-      const pose = { ...solveCardPose(card, zone, index, camera, templates, layerOffset), drawOrder };
-      const dimensions = cardDimensions(card, templates);
+      const pose = { ...solveCardPose(card, zone, index, camera, templates, layerOffset, elementRenderers), drawOrder };
+      const dimensions = cardDimensions(card, templates, elementRenderers);
       const angle = Math.abs((pose.angle * Math.PI) / 180);
       const unrotatedWidth = dimensions.width * pose.scale;
       const unrotatedHeight = dimensions.height * pose.scale;

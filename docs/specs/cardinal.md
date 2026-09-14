@@ -243,6 +243,24 @@ await transition.finished;
 scene.destroy();
 ```
 
+The public scene also owns interaction primitives without taking ownership of
+application rules:
+
+```js
+scene.select(["card-7"], { mode: "replace" });
+const target = scene.target({ eligibleCardIds: ["card-8"] });
+target.update({ point: { x: 450, y: 250 } });
+const intent = target.finish();
+const hit = scene.hitTest({ x: 450, y: 250 });
+```
+
+`select()` exposes an ordered set with a primary card and range anchor.
+`hitTest()` delegates transformed card geometry to the active renderer and
+returns a card ID plus physical side. `target()` creates a cancellable session
+for eligible card intent; finishing it reports IDs and pointer state but never
+changes membership or commits a move. The engine emits `target-start`,
+`target-change`, `target`, and `target-cancel` events.
+
 This is the current Slice 01 interface; later slices may extend it. Snapshot
 reconciliation and commands share one validation/commit path. Transactions can also update content,
 zone geometry, arrangements, and presentation. Read-only snapshots expose desired
@@ -481,6 +499,16 @@ shown; its layout contribution determines how the remaining regions and the shel
 adapt under the configured sizing policy. Templates define constraints for empty
 cards and combinations of absent regions rather than assuming a title or image
 always exists.
+
+The content contract is an explicit `elements` array on every face. Each element
+has a stable unique `id`, a string `type`, optional `content`, visibility, and
+flow or overlay layout metadata. The engine has built-in `text` and `image`
+renderers; projects may register additional types through `elementRenderers`.
+Registered renderers can provide `measure({ element, width, dimensions })` for
+content-driven sizing and `draw({ context, element, x, y, width, height,
+images, content })` for WebGL texture output. Unknown types are rendered as an
+explicit unsupported marker, never silently omitted. Top-level legacy content
+fields such as `title`, `image`, and `flavour` are not part of the contract.
 
 Support two explicit region behaviors:
 

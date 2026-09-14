@@ -19,7 +19,7 @@ are recorded; final issue review remains.
 Cards move, rotate, scale, and flip independently or simultaneously. Zones support
 responsive geometry, multiple arrangements, and project-controlled presentation.
 Cards can change shape as content changes, receive dynamic elements, attach to
-other cards, and participate in multi-card selection and dragging.
+other cards, and participate in multi-card selection and target-intent sessions.
 
 Card geometry is implemented as a true beveled rounded cuboid behind the same
 scene interface. WebGL is required by default. The CSS renderer remains available

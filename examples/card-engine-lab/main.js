@@ -178,6 +178,7 @@ function pointerElementAt(card, pose, content, localX, localTop) {
 function stagePointerTarget(sceneX, sceneY) {
   const state = scene?.snapshot();
   if (!state) return { kind: "stage", label: "Card stage" };
+  const engineHit = scene.hitTest({ x: sceneX, y: sceneY });
   const candidates = state.visual
     .map((visual) => ({
       visual,
@@ -194,12 +195,13 @@ function stagePointerTarget(sceneX, sceneY) {
       const localY = -Math.sin(angle) * dx + Math.cos(angle) * dy;
       return { card, pose, visual, localX, localTop: pose.height / 2 - localY };
     })
-    .filter(({ pose, localX, localTop }) => Math.abs(localX) <= pose.width / 2 && localTop >= 0 && localTop <= pose.height)
+    .filter(({ pose, localX, localTop, card }) => engineHit?.cardId === card.id
+      && Math.abs(localX) <= pose.width / 2 && localTop >= 0 && localTop <= pose.height)
     .sort((first, second) => (second.pose.drawOrder ?? 0) - (first.pose.drawOrder ?? 0));
   const hit = candidates[0];
   if (!hit) return { kind: "stage", label: "Empty card stage" };
   const cardIndex = state.desired.cards.findIndex(({ id }) => id === hit.card.id) + 1;
-  const side = hit.visual.physicalSide ?? "unknown";
+  const side = engineHit?.side ?? hit.visual.physicalSide ?? "unknown";
   if (side === "edge") return { kind: "card", cardId: hit.card.id, label: `Card ${cardIndex} · edge` };
   const content = side === "back"
     ? hit.card.back
@@ -405,6 +407,7 @@ function startScene(cards = sceneCards()) {
     scene.on("renderer-status", updateStatus);
     selectedCardIds = new Set([...selectedCardIds].filter((id) => cards.some((card) => card.id === id)));
     if (selectedCardIds.size === 0 && cards[0]) selectedCardIds.add(cards[0].id);
+    selectedCardIds = new Set(scene.select([...selectedCardIds]).cardIds);
     renderCardList();
     syncControlsFromSelection();
     updateStatus();
@@ -421,6 +424,7 @@ function applyLabCards(cards) {
   scene.apply(desiredSnapshot(cards));
   selectedCardIds = new Set([...selectedCardIds].filter((id) => cards.some((card) => card.id === id)));
   if (selectedCardIds.size === 0 && cards[0]) selectedCardIds.add(cards[0].id);
+  selectedCardIds = new Set(scene.select([...selectedCardIds]).cardIds);
   renderCardList();
   syncControlsFromSelection();
   updateStatus();
@@ -438,8 +442,7 @@ function renderCardList() {
     depth.className = "card-z";
     depth.dataset.cardId = card.id;
     input.addEventListener("change", () => {
-      if (input.checked) selectedCardIds.add(card.id);
-      else selectedCardIds.delete(card.id);
+      selectedCardIds = new Set(scene.select([card.id], { mode: "toggle" }).cardIds);
       syncControlsFromSelection();
       updateStatus();
       renderCardList();
@@ -474,7 +477,7 @@ function syncControlsFromSelection() {
     angle: pose.angle,
     scale: pose.scale,
     flipX: pose.flipX ?? 0,
-    flipY: pose.flipY ?? pose.flipAngle ?? 0,
+    flipY: pose.flipY ?? 0,
   });
   renderElementList(state);
 }
@@ -872,7 +875,7 @@ removeCardsButton.addEventListener("click", () => {
 });
 
 selectAllButton.addEventListener("click", () => {
-  selectedCardIds = new Set(scene.snapshot().desired.cards.map(({ id }) => id));
+  selectedCardIds = new Set(scene.select(scene.snapshot().desired.cards.map(({ id }) => id)).cardIds);
   renderCardList();
   syncControlsFromSelection();
   updateStatus();

@@ -14,7 +14,7 @@ it is not a browser acceptance sign-off.
 
 ## Evidence available
 
-- The deterministic card-engine suite passes: 60 tests.
+- The deterministic card-engine suite passes: 65 tests.
 - The user confirmed after reboot that WebGL is active in Chrome and Safari.
 - The lab reports the WebGL renderer and orthographic camera when initialization
   succeeds; CSS fallback is not automatically selected.
@@ -77,13 +77,14 @@ The checked-in Chrome acceptance scenario was run after the visual review:
 
 ```text
 npm run test:chrome:acceptance
-9 checks passed
-input latency: 0.80 ms
+13 checks passed
+input latency: 0.70 ms
 landing delta: 0 px
 ```
 
-The scenario covers a settled move, rotate, scale, face-down transition,
-simultaneous X/Y flip, edge-on pose, combined motion, and reduced motion. The
+The scenario covers a settled move, rotate, scale, 100%/150%/200% scale states,
+an in-flight scale transition, face-down transition, simultaneous X/Y flip,
+edge-on pose, combined motion, and reduced motion. The
 landing delta is the absolute difference between the requested X position and
 the settled pose reported by the lab. Input latency is the time from dispatching
 the range-input event to the next `requestAnimationFrame` sample; it is a

@@ -33,12 +33,11 @@ const operationResultChannels = {
 };
 
 function flipValue(pose, axis) {
-  return pose[flipChannel(axis)] ?? (axis === "y" ? pose.flipAngle : 0);
+  return pose[flipChannel(axis)] ?? 0;
 }
 
 function setFlipValue(pose, axis, value) {
   pose[flipChannel(axis)] = value;
-  if (axis === "y" || pose.flipAxis === axis) pose.flipAngle = value;
 }
 
 function angleForAxis(angle, axis) {
@@ -70,21 +69,20 @@ function frontRevolutionBucket(angle, direction) {
 
 function physicalSide(pose) {
   const degreesToRadians = Math.PI / 180;
-  const facing = Math.cos((pose.flipX ?? 0) * degreesToRadians) * Math.cos((pose.flipY ?? pose.flipAngle ?? 0) * degreesToRadians);
+  const facing = Math.cos((pose.flipX ?? 0) * degreesToRadians) * Math.cos((pose.flipY ?? 0) * degreesToRadians);
   if (Math.abs(facing) < 0.000001) return "edge";
   return facing > 0 ? "front" : "back";
 }
 
 function visualPose(card, pose) {
   const flipAxis = card.flipAxis ?? "y";
-  const flipY = card.pose.flipY ?? card.pose.flipAngle ?? (card.faceUp ? 0 : 180);
+  const flipY = card.pose.flipY ?? (card.faceUp ? 0 : 180);
   const flipX = card.pose.flipX ?? 0;
   return {
     ...pose,
     flipAxis,
     flipX,
     flipY,
-    flipAngle: flipAxis === "x" ? flipX : flipY,
   };
 }
 
@@ -101,6 +99,7 @@ export function createCardScene(config = {}) {
   const renderer = createRendererAdapter({
     element: config.element,
     templates: config.templates,
+    elementRenderers: config.elementRenderers,
     camera,
     motion: config.motion,
     onStatus: (detail = {}) => {
@@ -110,6 +109,14 @@ export function createCardScene(config = {}) {
   });
   const channels = new Map();
   const transitions = new Set();
+  const selectionConfig = {
+    multiple: true,
+    max: Infinity,
+    ...(config.selection ?? {}),
+  };
+  let selection = { cardIds: [], primaryCardId: null, anchorCardId: null };
+  let targetSequence = 0;
+  const targetSessions = new Set();
   let desired = null;
   let visual = new Map();
   let frameId = null;
@@ -131,6 +138,116 @@ export function createCardScene(config = {}) {
   function renderAll(options = {}) {
     if (!desired) return;
     for (const card of desired.cards) renderCard(card.id, options);
+  }
+
+  function validCardIds(cardIds) {
+    const knownIds = new Set(desired?.cards.map((card) => card.id) ?? []);
+    return cardIds.filter((cardId, index) => typeof cardId === "string"
+      && knownIds.has(cardId)
+      && cardIds.indexOf(cardId) === index);
+  }
+
+  function emitSelectionChange() {
+    emit("selection-change", copy(selection));
+    emit("change", snapshot());
+  }
+
+  function select(cardIds, options = {}) {
+    if (!desired) throw new Error("Call scene.apply before scene.select");
+    if (!Array.isArray(cardIds)) throw new TypeError("scene.select requires an array of card IDs");
+    const mode = options.mode ?? "replace";
+    if (!["replace", "add", "toggle", "remove"].includes(mode)) {
+      throw new TypeError(`Unknown selection mode: ${mode}`);
+    }
+    const requested = validCardIds(cardIds);
+    const current = [...selection.cardIds];
+    let next = mode === "replace" ? requested : current;
+    if (mode === "add") next = [...current, ...requested.filter((cardId) => !current.includes(cardId))];
+    if (mode === "remove") next = current.filter((cardId) => !requested.includes(cardId));
+    if (mode === "toggle") next = current.filter((cardId) => !requested.includes(cardId));
+    if (mode === "toggle") next.push(...requested.filter((cardId) => !current.includes(cardId)));
+    if (!selectionConfig.multiple) next = next.slice(-1);
+    if (next.length > selectionConfig.max) next = next.slice(0, selectionConfig.max);
+    const primaryCardId = options.primaryCardId === undefined
+      ? next[next.length - 1] ?? null
+      : next.includes(options.primaryCardId) ? options.primaryCardId : next[0] ?? null;
+    selection = {
+      cardIds: next,
+      primaryCardId,
+      anchorCardId: options.anchorCardId === undefined
+        ? selection.anchorCardId && next.includes(selection.anchorCardId) ? selection.anchorCardId : primaryCardId
+        : next.includes(options.anchorCardId) ? options.anchorCardId : primaryCardId,
+    };
+    emitSelectionChange();
+    return copy(selection);
+  }
+
+  function hitTest(point) {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      throw new TypeError("scene.hitTest requires finite x and y coordinates");
+    }
+    return renderer.hitTest?.(point) ?? null;
+  }
+
+  function target(request = {}) {
+    if (!desired) throw new Error("Call scene.apply before scene.target");
+    if (!request || typeof request !== "object" || Array.isArray(request)) {
+      throw new TypeError("scene.target requires a request object");
+    }
+    if (request.eligibleCardIds !== undefined && !Array.isArray(request.eligibleCardIds)) {
+      throw new TypeError("scene.target eligibleCardIds requires an array");
+    }
+    if (request.point !== undefined && (!request.point || !Number.isFinite(request.point.x) || !Number.isFinite(request.point.y))) {
+      throw new TypeError("Target point requires finite x and y coordinates");
+    }
+    const eligibleCardIds = request.eligibleCardIds === undefined
+      ? desired.cards.map(({ id }) => id)
+      : validCardIds(request.eligibleCardIds);
+    const eligible = new Set(eligibleCardIds);
+    const intent = {
+      id: `target-${++targetSequence}`,
+      status: "active",
+      cardIds: Array.isArray(request.cardIds) ? validCardIds(request.cardIds).filter((cardId) => eligible.has(cardId)) : [],
+      point: request.point ? copy(request.point) : null,
+    };
+    const publish = (event) => emit(event, copy(intent));
+    const session = {
+      snapshot: () => copy(intent),
+      update(change = {}) {
+        if (intent.status !== "active") throw new Error("Target session is no longer active");
+        if (change.point !== undefined) {
+          if (!change.point || !Number.isFinite(change.point.x) || !Number.isFinite(change.point.y)) {
+            throw new TypeError("Target point requires finite x and y coordinates");
+          }
+          intent.point = copy(change.point);
+          const hit = hitTest(change.point);
+          intent.cardIds = hit && eligible.has(hit.cardId) ? [hit.cardId] : [];
+        }
+        if (change.cardIds !== undefined) {
+          if (!Array.isArray(change.cardIds)) throw new TypeError("Target cardIds requires an array");
+          intent.cardIds = validCardIds(change.cardIds).filter((cardId) => eligible.has(cardId));
+        }
+        publish("target-change");
+        return copy(intent);
+      },
+      finish() {
+        if (intent.status !== "active") return copy(intent);
+        intent.status = "committed";
+        targetSessions.delete(session);
+        publish("target");
+        return copy(intent);
+      },
+      cancel() {
+        if (intent.status !== "active") return copy(intent);
+        intent.status = "cancelled";
+        targetSessions.delete(session);
+        publish("target-cancel");
+        return copy(intent);
+      },
+    };
+    targetSessions.add(session);
+    publish("target-start");
+    return session;
   }
 
   function settleTicket(ticket, status) {
@@ -345,7 +462,17 @@ export function createCardScene(config = {}) {
       for (const card of previousDesired.cards) if (!nextIds.has(card.id)) renderer.remove(card.id);
     }
     desired = next;
-    const poses = solveAllPoses(desired, camera, config.templates);
+    const availableIds = new Set(next.cards.map((card) => card.id));
+    const remainingSelection = selection.cardIds.filter((cardId) => availableIds.has(cardId));
+    if (remainingSelection.length !== selection.cardIds.length) {
+      selection = {
+        cardIds: remainingSelection,
+        primaryCardId: remainingSelection.includes(selection.primaryCardId) ? selection.primaryCardId : remainingSelection[0] ?? null,
+        anchorCardId: remainingSelection.includes(selection.anchorCardId) ? selection.anchorCardId : remainingSelection[0] ?? null,
+      };
+      emit("selection-change", copy(selection));
+    }
+    const poses = solveAllPoses(desired, camera, config.templates, config.elementRenderers);
     visual = new Map([...poses].map(([cardId, pose]) => {
       const card = desired.cards.find((candidate) => candidate.id === cardId);
       const previousPose = previousVisual.get(cardId);
@@ -362,7 +489,6 @@ export function createCardScene(config = {}) {
         thickness: previousPose.thickness,
         flipX: previousPose.flipX,
         flipY: previousPose.flipY,
-        flipAngle: previousPose.flipAngle,
       }];
     }));
     if (previousDesired) {
@@ -441,7 +567,7 @@ export function createCardScene(config = {}) {
         card.pose = { ...(card.pose ?? normalizePose()), scale: operation.factor };
       },
       resize(operation, card) {
-        const current = card.dimensions ?? cardDimensions(card, config.templates);
+        const current = card.dimensions ?? cardDimensions(card, config.templates, config.elementRenderers);
         const dimensions = operation.dimensions ?? operation;
         const width = dimensions.width ?? current.width;
         const height = dimensions.height ?? current.height;
@@ -483,7 +609,6 @@ export function createCardScene(config = {}) {
         } else {
           for (const axis of axes) {
             delete card.pose[flipChannel(axis)];
-            if (axis === "y") delete card.pose.flipAngle;
           }
         }
       },
@@ -536,7 +661,7 @@ export function createCardScene(config = {}) {
 
     const previous = desired;
     desired = next;
-    const targets = solveAllPoses(next, camera, config.templates);
+    const targets = solveAllPoses(next, camera, config.templates, config.elementRenderers);
     const affected = new Set(operations.map((operation) => operation.cardId));
     if (operations.some((operation) => ["resize", "thickness", "element"].includes(operation.type))) {
       for (const [cardId, targetPose] of targets) {
@@ -616,6 +741,7 @@ export function createCardScene(config = {}) {
     return {
       desired: copy(desired ?? { cards: [], zones: [] }),
       visual: [...visual.entries()].map(([cardId, pose]) => ({ cardId, pose: copy(pose), physicalSide: physicalSide(pose) })),
+      selection: copy(selection),
       settling: channels.size > 0,
       renderer: renderer.type ?? "custom",
       rendererReason: rendererReason ?? renderer.reason ?? null,
@@ -642,9 +768,12 @@ export function createCardScene(config = {}) {
       transition.resolve(copy(transition.results.map(({ remaining, ...result }) => result)));
     }
     transitions.clear();
+    for (const session of targetSessions) session.cancel();
+    targetSessions.clear();
+    selection = { cardIds: [], primaryCardId: null, anchorCardId: null };
     renderer.destroy();
     listeners.clear();
   }
 
-  return { apply, transact, spin, stopSpin, snapshot, on, destroy };
+  return { apply, transact, spin, stopSpin, select, hitTest, target, snapshot, on, destroy };
 }

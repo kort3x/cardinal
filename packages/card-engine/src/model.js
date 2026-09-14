@@ -45,15 +45,6 @@ function normalizeSizing(sizing) {
   return { ...copy(sizing), mode };
 }
 
-function legacyElements(face) {
-  const visibility = face.elements && !Array.isArray(face.elements) ? face.elements : {};
-  const elements = [];
-  if (face.title !== undefined) elements.push({ id: "title", type: "text", content: { text: face.title }, visible: visibility.title !== false, layout: { mode: "flow", order: 0 } });
-  if (face.image !== undefined) elements.push({ id: "image", type: "image", content: { src: face.image, alt: face.imageAlt }, visible: visibility.image !== false, layout: { mode: "flow", order: 1 } });
-  if (face.flavour !== undefined) elements.push({ id: "flavour", type: "text", content: { text: face.flavour }, visible: visibility.flavour !== false, layout: { mode: "flow", order: 2 } });
-  return elements;
-}
-
 export function normalizeElement(element, index = 0) {
   if (!element || typeof element.id !== "string" || element.id.length === 0) {
     throw new TypeError("Every card element requires a non-empty string id");
@@ -90,9 +81,8 @@ export function normalizeElement(element, index = 0) {
 
 function normalizeFace(face) {
   const source = face ?? {};
-  const rawElements = Array.isArray(source.elements) ? source.elements : legacyElements(source);
-  if (!Array.isArray(rawElements)) throw new TypeError("Face elements must be an array");
-  const elements = rawElements.map(normalizeElement);
+  if (!Array.isArray(source.elements)) throw new TypeError("Face elements must be an array");
+  const elements = source.elements.map(normalizeElement);
   if (new Set(elements.map(({ id }) => id)).size !== elements.length) {
     throw new Error("Element ids must be unique within a face");
   }

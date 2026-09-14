@@ -11,16 +11,20 @@ const card = {
   faceUp: true,
   faces: {
     front: {
-      title: "Inventory token",
-      flavour: "An independent consumer of Cardinal.",
+      elements: [
+        { id: "title", type: "text", content: { text: "Inventory token" }, layout: { mode: "flow", order: 0 }, style: { variant: "title" } },
+        { id: "flavour", type: "text", content: { text: "An independent consumer of Cardinal." }, layout: { mode: "flow", order: 1 }, style: { variant: "flavour" } },
+      ],
       background: "#367c83",
       textColor: "#f7f4e9",
       mutedTextColor: "#c5e4df",
     },
   },
   back: {
-    title: "Concealed",
-    flavour: "The token is face down.",
+    elements: [
+      { id: "title", type: "text", content: { text: "Concealed" }, layout: { mode: "flow", order: 0 }, style: { variant: "title" } },
+      { id: "flavour", type: "text", content: { text: "The token is face down." }, layout: { mode: "flow", order: 1 }, style: { variant: "flavour" } },
+    ],
     background: "#17212b",
     textColor: "#f7f4e9",
     mutedTextColor: "#bdcbd0",

@@ -6,7 +6,7 @@ from a real WebGL lab run.
 
 ## Core engine coverage
 
-The command `npm --prefix packages/card-engine test` passes all 60 tests.
+The command `npm --prefix packages/card-engine test` passes all 65 tests.
 
 | Area | Covered behavior |
 | --- | --- |

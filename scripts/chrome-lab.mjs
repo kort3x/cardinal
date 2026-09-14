@@ -131,6 +131,9 @@ const elementScenario = String.raw`(async () => {
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
     status: document.querySelector("#status")?.textContent ?? "",
     selection: document.querySelector("#selection-status")?.textContent ?? "",
+    pointer: document.querySelector("#pointer-status")?.dataset.pointerState
+      ? JSON.parse(document.querySelector("#pointer-status").dataset.pointerState)
+      : null,
     cards: [...document.querySelectorAll("#card-list label")].map((card) => card.textContent),
     elements: [...document.querySelectorAll("#element-list .element-row")].map((row) => ({
       name: row.querySelector(".element-name")?.textContent,
@@ -154,7 +157,7 @@ const elementScenario = String.raw`(async () => {
     .find((candidate) => candidate.querySelector(".element-name")?.textContent.startsWith(prefix));
   const record = (label, predicate) => {
     const current = state();
-    results.push({ label, pass: typeof predicate === "function" ? Boolean(predicate(current)) : Boolean(predicate), status: current.status });
+    results.push({ label, pass: typeof predicate === "function" ? Boolean(predicate(current)) : Boolean(predicate), status: current.status, pointer: current.pointer });
   };
   const step = async (label, action, predicate) => {
     await action();
@@ -167,6 +170,7 @@ const elementScenario = String.raw`(async () => {
     && current.shells === 1 && current.elements.length === 3);
   await step("track pointer coordinates", () => {
     const stage = document.querySelector("#stage");
+    stage.scrollIntoView({ block: "center", inline: "center" });
     const rect = stage.getBoundingClientRect();
     window.dispatchEvent(new PointerEvent("pointermove", {
       bubbles: true,
@@ -253,6 +257,7 @@ const acceptanceScenario = String.raw`(async () => {
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
     status: document.querySelector("#status")?.textContent ?? "",
     shells: document.querySelectorAll(".cardinal-webgl-card").length,
+    text: [...document.querySelectorAll(".cardinal-webgl-card")].map((card) => card.textContent),
   });
   const record = (label, predicate) => {
     const current = state();
@@ -286,6 +291,16 @@ const acceptanceScenario = String.raw`(async () => {
   record("rotate settles", (await waitForStable()).status.includes("angle 45°"));
   click("#scale");
   record("scale settles", (await waitForStable()).status.includes("scale 1.00"));
+  click('button[data-scale="2"]');
+  await sleep(80);
+  record("scale transition during motion keeps content", (current) => current.status.includes("animating")
+    && current.text[0]?.includes("The Cardinal"));
+  await waitForStable();
+  for (const [label, value] of [["100%", 1], ["150%", 1.5], ["200%", 2]]) {
+    setValue("#scale-slider", value);
+    record(label + " scale settles with content", (await waitForStable()).status.includes("scale " + value.toFixed(2))
+      && state().text[0]?.includes("The Cardinal"));
+  }
   click("#flip");
   record("flip settles on back", (await waitForStable()).status.includes("physical back"));
 
@@ -319,6 +334,12 @@ async function run() {
     const target = chrome.targets.find((candidate) => candidate.type === "page");
     if (!target) throw new Error("Chrome did not expose a page target");
     connection = connect(target);
+    await connection.command("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
     await connection.command("Page.navigate", { url: labUrl });
     await delay(1200);
     const evaluation = await connection.command("Runtime.evaluate", {
@@ -328,7 +349,10 @@ async function run() {
     });
     if (evaluation.exceptionDetails) throw new Error(evaluation.exceptionDetails.text ?? "Chrome lab scenario threw");
     const report = evaluation.result?.value;
-    for (const result of report?.results ?? []) console.log(`${result.pass ? "PASS" : "FAIL"} ${result.label}: ${result.status}`);
+    for (const result of report?.results ?? []) {
+      console.log(`${result.pass ? "PASS" : "FAIL"} ${result.label}: ${result.status}`);
+      if (!result.pass && result.pointer) console.log(`  pointer: ${JSON.stringify(result.pointer)}`);
+    }
     if (!report || report.ok !== true) throw new Error("Chrome lab scenario failed");
     if (report.measurements) console.log(`Chrome measurements: input latency ${report.measurements.inputLatencyMs.toFixed(2)} ms · landing delta ${report.measurements.landingDeltaPx.toFixed(0)} px`);
     console.log(`Chrome lab scenario '${scenario}' passed (${report.results.length} checks)`);

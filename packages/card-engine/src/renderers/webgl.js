@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createHeadlessRenderer } from "../renderer.js";
-import { CARD_DEPTH, cardDimensions, cardThickness } from "../layout.js";
+import { DEFAULT_CARD_THICKNESS, cardDimensions, cardThickness } from "../layout.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
@@ -182,17 +182,8 @@ function contentKey(content, dimensions) {
   ]);
 }
 
-function legacyContentElements(content) {
-  const visibility = content?.elements && !Array.isArray(content.elements) ? content.elements : {};
-  const elements = [];
-  if (content?.title !== undefined) elements.push({ id: "title", type: "text", content: { text: content.title }, visible: visibility.title !== false, layout: { mode: "flow", order: 0 }, style: { variant: "title" } });
-  if (content?.image !== undefined) elements.push({ id: "image", type: "image", content: { src: content.image, alt: content.imageAlt }, visible: visibility.image !== false, layout: { mode: "flow", order: 1 } });
-  if (content?.flavour !== undefined) elements.push({ id: "flavour", type: "text", content: { text: content.flavour }, visible: visibility.flavour !== false, layout: { mode: "flow", order: 2 }, style: { variant: "flavour" } });
-  return elements;
-}
-
 function contentElements(content) {
-  return Array.isArray(content?.elements) ? content.elements : legacyContentElements(content);
+  return content?.elements ?? [];
 }
 
 function elementContent(element) {
@@ -288,6 +279,26 @@ function flowElementHeight(context, element, dimensions, width) {
   return 20;
 }
 
+function registeredElementHeight(context, element, dimensions, width, elementRenderers) {
+  const renderer = elementRendererFor(element.type, elementRenderers);
+  if (!renderer) return null;
+  if (typeof renderer.measure === "function") {
+    const height = renderer.measure({ context, element, dimensions, width });
+    if (!Number.isFinite(height) || height < 0) throw new RangeError(`Element renderer ${element.type} returned an invalid height`);
+    return height;
+  }
+  return Number.isFinite(renderer.height) ? renderer.height : 20;
+}
+
+function drawRegisteredElement(context, element, dimensions, x, y, width, height, elementRenderers, images, content) {
+  const renderer = elementRendererFor(element.type, elementRenderers);
+  if (!renderer) return false;
+  if (elementVisible(element) && typeof renderer.draw === "function") {
+    renderer.draw({ context, element, dimensions, x, y, width, height, images, content });
+  }
+  return true;
+}
+
 function drawImageElement(context, element, dimensions, x, y, width, height, images, fallbackImage) {
   if (!elementVisible(element)) return height;
   const image = imageFrom(images, element, fallbackImage);
@@ -305,12 +316,31 @@ function drawImageElement(context, element, dimensions, x, y, width, height, ima
   return height;
 }
 
-export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false, deferFlowIds = [], gapIndex = null } = {}) {
+const builtInElementRenderers = {
+  text: {
+    measure: ({ context, element, dimensions, width }) => flowElementHeight(context, element, dimensions, width),
+    draw: ({ context, element, dimensions, x, y, width, content }) => {
+      const color = element.style?.variant === "flavour" || element.id === "flavour"
+        ? content?.mutedTextColor ?? "#78838c"
+        : content?.textColor ?? "#17212b";
+      drawTextElement(context, element, dimensions, x, y, width, color, element.id === "title" ? "title" : "body");
+    },
+  },
+  image: {
+    measure: ({ element, dimensions }) => element.layout?.height ? dimensions.height * element.layout.height : 120,
+    draw: ({ context, element, dimensions, x, y, width, height, images }) => drawImageElement(context, element, dimensions, x, y, width, height, images, images && !(images instanceof Map) ? images : null),
+  },
+};
+
+function elementRendererFor(type, customRenderers) {
+  return customRenderers?.[type] ?? builtInElementRenderers[type];
+}
+
+export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false, deferFlowIds = [], gapIndex = null, elementRenderers = {} } = {}) {
   context.fillStyle = content?.background ?? "#ffffff";
   context.fillRect(0, 0, dimensions.width, dimensions.height);
   const inner = 18;
   const innerWidth = Math.max(1, dimensions.width - inner * 2);
-  const textColor = content?.textColor ?? "#17212b";
   const deferredIds = new Set(deferFlowIds ?? []);
   const entries = sortedElements(content, true);
   const flow = entries.filter(({ element }) => (element.layout?.mode ?? "flow") === "flow" && !deferredIds.has(element.id));
@@ -319,7 +349,8 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
     .filter(({ element }) => elementVisible(element))
     .sort((first, second) => (first.element.layout?.zIndex ?? 0) - (second.element.layout?.zIndex ?? 0)
       || String(first.element.id).localeCompare(String(second.element.id)));
-  const flowHeights = flow.map(({ element }) => flowElementHeight(context, element, dimensions, innerWidth));
+  const flowHeights = flow.map(({ element }) => registeredElementHeight(context, element, dimensions, innerWidth, elementRenderers)
+    ?? flowElementHeight(context, element, dimensions, innerWidth));
   const requiredHeight = inner + flowHeights.reduce((total, height) => total + height + 10, 0) + 8;
   const transientGap = preserveBottom && Number.isInteger(gapIndex) && gapIndex >= 0 && gapIndex <= flow.length
     ? Math.max(0, dimensions.height - requiredHeight)
@@ -329,16 +360,8 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
   for (const [index, { element }] of flow.entries()) {
     const elementHeight = flowHeights[index];
     if (index === gapIndex) cursor += transientGap;
-    const type = element.type;
-    if (type === "text") {
-      const color = element.style?.variant === "flavour" || element.id === "flavour"
-        ? content?.mutedTextColor ?? "#78838c"
-        : textColor;
-      drawTextElement(context, element, dimensions, inner, cursor, innerWidth, color, element.id === "title" ? "title" : "body");
-    } else if (type === "image") {
-      const imageHeight = element.layout?.height ? dimensions.height * element.layout.height : 120;
-      const imageWidth = element.layout?.width ? dimensions.width * element.layout.width : innerWidth;
-      drawImageElement(context, element, dimensions, inner, cursor, imageWidth, imageHeight, images, images && !(images instanceof Map) ? images : null);
+    if (drawRegisteredElement(context, element, dimensions, inner, cursor, innerWidth, elementHeight, elementRenderers, images, content)) {
+      // Project-defined renderers own their drawing while Cardinal owns flow geometry.
     } else {
       drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, inner, cursor, innerWidth, "#a85f3f");
     }
@@ -351,10 +374,8 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
     const y = (layout.y ?? 0) * dimensions.height;
     const width = (layout.width ?? 0.5) * dimensions.width;
     const height = (layout.height ?? 0.2) * dimensions.height;
-    if (element.type === "text") {
-      drawTextElement(context, element, dimensions, x, y, width, textColor);
-    } else if (element.type === "image") {
-      drawImageElement(context, element, dimensions, x, y, width, height, images, images && !(images instanceof Map) ? images : null);
+    if (drawRegisteredElement(context, element, dimensions, x, y, width, height, elementRenderers, images, content)) {
+      // Project-defined renderers own their drawing while Cardinal owns overlay geometry.
     } else {
       drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, x, y, width, "#a85f3f");
     }
@@ -371,14 +392,14 @@ function accessibleElementText(content) {
 
 function logicalFaceContent(card, side) {
   const activeFace = card.faces[card.activeFaceId] ?? {};
-  if (side === "back") return card.back ?? { title: "Concealed", flavour: "" };
+  if (side === "back") return card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed" }, style: { variant: "title" } }] };
   if (!card.faceCycle || !card.faceCycleNextFaceId) return activeFace;
 
   const destinationFace = card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? activeFace;
   return destinationFace;
 }
 
-export function createCardGeometry(shape, { depth = CARD_DEPTH, bevelSize = CARD_BEVEL_SIZE } = {}) {
+export function createCardGeometry(shape, { depth = DEFAULT_CARD_THICKNESS, bevelSize = CARD_BEVEL_SIZE } = {}) {
   // The bevel is part of the requested depth. Keep the body inside its depth
   // envelope so the face layers remain visible even on very thin cards.
   const safeBevelSize = Math.min(bevelSize, Math.max(0, depth / 2 - 0.06));
@@ -418,19 +439,19 @@ export function textureDimensionsForPose(card, pose, templates = {}) {
 }
 
 function physicalSide(pose) {
-  const facing = Math.cos(radians(pose.flipX ?? 0)) * Math.cos(radians(pose.flipY ?? pose.flipAngle ?? 0));
+  const facing = Math.cos(radians(pose.flipX ?? 0)) * Math.cos(radians(pose.flipY ?? 0));
   if (Math.abs(facing) < 0.000001) return "edge";
   return facing > 0 ? "front" : "back";
 }
 
 function accessibleContent(card, pose) {
   const side = physicalSide(pose);
-  if (side === "edge") return { side, content: { title: "Card edge" } };
-  if (side === "back") return { side, content: card.back ?? { title: "Concealed card" } };
+  if (side === "edge") return { side, content: { elements: [{ id: "edge", type: "text", content: { text: "Card edge" } }] } };
+  if (side === "back") return { side, content: card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] } };
   return { side, content: card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? {} };
 }
 
-export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {}, onStatus = () => {} } = {}) {
+export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {}, elementRenderers = {}, onStatus = () => {} } = {}) {
   if (!element) return createHeadlessRenderer({ reason: "no-element" });
   if (typeof document === "undefined") throw new Error("Cardinal WebGL renderer requires a browser document");
 
@@ -527,12 +548,15 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       rejectImage = reject;
     });
     const image = new Image();
-    const entry = { image, loaded: false, promise };
+    const entry = { image, loaded: false, failed: false, promise };
     image.onload = () => {
       entry.loaded = true;
       resolveImage(image);
     };
-    image.onerror = () => rejectImage(new Error(`Card image failed to load: ${source}`));
+    image.onerror = () => {
+      entry.failed = true;
+      rejectImage(new Error(`Card image failed to load: ${source}`));
+    };
     imageCache.set(source, entry);
     image.src = source;
     if (image.complete && image.naturalWidth > 0) {
@@ -564,13 +588,16 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const images = new Map(imageEntries.filter(([, entry]) => entry.loaded).map(([source, entry]) => [source, entry.image]));
     const redraw = (source, image) => {
       images.set(source, image);
-      drawCardTextureContent(context, content, dimensions, images, options);
+      drawCardTextureContent(context, content, dimensions, images, { ...options, elementRenderers });
       texture.needsUpdate = true;
       render();
     };
-    drawCardTextureContent(context, content, dimensions, images, options);
+    drawCardTextureContent(context, content, dimensions, images, { ...options, elementRenderers });
     for (const [source, entry] of imageEntries) {
-      if (!entry.loaded) entry.promise.then((image) => redraw(source, image), () => {});
+      if (!entry.loaded) entry.promise.then(
+        (image) => redraw(source, image),
+        (error) => onStatus({ reason: "asset-load-failed", source, error }),
+      );
     }
     return texture;
   }
@@ -617,6 +644,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const faceGroup = new THREE.Group();
     faceGroup.add(body, frontBase, backBase, front, back);
     const cardGroup = new THREE.Group();
+    cardGroup.userData.cardId = card.id;
     const bodyGroup = new THREE.Group();
     const pivotGroup = new THREE.Group();
     pivotGroup.add(bodyGroup);
@@ -743,7 +771,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function update(card, pose, { render: shouldRender = true } = {}) {
-    const targetDimensions = cardDimensions(card, templates);
+    const targetDimensions = cardDimensions(card, templates, elementRenderers);
     const dimensions = { width: pose.width ?? targetDimensions.width, height: pose.height ?? targetDimensions.height };
     const textureDimensions = textureDimensionsForPose(card, pose, templates);
     const thickness = pose.thickness ?? cardThickness(card, templates);
@@ -760,7 +788,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.bodyGroup.rotation.order = "ZXY";
     mounted.bodyGroup.rotation.set(radians(pose.tiltX), radians(pose.tiltY), radians(pose.angle));
     mounted.faceGroup.rotation.order = "YXZ";
-    mounted.faceGroup.rotation.set(radians(pose.flipX ?? 0), radians(pose.flipY ?? pose.flipAngle ?? 0), 0);
+    mounted.faceGroup.rotation.set(radians(pose.flipX ?? 0), radians(pose.flipY ?? 0), 0);
     const accessible = accessibleContent(card, pose);
     const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
     mounted.accessibilityShell.textContent = accessibleText || "Card";
@@ -768,6 +796,47 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, targetDimensions);
     updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, targetDimensions);
     if (shouldRender) render();
+  }
+
+  function hitTest(point) {
+    renderScene.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+    const worldX = point.x - stageSize.width / 2;
+    const worldY = stageSize.height / 2 - point.y;
+    const x = worldX / (stageSize.width / 2);
+    const y = worldY / (stageSize.height / 2);
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera({ x, y }, camera);
+    const intersections = raycaster.intersectObjects([...cards.values()].map(({ cardGroup }) => cardGroup), true);
+    const hit = intersections.find(({ object }) => object.userData.cardId || object.parent?.userData.cardId);
+    if (!hit) {
+      const candidates = [...cards.entries()]
+        .map(([cardId, mounted]) => {
+          const pose = mounted.lastPose;
+          if (!pose) return null;
+          const scale = pose.scale * (pose.depthScale ?? 1);
+          const dx = (point.x - (pose.x ?? 0)) / scale;
+          const dy = (point.y - (pose.y ?? 0)) / scale;
+          const angle = radians(pose.angle ?? 0);
+          const localX = Math.cos(angle) * dx + Math.sin(angle) * dy;
+          const localY = -Math.sin(angle) * dx + Math.cos(angle) * dy;
+          if (Math.abs(localX) > (pose.width ?? mounted.width) / 2 || Math.abs(localY) > (pose.height ?? mounted.height) / 2) return null;
+          return { cardId, pose };
+        })
+        .filter(Boolean)
+        .sort((first, second) => (second.pose.drawOrder ?? 0) - (first.pose.drawOrder ?? 0));
+      const candidate = candidates[0];
+      if (!candidate) return null;
+      return { cardId: candidate.cardId, side: physicalSide(candidate.pose), distance: 0 };
+    }
+    let object = hit.object;
+    while (object && !object.userData.cardId) object = object.parent;
+    const mounted = cards.get(object?.userData.cardId);
+    if (!mounted) return null;
+    const side = hit.object === mounted.back || hit.object === mounted.backBase ? "back"
+      : hit.object === mounted.front || hit.object === mounted.frontBase ? "front"
+        : "edge";
+    return { cardId: object.userData.cardId, side, distance: hit.distance };
   }
 
   function remove(cardId) {
@@ -797,9 +866,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     type: "webgl",
     projection,
     mount(card) {
-      return mount(card, cardDimensions(card, templates), cardThickness(card, templates));
+      return mount(card, cardDimensions(card, templates, elementRenderers), cardThickness(card, templates));
     },
     update,
+    hitTest,
     render,
     remove,
     destroy() {
