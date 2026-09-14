@@ -216,6 +216,55 @@ test("a scene applies one card and exposes its committed state", () => {
   assert.deepEqual(scene.snapshot().desired.zones, [zone]);
 });
 
+test("card elements support repeated types and targeted lifecycle operations", async () => {
+  const elementCard = {
+    ...card,
+    faces: {
+      front: {
+        background: "#ffffff",
+        elements: [
+          { id: "title", type: "text", content: { text: "Title" }, layout: { mode: "flow", order: 0 } },
+          { id: "subtitle", type: "text", content: { text: "Subtitle" }, layout: { mode: "flow", order: 1 } },
+          { id: "art", type: "image", content: { src: "art.svg", alt: "Art" }, layout: { mode: "flow", order: 2 } },
+        ],
+      },
+    },
+  };
+  const scene = createCardScene({ renderer: () => ({ update() {}, destroy() {} }) });
+  scene.apply({ cards: [elementCard], zones: [zone] });
+
+  const transition = scene.transact([
+    { type: "element", cardId: "card-1", action: "hide", elementId: "title" },
+    { type: "element", cardId: "card-1", action: "update", elementId: "subtitle", element: { content: { text: "Updated" }, visible: true } },
+    { type: "element", cardId: "card-1", action: "reorder", elementId: "art", index: 0 },
+    { type: "element", cardId: "card-1", action: "add", elementId: "badge", element: { type: "text", content: { text: "Badge" }, layout: { mode: "overlay", x: 0.1, y: 0.1, width: 0.3, height: 0.1 } } },
+  ], { immediate: true });
+  await transition.finished;
+
+  const elements = scene.snapshot().desired.cards[0].faces.front.elements;
+  assert.deepEqual(elements.map(({ id }) => id), ["art", "title", "subtitle", "badge"]);
+  assert.equal(elements.find(({ id }) => id === "title").visible, false);
+  assert.equal(elements.find(({ id }) => id === "subtitle").content.text, "Updated");
+  assert.equal(elements.find(({ id }) => id === "badge").layout.mode, "overlay");
+  scene.destroy();
+});
+
+test("card elements can be added to the physical back", async () => {
+  const scene = createCardScene({ renderer: () => ({ update() {}, destroy() {} }) });
+  scene.apply({ cards: [card], zones: [zone] });
+  const transition = scene.transact([{
+    type: "element",
+    cardId: "card-1",
+    faceId: "back",
+    action: "add",
+    elementId: "back-label",
+    element: { type: "text", content: { text: "Back" } },
+  }], { immediate: true });
+  await transition.finished;
+  assert.equal(scene.snapshot().desired.cards[0].back.elements[0].content.text, "Back");
+  scene.destroy();
+});
+
 test("cards in one zone receive deterministic depth and draw order", () => {
   const secondCard = { ...card, id: "card-2" };
   const scene = createCardScene();

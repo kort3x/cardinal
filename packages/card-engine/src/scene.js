@@ -1,4 +1,4 @@
-import { cardById, normalizePose, normalizeSnapshot, zoneById } from "./model.js";
+import { cardById, normalizeElement, normalizePose, normalizeSnapshot, zoneById } from "./model.js";
 import { solveAllPoses } from "./layout.js";
 import { createClock, interpolate, shortestAngleTarget } from "./motion.js";
 import { createHeadlessRenderer, createRenderer } from "./renderer.js";
@@ -27,6 +27,7 @@ const operationResultChannels = {
   rotate: () => 1,
   scale: () => 1,
   face: (operation) => flipAxes(operation.axis).length,
+  element: () => 1,
 };
 
 function flipValue(pose, axis) {
@@ -440,6 +441,41 @@ export function createCardScene(config = {}) {
           }
         }
       },
+      element(operation, card) {
+        const faceId = operation.faceId ?? card.activeFaceId;
+        const face = faceId === "back" ? (card.back ?? (card.back = { elements: [] })) : card.faces[faceId];
+        if (!face) throw new Error(`Unknown face ${faceId} on card ${card.id}`);
+        const elements = face.elements ?? [];
+        const elementIndex = elements.findIndex(({ id }) => id === operation.elementId);
+        if (operation.action === "add") {
+          if (elementIndex !== -1) throw new Error(`Element ${operation.elementId} already exists on face ${faceId}`);
+          elements.push(normalizeElement({ ...operation.element, id: operation.elementId }, elements.length));
+          return;
+        }
+        if (elementIndex === -1) throw new Error(`Unknown element ${operation.elementId} on face ${faceId}`);
+        if (operation.action === "remove") {
+          elements.splice(elementIndex, 1);
+          return;
+        }
+        if (operation.action === "show" || operation.action === "hide") {
+          elements[elementIndex] = { ...elements[elementIndex], visible: operation.action === "show" };
+          return;
+        }
+        if (operation.action === "update") {
+          elements[elementIndex] = normalizeElement({ ...elements[elementIndex], ...operation.element, id: operation.elementId }, elementIndex);
+          return;
+        }
+        if (operation.action === "reorder") {
+          if (!Number.isInteger(operation.index) || operation.index < 0 || operation.index >= elements.length) {
+            throw new RangeError(`Element ${operation.elementId} reorder index must be within the face`);
+          }
+          const [element] = elements.splice(elementIndex, 1);
+          elements.splice(operation.index, 0, element);
+          face.elements = elements.map((item, index) => ({ ...item, layout: { ...item.layout, order: index } }));
+          return;
+        }
+        throw new TypeError(`Unknown element action: ${operation.action}`);
+      },
     };
 
     for (const [operationIndex, operation] of operations.entries()) {
@@ -481,6 +517,10 @@ export function createCardScene(config = {}) {
               : angleForAxis(operation.angle, axis);
             schedule(cardId, flipChannel(axis), targetAngle, transition, operationIndex);
           }
+        },
+        element: (operationIndex) => {
+          transition.results[operationIndex].remaining = 0;
+          transition.results[operationIndex].status = "settled";
         },
       };
       for (const operationIndex of operationIndexes) {

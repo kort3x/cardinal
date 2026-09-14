@@ -31,6 +31,13 @@
       #card-list label { padding: 6px 8px; cursor: pointer; }
       #card-list .card-z { color: #f4c95d; font-variant-numeric: tabular-nums; }
       #selection-status { margin-bottom: 0; }
+      #element-list { display: grid; gap: 8px; }
+      .element-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; align-items: center; padding: 8px; border: 1px solid #314c55; border-radius: 8px; }
+      .element-row > label { padding: 0; border: 0; background: transparent; }
+      .element-row .element-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .element-row input[type="text"], .element-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
+      .element-row .element-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
+      .element-row button { padding: 4px 7px; font-size: 0.82rem; }
       .motion-actions { margin-top: 0; }
       #stage { width: 900px; max-width: 100%; height: 500px; margin: 0 auto; border: 1px solid #314c55; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #244554, #142631 70%); }
       #status { min-height: 1.5em; color: #f4c95d; }
@@ -95,10 +102,16 @@
 
           <fieldset class="control-group">
             <legend>Elements</legend>
-            <label><input id="element-title" type="checkbox" checked> Title</label>
-            <label><input id="element-image" type="checkbox" checked> Image</label>
-            <label><input id="element-flavour" type="checkbox" checked> Flavour</label>
-            <p>Visibility applies to selected cards’ active logical face.</p>
+            <div id="element-list" aria-live="polite"></div>
+            <div class="presets">
+              <label for="element-type">Add:</label>
+              <select id="element-type" aria-label="Element type to add">
+                <option value="text">Text</option>
+                <option value="image">Image</option>
+              </select>
+              <button id="add-element" type="button">Add element</button>
+            </div>
+            <p>Elements belong to the selected cards’ active logical face. Reorder changes flow order; overlay elements use normalized position.</p>
           </fieldset>
         </div>
 

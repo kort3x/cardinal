@@ -12,6 +12,55 @@ export const DEFAULT_POSE = Object.freeze({
 
 const copy = (value) => structuredClone(value);
 
+function legacyElements(face) {
+  const visibility = face.elements && !Array.isArray(face.elements) ? face.elements : {};
+  const elements = [];
+  if (face.title !== undefined) elements.push({ id: "title", type: "text", content: { text: face.title }, visible: visibility.title !== false, layout: { mode: "flow", order: 0 } });
+  if (face.image !== undefined) elements.push({ id: "image", type: "image", content: { src: face.image, alt: face.imageAlt }, visible: visibility.image !== false, layout: { mode: "flow", order: 1 } });
+  if (face.flavour !== undefined) elements.push({ id: "flavour", type: "text", content: { text: face.flavour }, visible: visibility.flavour !== false, layout: { mode: "flow", order: 2 } });
+  return elements;
+}
+
+export function normalizeElement(element, index = 0) {
+  if (!element || typeof element.id !== "string" || element.id.length === 0) {
+    throw new TypeError("Every card element requires a non-empty string id");
+  }
+  if (typeof element.type !== "string" || element.type.length === 0) {
+    throw new TypeError(`Element ${element.id} requires a type`);
+  }
+  const layout = element.layout ?? {};
+  const mode = layout.mode ?? "flow";
+  if (mode !== "flow" && mode !== "overlay") {
+    throw new TypeError(`Element ${element.id} has unknown layout mode: ${mode}`);
+  }
+  if (mode === "overlay") {
+    for (const name of ["x", "y", "width", "height"]) {
+      if (layout[name] !== undefined && (!Number.isFinite(layout[name]) || layout[name] < 0 || layout[name] > 1)) {
+        throw new RangeError(`Element ${element.id} overlay ${name} must be between 0 and 1`);
+      }
+    }
+  }
+  if (layout.zIndex !== undefined && !Number.isFinite(layout.zIndex)) {
+    throw new TypeError(`Element ${element.id} overlay zIndex must be finite`);
+  }
+  return {
+    ...copy(element),
+    visible: element.visible !== false,
+    layout: { ...layout, mode, order: layout.order ?? index, zIndex: layout.zIndex ?? 0 },
+  };
+}
+
+function normalizeFace(face) {
+  const source = face ?? {};
+  const rawElements = Array.isArray(source.elements) ? source.elements : legacyElements(source);
+  if (!Array.isArray(rawElements)) throw new TypeError("Face elements must be an array");
+  const elements = rawElements.map(normalizeElement);
+  if (new Set(elements.map(({ id }) => id)).size !== elements.length) {
+    throw new Error("Element ids must be unique within a face");
+  }
+  return { ...copy(source), elements };
+}
+
 export function normalizePose(pose = {}) {
   const result = { ...DEFAULT_POSE, ...pose };
   for (const [name, value] of Object.entries(result)) {
@@ -49,7 +98,10 @@ export function normalizeSnapshot(snapshot) {
         throw new TypeError(`Card ${card.id} activeFaceId must be in faceCycle`);
       }
     }
-    return { ...copy(card), pose: normalizePose(card.pose) };
+    const normalizedCard = { ...copy(card), pose: normalizePose(card.pose) };
+    normalizedCard.faces = Object.fromEntries(Object.entries(card.faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
+    if (card.back) normalizedCard.back = normalizeFace(card.back);
+    return normalizedCard;
   });
   if (new Set(cards.map((card) => card.id)).size !== cards.length) {
     throw new Error("Card ids must be unique");

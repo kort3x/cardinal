@@ -25,49 +25,56 @@ const rotateValue = document.querySelector("#rotate-value");
 const scaleValue = document.querySelector("#scale-value");
 const flipXValue = document.querySelector("#flip-x-value");
 const flipYValue = document.querySelector("#flip-y-value");
-const elementVisibility = {
-  title: document.querySelector("#element-title"),
-  image: document.querySelector("#element-image"),
-  flavour: document.querySelector("#element-flavour"),
-};
+const elementList = document.querySelector("#element-list");
+const elementType = document.querySelector("#element-type");
+const addElementButton = document.querySelector("#add-element");
 
 const logicalFaceDefinitions = [
   {
     id: "face-a",
-    title: "The Cardinal",
-    image: "/examples/card-engine-lab/cardinal.svg",
-    imageAlt: "A stylized red cardinal",
-    flavour: "One card from the new independent engine.",
+    elements: [
+      { id: "title", type: "text", content: { text: "The Cardinal" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
+      { id: "image", type: "image", content: { src: "/examples/card-engine-lab/cardinal.svg", alt: "A stylized red cardinal" }, layout: { mode: "flow", order: 1 } },
+      { id: "flavour", type: "text", content: { text: "One card from the new independent engine." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 2 } },
+    ],
     background: "#f4c95d",
   },
   {
     id: "face-b",
-    title: "Face B",
-    flavour: "The second logical face.",
+    elements: [
+      { id: "title", type: "text", content: { text: "Face B" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
+      { id: "flavour", type: "text", content: { text: "The second logical face." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
+    ],
     background: "#367c83",
     textColor: "#f7f4e9",
     mutedTextColor: "#c5e4df",
   },
   {
     id: "face-c",
-    title: "Face C",
-    flavour: "The third logical face.",
+    elements: [
+      { id: "title", type: "text", content: { text: "Face C" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
+      { id: "flavour", type: "text", content: { text: "The third logical face." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
+    ],
     background: "#a85f3f",
     textColor: "#f7f4e9",
     mutedTextColor: "#f3d7b8",
   },
   {
     id: "face-d",
-    title: "Face D",
-    flavour: "The fourth logical face.",
+    elements: [
+      { id: "title", type: "text", content: { text: "Face D" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
+      { id: "flavour", type: "text", content: { text: "The fourth logical face." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
+    ],
     background: "#367c83",
     textColor: "#f7f4e9",
     mutedTextColor: "#c5e4df",
   },
   {
     id: "face-e",
-    title: "Face E",
-    flavour: "The fifth logical face.",
+    elements: [
+      { id: "title", type: "text", content: { text: "Face E" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
+      { id: "flavour", type: "text", content: { text: "The fifth logical face." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
+    ],
     background: "#69527f",
     textColor: "#f7f4e9",
     mutedTextColor: "#ded0ed",
@@ -79,8 +86,10 @@ const baseCard = {
   activeFaceId: "face-a",
   faceUp: true,
   back: {
-    title: "Concealed",
-    flavour: "This side remains hidden.",
+    elements: [
+      { id: "title", type: "text", content: { text: "Concealed" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
+      { id: "flavour", type: "text", content: { text: "This side remains hidden." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
+    ],
     background: "#17212b",
     textColor: "#f7f4e9",
     mutedTextColor: "#bdcbd0",
@@ -90,12 +99,31 @@ const baseCard = {
 
 let selectedCardIds = new Set([baseCard.id]);
 let nextCardNumber = 2;
+let nextElementNumber = 1;
+let renderedElementKey;
+
+function mergeFace(defaultFace, sourceFace = {}) {
+  const defaults = defaultFace.elements ?? [];
+  const sourceElements = sourceFace.elements ?? [];
+  const sourceById = new Map(sourceElements.map((element) => [element.id, element]));
+  const elements = defaults.map((element) => {
+    const override = sourceById.get(element.id);
+    if (!override) return structuredClone(element);
+    return {
+      ...structuredClone(element),
+      ...structuredClone(override),
+      content: { ...element.content, ...override.content },
+      layout: { ...element.layout, ...override.layout },
+      style: { ...element.style, ...override.style },
+    };
+  });
+  const extras = sourceElements.filter((element) => !defaults.some(({ id }) => id === element.id)).map((element) => structuredClone(element));
+  return { ...defaultFace, ...sourceFace, elements: [...elements, ...extras] };
+}
 
 function configuredCard(sourceCard) {
   const faces = logicalFaceDefinitions.slice(0, Number(faceCount.value)).map((face) => ({
-    ...face,
-    ...sourceCard.faces?.[face.id],
-    elements: { ...face.elements, ...sourceCard.faces?.[face.id]?.elements },
+    ...mergeFace(face, sourceCard.faces?.[face.id]),
   }));
   const card = {
     ...sourceCard,
@@ -281,33 +309,111 @@ function syncControlsFromSelection() {
     flipX: pose.flipX ?? 0,
     flipY: pose.flipY ?? pose.flipAngle ?? 0,
   });
-  const content = card.faces[card.activeFaceId] ?? {};
-  for (const [name, control] of Object.entries(elementVisibility)) {
-    control.checked = content.elements?.[name] !== false;
-  }
+  renderElementList(state);
 }
 
-function applyElementVisibility(element, visible) {
-  const cards = sceneCards().map((card) => {
-    if (!selectedCardIds.has(card.id)) return card;
-    const face = card.faces[card.activeFaceId] ?? {};
-    return {
-      ...card,
-      faces: {
-        ...card.faces,
-        [card.activeFaceId]: {
-          ...face,
-          elements: { ...face.elements, [element]: visible },
-        },
-      },
-    };
+function selectedElementOperations(makeOperation) {
+  return selectedCards().flatMap((card) => {
+    const face = card.faces[card.activeFaceId];
+    return face?.elements?.some(({ id }) => id === makeOperation.elementId) || makeOperation.action === "add"
+      ? [{ cardId: card.id, faceId: card.activeFaceId, ...makeOperation }]
+      : [];
   });
-  applyLabCards(cards);
+}
+
+function applyElementOperation(operation) {
+  if (selectedCards().length === 0) return;
+  run(selectedElementOperations(operation), { immediate: true });
+}
+
+function elementEditorValue(element) {
+  if (element.type === "image") return element.content?.src ?? "";
+  return element.content?.text ?? element.content?.value ?? "";
+}
+
+function renderElementList(state = scene.snapshot()) {
+  const card = currentCard(state);
+  const face = card?.faces?.[card.activeFaceId];
+  const key = face ? JSON.stringify([card.id, card.activeFaceId, face.elements]) : "empty";
+  if (key === renderedElementKey) return;
+  renderedElementKey = key;
+  if (!face) {
+    elementList.replaceChildren(document.createTextNode("Select a card to inspect its elements."));
+    addElementButton.disabled = true;
+    elementType.disabled = true;
+    return;
+  }
+  addElementButton.disabled = false;
+  elementType.disabled = false;
+  const rows = (face.elements ?? []).map((element, index) => {
+    const row = document.createElement("div");
+    row.className = "element-row";
+
+    const visibility = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = element.visible !== false;
+    checkbox.setAttribute("aria-label", `Show ${element.id}`);
+    checkbox.addEventListener("change", () => applyElementOperation({
+      action: checkbox.checked ? "show" : "hide",
+      elementId: element.id,
+    }));
+    visibility.append(checkbox);
+
+    const name = document.createElement("span");
+    name.className = "element-name";
+    name.textContent = `${element.id} · ${element.type}`;
+    visibility.append(name);
+
+    const editor = document.createElement("input");
+    editor.type = "text";
+    editor.value = elementEditorValue(element);
+    editor.setAttribute("aria-label", `Content for ${element.id}`);
+    editor.placeholder = element.type === "image" ? "Image URL" : "Text";
+    editor.addEventListener("change", () => {
+      const content = { ...(element.content ?? {}) };
+      if (element.type === "image") content.src = editor.value;
+      else content.text = editor.value;
+      applyElementOperation({ action: "update", elementId: element.id, element: { content } });
+    });
+
+    const mode = document.createElement("select");
+    mode.setAttribute("aria-label", `Layout mode for ${element.id}`);
+    mode.innerHTML = '<option value="flow">Flow</option><option value="overlay">Overlay</option>';
+    mode.value = element.layout?.mode ?? "flow";
+    mode.addEventListener("change", () => applyElementOperation({
+      action: "update",
+      elementId: element.id,
+      element: { layout: { ...(element.layout ?? {}), mode: mode.value } },
+    }));
+
+    const actions = document.createElement("div");
+    actions.className = "element-actions";
+    const moveButton = (label, targetIndex, disabled) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.disabled = disabled;
+      button.addEventListener("click", () => applyElementOperation({ action: "reorder", elementId: element.id, index: targetIndex }));
+      return button;
+    };
+    actions.append(moveButton("↑", index - 1, index === 0), moveButton("↓", index + 1, index === face.elements.length - 1));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => applyElementOperation({ action: "remove", elementId: element.id }));
+    actions.append(remove);
+
+    row.append(visibility, editor, mode, actions);
+    return row;
+  });
+  elementList.replaceChildren(...rows);
 }
 
 function updateStatus() {
   const state = scene.snapshot();
   updateCardListDepth(state);
+  renderElementList(state);
   const card = currentCard(state);
   const visual = card && state.visual.find(({ cardId }) => cardId === card.id);
   const pose = visual?.pose;
@@ -589,9 +695,14 @@ document.querySelectorAll("[data-flip]").forEach((button) => {
   });
 });
 
-for (const [element, control] of Object.entries(elementVisibility)) {
-  control.addEventListener("change", () => applyElementVisibility(element, control.checked));
-}
+addElementButton.addEventListener("click", () => {
+  const id = `${elementType.value}-${nextElementNumber}`;
+  nextElementNumber += 1;
+  const element = elementType.value === "image"
+    ? { id, type: "image", content: { src: "/examples/card-engine-lab/cardinal.svg", alt: "A stylized red cardinal" }, layout: { mode: "flow" } }
+    : { id, type: "text", content: { text: "New text element" }, layout: { mode: "flow" } };
+  applyElementOperation({ action: "add", elementId: id, element });
+});
 
 document.querySelector("#combined").addEventListener("click", () => {
   stopContinuousFlip();

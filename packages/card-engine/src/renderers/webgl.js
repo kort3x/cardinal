@@ -176,27 +176,127 @@ function contentKey(content, dimensions) {
   ]);
 }
 
-function elementVisible(content, element) {
-  return content?.elements?.[element] !== false;
+function legacyContentElements(content) {
+  const visibility = content?.elements && !Array.isArray(content.elements) ? content.elements : {};
+  const elements = [];
+  if (content?.title !== undefined) elements.push({ id: "title", type: "text", content: { text: content.title }, visible: visibility.title !== false, layout: { mode: "flow", order: 0 }, style: { variant: "title" } });
+  if (content?.image !== undefined) elements.push({ id: "image", type: "image", content: { src: content.image, alt: content.imageAlt }, visible: visibility.image !== false, layout: { mode: "flow", order: 1 } });
+  if (content?.flavour !== undefined) elements.push({ id: "flavour", type: "text", content: { text: content.flavour }, visible: visibility.flavour !== false, layout: { mode: "flow", order: 2 }, style: { variant: "flavour" } });
+  return elements;
 }
 
-export function drawCardTextureContent(context, content, dimensions, image = null) {
+function contentElements(content) {
+  return Array.isArray(content?.elements) ? content.elements : legacyContentElements(content);
+}
+
+function elementContent(element) {
+  if (element?.content && typeof element.content === "object") return element.content;
+  return { text: element?.content ?? "" };
+}
+
+function elementText(element) {
+  const content = elementContent(element);
+  return content.text ?? content.value ?? "";
+}
+
+function elementImageSource(element) {
+  const content = elementContent(element);
+  return content.src ?? content.url ?? content.image;
+}
+
+function elementImageAlt(element) {
+  const content = elementContent(element);
+  return content.alt ?? content.imageAlt ?? content.label;
+}
+
+function elementVisible(element) {
+  return element?.visible !== false;
+}
+
+function sortedElements(content) {
+  return contentElements(content)
+    .map((element, index) => ({ element, index }))
+    .filter(({ element }) => elementVisible(element))
+    .sort((first, second) => (first.element.layout?.order ?? first.index) - (second.element.layout?.order ?? second.index) || first.index - second.index);
+}
+
+function imageFrom(images, element, fallback) {
+  const source = elementImageSource(element);
+  if (images instanceof Map) return images.get(source) ?? null;
+  return source && fallback ? fallback : null;
+}
+
+function drawTextElement(context, element, dimensions, x, y, width, color, variant = "body") {
+  const style = element.style ?? {};
+  const isTitle = style.variant === "title" || element.variant === "title" || variant === "title";
+  context.fillStyle = style.color ?? color;
+  context.font = style.font ?? (isTitle ? "700 18.4px system-ui, sans-serif" : "14.4px system-ui, sans-serif");
+  context.textBaseline = "top";
+  const lineHeight = style.lineHeight ?? (isTitle ? 21 : 20);
+  const text = wrapText(context, elementText(element), Math.max(1, width));
+  drawLines(context, text, x, y, lineHeight);
+  return text.split("\n").length * lineHeight;
+}
+
+function drawImageElement(context, element, dimensions, x, y, width, height, images, fallbackImage) {
+  const image = imageFrom(images, element, fallbackImage);
+  if (!image) return height;
+  context.drawImage(image, x, y, width, height);
+  return height;
+}
+
+export function drawCardTextureContent(context, content, dimensions, images = null) {
   context.fillStyle = content?.background ?? "#ffffff";
   context.fillRect(0, 0, dimensions.width, dimensions.height);
-  context.fillStyle = content?.textColor ?? "#17212b";
-  context.font = "700 18.4px system-ui, sans-serif";
-  context.textBaseline = "top";
-  if (elementVisible(content, "title")) {
-    drawLines(context, wrapText(context, content?.title, dimensions.width - 36), 18, 18, 21);
+  const inner = 18;
+  const innerWidth = Math.max(1, dimensions.width - inner * 2);
+  const textColor = content?.textColor ?? "#17212b";
+  const entries = sortedElements(content);
+  const flow = entries.filter(({ element }) => (element.layout?.mode ?? "flow") === "flow");
+  const overlays = entries
+    .filter(({ element }) => element.layout?.mode === "overlay")
+    .sort((first, second) => (first.element.layout?.zIndex ?? 0) - (second.element.layout?.zIndex ?? 0)
+      || String(first.element.id).localeCompare(String(second.element.id)));
+  let cursor = inner;
+
+  for (const { element } of flow) {
+    const type = element.type;
+    if (type === "text") {
+      const color = element.style?.variant === "flavour" || element.id === "flavour"
+        ? content?.mutedTextColor ?? "#78838c"
+        : textColor;
+      cursor += drawTextElement(context, element, dimensions, inner, cursor, innerWidth, color, element.id === "title" ? "title" : "body") + 10;
+    } else if (type === "image") {
+      const imageHeight = element.layout?.height ? dimensions.height * element.layout.height : 120;
+      const imageWidth = element.layout?.width ? dimensions.width * element.layout.width : innerWidth;
+      cursor += drawImageElement(context, element, dimensions, inner, cursor, imageWidth, imageHeight, images, images && !(images instanceof Map) ? images : null) + 10;
+    } else {
+      cursor += drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, inner, cursor, innerWidth, "#a85f3f") + 10;
+    }
   }
-  if (elementVisible(content, "image") && content?.image && image) {
-    context.drawImage(image, 18, 66, dimensions.width - 36, 120);
+
+  for (const { element } of overlays) {
+    const layout = element.layout ?? {};
+    const x = (layout.x ?? 0) * dimensions.width;
+    const y = (layout.y ?? 0) * dimensions.height;
+    const width = (layout.width ?? 0.5) * dimensions.width;
+    const height = (layout.height ?? 0.2) * dimensions.height;
+    if (element.type === "text") {
+      drawTextElement(context, element, dimensions, x, y, width, textColor);
+    } else if (element.type === "image") {
+      drawImageElement(context, element, dimensions, x, y, width, height, images, images && !(images instanceof Map) ? images : null);
+    } else {
+      drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, x, y, width, "#a85f3f");
+    }
   }
-  if (elementVisible(content, "flavour")) {
-    context.fillStyle = content?.mutedTextColor ?? "#78838c";
-    context.font = "14.4px system-ui, sans-serif";
-    drawLines(context, wrapText(context, content?.flavour, dimensions.width - 36), 18, dimensions.height - 70, 20);
-  }
+}
+
+function accessibleElementText(content) {
+  return sortedElements(content).map(({ element }) => {
+    if (element.type === "text") return elementText(element);
+    if (element.type === "image") return elementImageAlt(element);
+    return element.content?.label ?? `${element.type} element`;
+  }).filter(Boolean).join(". ");
 }
 
 function logicalFaceContent(card, side) {
@@ -349,15 +449,23 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = webgl.capabilities.getMaxAnisotropy();
-    const imageSource = elementVisible(content, "image") ? content?.image : null;
-    const imageEntry = imageSource ? cachedImage(imageSource) : null;
-    const redraw = (image) => {
-      drawCardTextureContent(context, content, dimensions, image);
+    const imageEntries = contentElements(content)
+      .filter((element) => elementVisible(element) && element.type === "image")
+      .map((element) => elementImageSource(element))
+      .filter(Boolean)
+      .filter((source, index, sources) => sources.indexOf(source) === index)
+      .map((source) => [source, cachedImage(source)]);
+    const images = new Map(imageEntries.filter(([, entry]) => entry.loaded).map(([source, entry]) => [source, entry.image]));
+    const redraw = (source, image) => {
+      images.set(source, image);
+      drawCardTextureContent(context, content, dimensions, images);
       texture.needsUpdate = true;
       render();
     };
-    drawCardTextureContent(context, content, dimensions, imageEntry?.loaded ? imageEntry.image : null);
-    if (imageEntry && !imageEntry.loaded) imageEntry.promise.then(redraw, () => {});
+    drawCardTextureContent(context, content, dimensions, images);
+    for (const [source, entry] of imageEntries) {
+      if (!entry.loaded) entry.promise.then((image) => redraw(source, image), () => {});
+    }
     return texture;
   }
 
@@ -448,11 +556,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.faceGroup.rotation.order = "YXZ";
     mounted.faceGroup.rotation.set(radians(pose.flipX ?? 0), radians(pose.flipY ?? pose.flipAngle ?? 0), 0);
     const accessible = accessibleContent(card, pose);
-    const accessibleText = [
-      accessible.side === "back" ? "Concealed card" : elementVisible(accessible.content, "title") ? accessible.content.title : null,
-      accessible.side === "back" || elementVisible(accessible.content, "image") ? accessible.content.imageAlt : null,
-      accessible.side === "back" || elementVisible(accessible.content, "flavour") ? accessible.content.flavour : null,
-    ].filter(Boolean).join(". ");
+    const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
     mounted.accessibilityShell.textContent = accessibleText || "Card";
     mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
     updateTexture(mounted, "front", logicalFaceContent(card, "front"), dimensions);
