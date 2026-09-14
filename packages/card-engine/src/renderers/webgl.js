@@ -246,7 +246,16 @@ function drawImageElement(context, element, dimensions, x, y, width, height, ima
   if (!elementVisible(element)) return height;
   const image = imageFrom(images, element, fallbackImage);
   if (!image) return height;
-  context.drawImage(image, x, y, width, height);
+  const sourceWidth = image.naturalWidth ?? image.videoWidth ?? image.width;
+  const sourceHeight = image.naturalHeight ?? image.videoHeight ?? image.height;
+  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
+    context.drawImage(image, x, y, width, height);
+    return height;
+  }
+  const scale = Math.min(width / sourceWidth, height / sourceHeight);
+  const fittedWidth = sourceWidth * scale;
+  const fittedHeight = sourceHeight * scale;
+  context.drawImage(image, x + (width - fittedWidth) / 2, y + (height - fittedHeight) / 2, fittedWidth, fittedHeight);
   return height;
 }
 

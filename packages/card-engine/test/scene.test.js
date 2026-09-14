@@ -170,6 +170,23 @@ test("card texture redraws reuse a loaded image synchronously", () => {
   assert.equal(calls.some(([name, value]) => name === "drawImage" && value === image), true);
 });
 
+test("card images preserve their intrinsic aspect ratio during resize", () => {
+  const calls = [];
+  const context = {
+    drawImage(...args) { calls.push(args); },
+    fillRect() {},
+    measureText(text) { return { width: text.length * 8 }; },
+  };
+  const image = { naturalWidth: 400, naturalHeight: 240 };
+  drawCardTextureContent(context, {
+    elements: [{ id: "art", type: "image", content: { src: "/art.svg" }, layout: { mode: "flow" } }],
+  }, { width: 280, height: 320 }, image);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].length, 5);
+  assert.equal(calls[0][3] / calls[0][4], 400 / 240);
+});
+
 test("hidden preserved elements reserve flow space without rendering", () => {
   const calls = [];
   const context = {
