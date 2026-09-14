@@ -230,6 +230,7 @@ const transition = scene.transact([
   { type: "move", cardId: "card-7", to: "display", index: 0 },
   { type: "rotate", cardId: "card-7", angle: 15 },
   { type: "scale", cardId: "card-7", factor: 1.25 },
+  { type: "resize", cardId: "card-7", dimensions: { width: 220, height: 300 } },
   { type: "face", cardId: "card-7", face: "faceUp", axis: "y" },
 ]);
 
@@ -246,6 +247,7 @@ reconciliation and commands share one validation/commit path. Transactions can a
 zone geometry, arrangements, and presentation. Read-only snapshots expose desired
 state and settling status; visual entries also expose the current physical side
 (`front`, `back`, or `edge`) separately from each card's logical `activeFaceId`.
+Visual poses also expose the currently displayed unscaled `width` and `height`.
 Callers do not mutate card objects or DOM geometry.
 
 Validate duplicate IDs, unknown references, multiple membership, invalid geometry,
@@ -332,15 +334,15 @@ Each zone has an explicit overflow policy: fit to a configured minimum readable
 size, scroll, intentional overlap, or reject. Exceeding capacity cannot silently
 spill into another zone.
 
-## Rotation, scale, and flipping
+## Rotation, resize, scale, and flipping
 
-Movement, rotation, scale, and flipping are first-class operations. Each can occur
+Movement, rotation, resize, scale, and flipping are first-class operations. Each can occur
 independently or concurrently in a single transaction, including during zone
 transfers and region presentation changes. They use the same animation lifecycle
 and interruption rules. A move-only command preserves explicit card rotation,
 scale, and face state; omitted properties are not reset at arrival.
 
-Rotation, scale, and flipping require no zone transfer: a card can perform any
+Rotation, resize, scale, and flipping require no zone transfer: a card can perform any
 combination while resting in its current zone, preserving membership and slot
 order. They can also begin, change, or finish while a move is already in progress.
 A command affecting only one operation retargets that operation from its current
@@ -359,6 +361,13 @@ An operation is never implicitly queued until movement finishes.
   content geometry and line wrapping. It does not change zone membership or depth.
   Layout allocation uses the footprint before explicit card scaling; visual overflow or inspection
   elevation must follow an explicit scene policy.
+- **Resize:** change the card's unscaled `{ width, height }` dimensions while
+  preserving its shell identity and center anchor by default. Dimensions must be
+  finite and positive. Desired dimensions commit immediately, while visible shell
+  geometry interpolates from its current width and height. A resize retargets from
+  the current visible dimensions and independently preserves active movement,
+  rotation, scale, and flip channels. Zone arrangements resolve the new footprint
+  and retarget displaced neighbors.
 - **Flip:** turn between faceUp and faceDown around a configured local x or y axis.
   A face command may select both axes with `axis: ["x", "y"]`; its `angle`
   may be a number shared by both axes or `{ x, y }` for independent angles.

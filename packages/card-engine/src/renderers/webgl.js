@@ -530,8 +530,46 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     accessibilityShell.setAttribute("role", "button");
     accessibilityLayer.append(accessibilityShell);
     const mounted = { cardGroup, pivotGroup, bodyGroup, faceGroup, front, back, frontMaterial, backMaterial, frontBaseGeometry, backBaseGeometry, frontBaseMaterial, backBaseMaterial, geometry, bodyMaterial, sideMaterial, accessibilityShell, frontTexture: null, backTexture: null, frontKey: null, backKey: null, width, height };
+    mounted.body = body;
+    mounted.frontBase = frontBase;
+    mounted.backBase = backBase;
     cards.set(card.id, mounted);
     return mounted;
+  }
+
+  function updateGeometry(mounted, card, dimensions) {
+    if (mounted.width === dimensions.width && mounted.height === dimensions.height) return;
+    const shape = createCardShape(card.shape ?? templates[card.template]?.shape, dimensions);
+    const geometry = createCardGeometry(shape, { depth: CARD_DEPTH });
+    const faceDimensions = {
+      width: Math.max(1, dimensions.width - CARD_BEVEL_SIZE * 2),
+      height: Math.max(1, dimensions.height - CARD_BEVEL_SIZE * 2),
+    };
+    const faceShape = createCardShape(card.shape ?? templates[card.template]?.shape, faceDimensions);
+    const frontBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
+    const backBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
+    const frontGeometry = createCardFaceGeometry(faceShape, faceDimensions);
+    const backGeometry = createCardFaceGeometry(faceShape, faceDimensions);
+    const oldGeometry = mounted.geometry;
+    const oldFrontBaseGeometry = mounted.frontBaseGeometry;
+    const oldBackBaseGeometry = mounted.backBaseGeometry;
+    const oldFrontGeometry = mounted.front.geometry;
+    const oldBackGeometry = mounted.back.geometry;
+    mounted.geometry = geometry;
+    mounted.frontBaseGeometry = frontBaseGeometry;
+    mounted.backBaseGeometry = backBaseGeometry;
+    mounted.body.geometry = geometry;
+    mounted.frontBase.geometry = frontBaseGeometry;
+    mounted.backBase.geometry = backBaseGeometry;
+    mounted.front.geometry = frontGeometry;
+    mounted.back.geometry = backGeometry;
+    mounted.width = dimensions.width;
+    mounted.height = dimensions.height;
+    oldGeometry.dispose();
+    oldFrontBaseGeometry.dispose();
+    oldBackBaseGeometry.dispose();
+    oldFrontGeometry.dispose();
+    oldBackGeometry.dispose();
   }
 
   function updateTexture(mounted, side, content, dimensions) {
@@ -549,8 +587,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function update(card, pose) {
-    const dimensions = { width: card.dimensions?.width ?? templates[card.template]?.width ?? 180, height: card.dimensions?.height ?? templates[card.template]?.height ?? 250 };
-    const mounted = mount(card, dimensions);
+    const textureDimensions = cardDimensions(card, templates);
+    const dimensions = { width: pose.width ?? textureDimensions.width, height: pose.height ?? textureDimensions.height };
+    const mounted = mount(card, textureDimensions);
+    updateGeometry(mounted, card, dimensions);
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
     const x = pose.x - stageSize.width / 2;
     const y = stageSize.height / 2 - pose.y;
@@ -565,8 +605,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
     mounted.accessibilityShell.textContent = accessibleText || "Card";
     mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
-    updateTexture(mounted, "front", logicalFaceContent(card, "front"), dimensions);
-    updateTexture(mounted, "back", logicalFaceContent(card, "back"), dimensions);
+    updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions);
+    updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions);
     render();
   }
 
@@ -578,6 +618,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.geometry.dispose();
     mounted.frontBaseGeometry.dispose();
     mounted.backBaseGeometry.dispose();
+    mounted.front.geometry.dispose();
+    mounted.back.geometry.dispose();
     mounted.bodyMaterial.dispose();
     mounted.sideMaterial.dispose();
     mounted.frontBaseMaterial.dispose();

@@ -283,6 +283,46 @@ test("card elements can be added to the physical back", async () => {
   scene.destroy();
 });
 
+test("resize commits dimensions immediately and animates the visible size", async () => {
+  const clock = testClock();
+  const scene = createCardScene({ clock, renderer: () => ({ update() {}, destroy() {} }), motion: { clock, duration: 700 } });
+  scene.apply({ cards: [card], zones: [zone] });
+
+  const transition = scene.transact([{
+    type: "resize",
+    cardId: "card-1",
+    dimensions: { width: 260, height: 300 },
+  }]);
+  assert.deepEqual(scene.snapshot().desired.cards[0].dimensions, { width: 260, height: 300 });
+  assert.equal(scene.snapshot().visual[0].pose.width, 180);
+  clock.tick(350);
+  const halfway = scene.snapshot().visual[0].pose;
+  assert.equal(halfway.width > 180 && halfway.width < 260, true);
+  assert.equal(halfway.height > 250 && halfway.height < 300, true);
+  clock.tick(350);
+  await transition.finished;
+  assert.equal(scene.snapshot().visual[0].pose.width, 260);
+  assert.equal(scene.snapshot().visual[0].pose.height, 300);
+  scene.destroy();
+});
+
+test("an interrupted resize retargets from the current visible dimensions", async () => {
+  const clock = testClock();
+  const scene = createCardScene({ clock, renderer: () => ({ update() {}, destroy() {} }), motion: { clock, duration: 700 } });
+  scene.apply({ cards: [card], zones: [zone] });
+
+  scene.transact([{ type: "resize", cardId: "card-1", dimensions: { width: 280, height: 320 } }]);
+  clock.tick(350);
+  const currentWidth = scene.snapshot().visual[0].pose.width;
+  const transition = scene.transact([{ type: "resize", cardId: "card-1", dimensions: { width: 200, height: 220 } }]);
+  assert.equal(scene.snapshot().visual[0].pose.width, currentWidth);
+  clock.tick(700);
+  await transition.finished;
+  assert.equal(scene.snapshot().visual[0].pose.width, 200);
+  assert.equal(scene.snapshot().visual[0].pose.height, 220);
+  scene.destroy();
+});
+
 test("cards in one zone receive deterministic depth and draw order", () => {
   const secondCard = { ...card, id: "card-2" };
   const scene = createCardScene();

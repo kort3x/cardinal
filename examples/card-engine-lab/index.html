@@ -101,6 +101,21 @@
             <p>One physical back · front cycle: A → … → A</p>
           </fieldset>
 
+          <fieldset class="control-group">
+            <legend>Dimensions</legend>
+            <label class="control-row" for="card-width">
+              <span>Width</span>
+              <input id="card-width" type="range" min="80" max="360" step="1" value="180" aria-describedby="card-width-value">
+              <output id="card-width-value" for="card-width">180</output>
+            </label>
+            <label class="control-row" for="card-height">
+              <span>Height</span>
+              <input id="card-height" type="range" min="120" max="480" step="1" value="250" aria-describedby="card-height-value">
+              <output id="card-height-value" for="card-height">250</output>
+            </label>
+            <p>Resizes selected cards around their center while preserving shell identity.</p>
+          </fieldset>
+
         </div>
 
         <div class="control-section" aria-label="Motion controls">

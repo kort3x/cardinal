@@ -12,6 +12,16 @@ export const DEFAULT_POSE = Object.freeze({
 
 const copy = (value) => structuredClone(value);
 
+function normalizeDimensions(dimensions) {
+  if (!dimensions || !Number.isFinite(dimensions.width) || !Number.isFinite(dimensions.height)) {
+    throw new TypeError("Card dimensions require finite width and height");
+  }
+  if (dimensions.width <= 0 || dimensions.height <= 0) {
+    throw new RangeError("Card dimensions must be positive");
+  }
+  return { width: dimensions.width, height: dimensions.height };
+}
+
 function legacyElements(face) {
   const visibility = face.elements && !Array.isArray(face.elements) ? face.elements : {};
   const elements = [];
@@ -104,6 +114,7 @@ export function normalizeSnapshot(snapshot) {
       }
     }
     const normalizedCard = { ...copy(card), pose: normalizePose(card.pose) };
+    if (card.dimensions !== undefined) normalizedCard.dimensions = normalizeDimensions(card.dimensions);
     normalizedCard.faces = Object.fromEntries(Object.entries(card.faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
     if (card.back) normalizedCard.back = normalizeFace(card.back);
     return normalizedCard;

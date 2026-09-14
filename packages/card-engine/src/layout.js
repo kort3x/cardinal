@@ -33,6 +33,8 @@ export function solveCardPose(card, zone, index = 0, camera, templates, layerOff
   return {
     ...DEFAULT_POSE,
     ...card.pose,
+    width: dimensions.width,
+    height: dimensions.height,
     x,
     y,
     z: zone.geometry.depth + layerOffset,

@@ -1,5 +1,5 @@
 import { cardById, normalizeElement, normalizePose, normalizeSnapshot, zoneById } from "./model.js";
-import { solveAllPoses } from "./layout.js";
+import { cardDimensions, solveAllPoses } from "./layout.js";
 import { createClock, interpolate, shortestAngleTarget } from "./motion.js";
 import { createHeadlessRenderer, createRenderer } from "./renderer.js";
 import { createWebGLRenderer } from "./renderers/webgl.js";
@@ -26,6 +26,7 @@ const operationResultChannels = {
   move: () => 2,
   rotate: () => 1,
   scale: () => 1,
+  resize: () => 2,
   face: (operation) => flipAxes(operation.axis).length,
   element: () => 1,
 };
@@ -334,6 +335,8 @@ export function createCardScene(config = {}) {
         y: previousPose.y,
         angle: previousPose.angle,
         scale: previousPose.scale,
+        width: previousPose.width,
+        height: previousPose.height,
         flipX: previousPose.flipX,
         flipY: previousPose.flipY,
         flipAngle: previousPose.flipAngle,
@@ -347,6 +350,8 @@ export function createCardScene(config = {}) {
         scheduleChannel(cardId, "y", target.y);
         scheduleChannel(cardId, "angle", target.angle);
         scheduleChannel(cardId, "scale", target.scale);
+        scheduleChannel(cardId, "width", target.width);
+        scheduleChannel(cardId, "height", target.height);
         scheduleChannel(cardId, "flipX", target.flipX);
         scheduleChannel(cardId, "flipY", target.flipY);
         const current = cardPose(cardId);
@@ -409,6 +414,16 @@ export function createCardScene(config = {}) {
       scale(operation, card) {
         if (!Number.isFinite(operation.factor) || operation.factor <= 0) throw new RangeError("Scale factor must be positive and finite");
         card.pose = { ...(card.pose ?? normalizePose()), scale: operation.factor };
+      },
+      resize(operation, card) {
+        const current = card.dimensions ?? cardDimensions(card, config.templates);
+        const dimensions = operation.dimensions ?? operation;
+        const width = dimensions.width ?? current.width;
+        const height = dimensions.height ?? current.height;
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+          throw new RangeError("Resize dimensions must be positive and finite");
+        }
+        card.dimensions = { width, height };
       },
       face(operation, card, operationIndex) {
         if (operation.face !== "faceUp" && operation.face !== "faceDown") throw new TypeError("Face must be faceUp or faceDown");
@@ -492,6 +507,12 @@ export function createCardScene(config = {}) {
     desired = next;
     const targets = solveAllPoses(next, camera, config.templates);
     const affected = new Set(operations.map((operation) => operation.cardId));
+    if (operations.some((operation) => operation.type === "resize")) {
+      for (const [cardId, targetPose] of targets) {
+        const current = cardPose(cardId);
+        if (current && (Math.abs(current.x - targetPose.x) > 0.0001 || Math.abs(current.y - targetPose.y) > 0.0001)) affected.add(cardId);
+      }
+    }
     for (const cardId of affected) {
       const card = cards.get(cardId);
       const targetPose = targets.get(cardId);
@@ -506,6 +527,10 @@ export function createCardScene(config = {}) {
         },
         rotate: (operationIndex) => schedule(cardId, "angle", targetPose.angle, transition, operationIndex),
         scale: (operationIndex) => schedule(cardId, "scale", targetPose.scale, transition, operationIndex),
+        resize: (operationIndex) => {
+          schedule(cardId, "width", targetPose.width, transition, operationIndex);
+          schedule(cardId, "height", targetPose.height, transition, operationIndex);
+        },
         face: (operationIndex) => {
           const operation = operations[operationIndex];
           const axes = flipAxes(operation.axis ?? card.flipAxis ?? "y");
@@ -526,6 +551,10 @@ export function createCardScene(config = {}) {
       for (const operationIndex of operationIndexes) {
         const operation = operations[operationIndex];
         scheduleOperations[operation.type](operationIndex);
+      }
+      if (operationIndexes.length === 0) {
+        scheduleChannel(cardId, "x", targetPose.x);
+        scheduleChannel(cardId, "y", targetPose.y);
       }
       if (oldCard && oldCard.faceUp !== card.faceUp && !operations.some((operation) => operation.cardId === cardId && operation.type === "face")) {
         schedule(cardId, "flipY", card.faceUp ? 0 : 180, transition, operationIndexes[0] ?? 0);
