@@ -20,9 +20,10 @@ The command `npm --prefix packages/card-engine test` passes all 60 tests.
 
 ## Lab control run
 
-The lab was exercised in Safari 26.6.2 with the Three.js WebGL renderer and
-orthographic projection. The scripted interaction pass used the real DOM
-controls and waited for each animation to settle.
+The lab was exercised in Chrome 152.0.7977.83, Firefox 155.0.1, and Safari
+26.6.2 with the Three.js WebGL renderer and orthographic projection. Each
+scripted interaction pass used the real DOM controls and waited for each
+animation to settle.
 
 Observed successful paths:
 
@@ -46,14 +47,15 @@ Observed successful paths:
 - Add an element during an active flip. The card settled on the new physical
   side with the element present and one persistent shell.
 
-The lab run found no failure in these implemented controls. It is evidence for
-the current behavior, not a replacement for a browser automation test suite.
+All listed paths passed in all three browsers. Chrome and Firefox also verified
+that adding one element to a two-card selection creates the element on both
+card shells. It is evidence for the current behavior, not a replacement for a
+checked-in browser automation test suite.
 
 ## Remaining gaps
 
-- The element-control run was performed in Safari only; Chrome and Firefox have
-  renderer/flip smoke evidence, but not a separate automated element-control
-  pass yet.
+- The browser-control run was scripted externally for this audit; it is not yet
+  a checked-in browser automation test suite.
 - Visual screenshot review of every added/reordered element during oblique
   motion remains manual; the DOM/accessibility checks above do not prove pixel
   quality.
@@ -61,4 +63,3 @@ the current behavior, not a replacement for a browser automation test suite.
   stickers, focused interactive controls, delayed asset races, and zone-level
   visibility—is not represented by the current lab and should not be described
   as implemented by this audit.
-
