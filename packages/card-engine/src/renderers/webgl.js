@@ -242,6 +242,18 @@ function drawTextElement(context, element, dimensions, x, y, width, color, varia
   return text.split("\n").length * lineHeight;
 }
 
+function flowElementHeight(context, element, dimensions, width) {
+  if (element.type === "image") return element.layout?.height ? dimensions.height * element.layout.height : 120;
+  if (element.type === "text") {
+    const style = element.style ?? {};
+    const isTitle = style.variant === "title" || element.variant === "title" || element.id === "title";
+    context.font = style.font ?? (isTitle ? "700 18.4px system-ui, sans-serif" : "14.4px system-ui, sans-serif");
+    const lineHeight = style.lineHeight ?? (isTitle ? 21 : 20);
+    return wrapText(context, elementText(element), Math.max(1, width)).split("\n").length * lineHeight;
+  }
+  return 20;
+}
+
 function drawImageElement(context, element, dimensions, x, y, width, height, images, fallbackImage) {
   if (!elementVisible(element)) return height;
   const image = imageFrom(images, element, fallbackImage);
@@ -259,7 +271,7 @@ function drawImageElement(context, element, dimensions, x, y, width, height, ima
   return height;
 }
 
-export function drawCardTextureContent(context, content, dimensions, images = null) {
+export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false } = {}) {
   context.fillStyle = content?.background ?? "#ffffff";
   context.fillRect(0, 0, dimensions.width, dimensions.height);
   const inner = 18;
@@ -272,22 +284,28 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
     .filter(({ element }) => elementVisible(element))
     .sort((first, second) => (first.element.layout?.zIndex ?? 0) - (second.element.layout?.zIndex ?? 0)
       || String(first.element.id).localeCompare(String(second.element.id)));
+  const flowHeights = flow.map(({ element }) => flowElementHeight(context, element, dimensions, innerWidth));
+  const requiredHeight = inner + flowHeights.reduce((total, height) => total + height + 10, 0) + 8;
+  const extraGap = preserveBottom && flow.length > 1
+    ? Math.max(0, dimensions.height - requiredHeight) / (flow.length - 1)
+    : 0;
   let cursor = inner;
 
-  for (const { element } of flow) {
+  for (const [{ element }, elementHeight] of flow.map((entry, index) => [entry, flowHeights[index]])) {
     const type = element.type;
     if (type === "text") {
       const color = element.style?.variant === "flavour" || element.id === "flavour"
         ? content?.mutedTextColor ?? "#78838c"
         : textColor;
-      cursor += drawTextElement(context, element, dimensions, inner, cursor, innerWidth, color, element.id === "title" ? "title" : "body") + 10;
+      drawTextElement(context, element, dimensions, inner, cursor, innerWidth, color, element.id === "title" ? "title" : "body");
     } else if (type === "image") {
       const imageHeight = element.layout?.height ? dimensions.height * element.layout.height : 120;
       const imageWidth = element.layout?.width ? dimensions.width * element.layout.width : innerWidth;
-      cursor += drawImageElement(context, element, dimensions, inner, cursor, imageWidth, imageHeight, images, images && !(images instanceof Map) ? images : null) + 10;
+      drawImageElement(context, element, dimensions, inner, cursor, imageWidth, imageHeight, images, images && !(images instanceof Map) ? images : null);
     } else {
-      cursor += drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, inner, cursor, innerWidth, "#a85f3f") + 10;
+      drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, inner, cursor, innerWidth, "#a85f3f");
     }
+    cursor += elementHeight + 10 + extraGap;
   }
 
   for (const { element } of overlays) {
@@ -462,7 +480,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     return entry;
   }
 
-  function makeTexture(content, dimensions) {
+  function makeTexture(content, dimensions, options = {}) {
     const resolution = Math.min(4, Math.max(2, (globalThis.devicePixelRatio || 1) * 2));
     const canvas2d = document.createElement("canvas");
     canvas2d.width = Math.round(dimensions.width * resolution);
@@ -484,11 +502,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const images = new Map(imageEntries.filter(([, entry]) => entry.loaded).map(([source, entry]) => [source, entry.image]));
     const redraw = (source, image) => {
       images.set(source, image);
-      drawCardTextureContent(context, content, dimensions, images);
+      drawCardTextureContent(context, content, dimensions, images, options);
       texture.needsUpdate = true;
       render();
     };
-    drawCardTextureContent(context, content, dimensions, images);
+    drawCardTextureContent(context, content, dimensions, images, options);
     for (const [source, entry] of imageEntries) {
       if (!entry.loaded) entry.promise.then((image) => redraw(source, image), () => {});
     }
@@ -597,11 +615,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     oldBackGeometry.dispose();
   }
 
-function updateTexture(mounted, side, content, dimensions) {
-    const key = contentKey(content, dimensions);
+  function updateTexture(mounted, side, content, dimensions, options = {}) {
+    const key = JSON.stringify([contentKey(content, dimensions), options.preserveBottom === true]);
     const keyName = `${side}Key`;
     if (mounted[keyName] === key) return;
-    const texture = makeTexture(content, dimensions);
+    const texture = makeTexture(content, dimensions, options);
     if (!texture) return;
     const textureName = `${side}Texture`;
     mounted[textureName]?.dispose();
@@ -616,6 +634,9 @@ function updateTexture(mounted, side, content, dimensions) {
     const dimensions = { width: pose.width ?? targetDimensions.width, height: pose.height ?? targetDimensions.height };
     const textureDimensions = textureDimensionsForPose(card, pose, templates);
     const thickness = pose.thickness ?? cardThickness(card, templates);
+    const template = templates[card.template] ?? {};
+    const sizing = card.sizing ?? template.sizing;
+    const preserveBottom = sizing?.mode === "content" && Math.abs(dimensions.height - targetDimensions.height) > 0.0001;
     const mounted = mount(card, textureDimensions, thickness);
     updateGeometry(mounted, card, dimensions, thickness);
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
@@ -632,8 +653,8 @@ function updateTexture(mounted, side, content, dimensions) {
     const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
     mounted.accessibilityShell.textContent = accessibleText || "Card";
     mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
-    updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions);
-    updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions);
+    updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, { preserveBottom });
+    updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, { preserveBottom });
     render();
   }
 

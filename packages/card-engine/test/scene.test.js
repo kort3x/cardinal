@@ -211,6 +211,30 @@ test("auto-height textures use the current animated height", () => {
   assert.equal(textureDimensionsForPose(card, { height: 180 }).height, 250);
 });
 
+test("auto-height reflow keeps the bottom element anchored while the gap closes", () => {
+  const positions = (content, options) => {
+    const calls = [];
+    const context = {
+      fillText(...args) { calls.push(args); },
+      fillRect() {},
+      measureText(text) { return { width: text.length * 8 }; },
+    };
+    drawCardTextureContent(context, content, { width: 180, height: 116 }, null, options);
+    return calls.map(([, , y]) => y);
+  };
+  const before = {
+    elements: [
+      { id: "top", type: "text", content: { text: "Top" }, layout: { mode: "flow", order: 0 } },
+      { id: "middle", type: "text", content: { text: "Middle" }, layout: { mode: "flow", order: 1 } },
+      { id: "bottom", type: "text", content: { text: "Bottom" }, layout: { mode: "flow", order: 2 } },
+    ],
+  };
+  const after = { elements: [before.elements[0], before.elements[2]] };
+
+  assert.equal(positions(after, { preserveBottom: true })[1], positions(before)[2]);
+  assert.equal(positions(after)[1] < positions(after, { preserveBottom: true })[1], true);
+});
+
 test("hidden preserved elements reserve flow space without rendering", () => {
   const calls = [];
   const context = {
