@@ -123,9 +123,12 @@ function currentCard() {
 
 let scene;
 let spinHandle;
+let spinTimer;
 let spinning = false;
 function startScene() {
   scene?.destroy();
+  if (spinTimer) clearTimeout(spinTimer);
+  spinTimer = undefined;
   spinHandle = undefined;
   spinning = false;
   updateSpinButton();
@@ -173,11 +176,41 @@ function updateSpinButton() {
 }
 
 function stopContinuousFlip() {
+  if (spinTimer) clearTimeout(spinTimer);
+  spinTimer = undefined;
   if (!spinning) return;
   spinHandle?.stop();
   spinHandle = undefined;
   spinning = false;
   updateSpinButton();
+}
+
+function startFullSpin() {
+  const state = scene.snapshot();
+  const cardState = currentCard();
+  const axis = flipAxis.value;
+  const startingAngle = state.visual[0]?.pose[axis === "x" ? "flipX" : "flipY"] ?? 0;
+  const handle = scene.spin(baseCard.id, { axis, direction: 1, speed: 360 });
+  spinHandle = handle;
+  spinning = handle.active;
+  updateSpinButton();
+  if (!handle.active) return;
+
+  spinTimer = setTimeout(() => {
+    if (spinHandle !== handle) return;
+    handle.stop();
+    spinHandle = undefined;
+    spinning = false;
+    spinTimer = undefined;
+    scene.transact([{
+      type: "face",
+      cardId: baseCard.id,
+      face: cardState.faceUp ? "faceUp" : "faceDown",
+      axis,
+      angle: startingAngle,
+    }], { immediate: true });
+    updateSpinButton();
+  }, 1000);
 }
 
 function updateControlLabels() {
@@ -348,27 +381,15 @@ document.querySelectorAll("[data-flip]").forEach((button) => {
 document.querySelector("#combined").addEventListener("click", () => {
   stopContinuousFlip();
   const cardState = currentCard();
-  const face = cardState.faceUp ? "faceDown" : "faceUp";
-  const reversalFace = face === "faceUp" ? "faceDown" : "faceUp";
   const angle = normalizeAngle(cardState.pose.angle + 180);
   const scale = cardState.pose.scale > 1 ? 1 : 1.3;
-  setControls({ x: 450, y: 240, angle, scale, faceUp: face === "faceUp" });
+  setControls({ x: 450, y: 240, angle, scale });
   run([
     { type: "move", cardId: baseCard.id, position: { x: 450, y: 240 } },
     { type: "rotate", cardId: baseCard.id, angle },
     { type: "scale", cardId: baseCard.id, factor: scale },
-    { type: "face", cardId: baseCard.id, face, axis: ["x", "y"], angle: { x: 0, y: face === "faceUp" ? 0 : 180 } },
   ]);
-  if (!reduced.checked) setTimeout(() => {
-    setControls({ faceUp: reversalFace === "faceUp" });
-    run([{
-      type: "face",
-      cardId: baseCard.id,
-      face: reversalFace,
-      axis: ["x", "y"],
-      angle: { x: 0, y: reversalFace === "faceUp" ? 0 : 180 },
-    }]);
-  }, 360);
+  startFullSpin();
 });
 
 reduced.addEventListener("change", () => {
