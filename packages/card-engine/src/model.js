@@ -67,7 +67,11 @@ export function normalizeSnapshot(snapshot) {
       throw new RangeError(`Zone ${zone.id} must have positive dimensions`);
     }
     if (!Array.isArray(zone.cardIds)) throw new TypeError(`Zone ${zone.id} requires cardIds`);
-    return { ...copy(zone), arrangement: zone.arrangement ?? { type: "grid", gap: 16 } };
+    const arrangement = zone.arrangement ?? { type: "grid", gap: 16 };
+    if (arrangement.depthStep !== undefined && (!Number.isFinite(arrangement.depthStep) || arrangement.depthStep < 0)) {
+      throw new RangeError(`Zone ${zone.id} arrangement.depthStep must be finite and non-negative`);
+    }
+    return { ...copy(zone), arrangement };
   });
 
   const cardIds = new Set();

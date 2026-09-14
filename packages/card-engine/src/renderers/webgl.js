@@ -356,6 +356,7 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     const x = pose.x - stageSize.width / 2;
     const y = stageSize.height / 2 - pose.y;
     mounted.cardGroup.position.set(x, y, pose.z);
+    mounted.cardGroup.renderOrder = pose.drawOrder ?? 0;
     mounted.cardGroup.scale.setScalar(renderedScale);
     mounted.bodyGroup.rotation.order = "ZXY";
     mounted.bodyGroup.rotation.set(radians(pose.tiltX), radians(pose.tiltY), radians(pose.angle));

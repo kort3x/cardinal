@@ -18,6 +18,7 @@ export function depthScale(camera, depth) {
 export function solveCardPose(card, zone, index = 0, camera, templates) {
   const dimensions = cardDimensions(card, templates);
   const gap = zone.arrangement?.gap ?? 16;
+  const depthStep = zone.arrangement?.depthStep ?? 0.5;
   const columns = Math.max(1, Math.floor((zone.geometry.width + gap) / (dimensions.width + gap)));
   const column = index % columns;
   const row = Math.floor(index / columns);
@@ -31,7 +32,7 @@ export function solveCardPose(card, zone, index = 0, camera, templates) {
     ...card.pose,
     x,
     y,
-    z: zone.geometry.depth,
+    z: zone.geometry.depth + index * depthStep,
     scale: card.pose?.scale ?? 1,
     depthScale: depthScale(camera, zone.geometry.depth),
   };
@@ -40,10 +41,12 @@ export function solveCardPose(card, zone, index = 0, camera, templates) {
 export function solveAllPoses(snapshot, camera, templates) {
   const cards = new Map(snapshot.cards.map((card) => [card.id, card]));
   const poses = new Map();
+  let drawOrder = 0;
   for (const zone of snapshot.zones) {
     zone.cardIds.forEach((cardId, index) => {
       const card = cards.get(cardId);
-      poses.set(cardId, solveCardPose(card, zone, index, camera, templates));
+      poses.set(cardId, { ...solveCardPose(card, zone, index, camera, templates), drawOrder });
+      drawOrder += 1;
     });
   }
   return poses;

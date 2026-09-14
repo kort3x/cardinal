@@ -126,7 +126,12 @@ content-face contract below.
 A card belongs to exactly one zone in a committed scene. Zone membership is stored
 once as a sequence of IDs. A stack uses that sequence as explicit bottom-to-top
 order; a pile has deterministic visual scatter keyed by card ID. Stable ordering
-also makes other arrangements reproducible without implying stack semantics.
+also makes other arrangements reproducible without implying stack semantics. The
+arrangement solver resolves both each card's local depth layer and a scene-wide
+`drawOrder`; the renderer consumes those resolved values and never derives an
+independent stacking order from animation timing or DOM/mesh insertion order.
+The default local layer spacing is `0.5` scene units and can be overridden with a
+finite, non-negative `arrangement.depthStep`.
 
 The initial spatial model is a projected 2.5D stage: x/y plus real continuous depth
 in the scene model. A shared camera derives apparent size; greater distance means
@@ -309,6 +314,11 @@ time-based interpolator that can be sampled in tests; compare rendering strategi
 in the first lab milestone before committing to a backend.
 
 Layouts define gap, alignment, fan spread, overlap, and deterministic ordering.
+When cards overlap, the zone's ordered membership remains the source of truth for
+bottom-to-top order. Arrangement resolves a small local depth separation and the
+scene resolves a deterministic draw order across zones; motion operations preserve
+both while changing x/y, rotation, scale, or flip state. Renderers apply the
+resolved order without allowing individual cards to fight for Z ownership.
 Each zone has an explicit overflow policy: fit to a configured minimum readable
 size, scroll, intentional overlap, or reject. Exceeding capacity cannot silently
 spill into another zone.

@@ -95,4 +95,11 @@ continuous motion. `destroy()` safely releases active motion and rendering.
 
 Snapshots keep the two concepts separate: `desired.cards[].activeFaceId` is the
 logical content, while `visual[].physicalSide` reports the current physical
-orientation as `front`, `back`, or `edge`.
+orientation as `front`, `back`, or `edge`. The resolved visual pose also includes
+`z` and `drawOrder`: zone arrangement owns deterministic stacking, and renderers
+consume those values rather than inventing per-card Z positions.
+
+Cards in one zone use their `zone.cardIds` sequence as stable bottom-to-top order.
+The default arrangement adds `0.5` scene units between local depth layers; a zone
+may set `arrangement.depthStep` to another finite, non-negative value. `drawOrder`
+is resolved across the complete scene so overlapping cards remain deterministic.

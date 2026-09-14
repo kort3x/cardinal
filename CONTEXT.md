@@ -31,6 +31,8 @@ realization.
 
 **Zone**:
 An identified area that owns card membership, ordering, and arrangement policy.
+Its ordered membership resolves each card's local depth layer and draw order;
+cards do not choose their own stacking depth.
 
 ## Visual model
 

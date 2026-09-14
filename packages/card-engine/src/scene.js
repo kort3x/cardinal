@@ -491,6 +491,7 @@ export function createCardScene(config = {}) {
       }
       current.z = targetPose.z;
       current.depthScale = targetPose.depthScale;
+      current.drawOrder = targetPose.drawOrder;
       current.tiltX = targetPose.tiltX;
       current.tiltY = targetPose.tiltY;
       current.pivotX = targetPose.pivotX;

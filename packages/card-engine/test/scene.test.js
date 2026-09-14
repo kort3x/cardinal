@@ -157,6 +157,22 @@ test("a scene applies one card and exposes its committed state", () => {
   assert.deepEqual(scene.snapshot().desired.zones, [zone]);
 });
 
+test("cards in one zone receive deterministic depth and draw order", () => {
+  const secondCard = { ...card, id: "card-2" };
+  const scene = createCardScene();
+  scene.apply({
+    cards: [card, secondCard],
+    zones: [{ ...zone, cardIds: [card.id, secondCard.id] }],
+  });
+
+  const [first, second] = scene.snapshot().visual;
+  assert.equal(first.pose.z, 0);
+  assert.equal(second.pose.z, 0.5);
+  assert.equal(first.pose.drawOrder, 0);
+  assert.equal(second.pose.drawOrder, 1);
+  scene.destroy();
+});
+
 test("the default headless scene is not reported as CSS", () => {
   const scene = createCardScene();
 
