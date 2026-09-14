@@ -96,13 +96,18 @@ export function createCardScene(config = {}) {
   const createRendererAdapter = config.renderer ?? (
     config.renderMode === "css" ? createRenderer : config.element ? createWebGLRenderer : createHeadlessRenderer
   );
+  const listeners = new Map();
+  let rendererReason = null;
   const renderer = createRendererAdapter({
     element: config.element,
     templates: config.templates,
     camera,
     motion: config.motion,
+    onStatus: (detail = {}) => {
+      rendererReason = detail.reason ?? null;
+      emit("renderer-status", detail);
+    },
   });
-  const listeners = new Map();
   const channels = new Map();
   const transitions = new Set();
   let desired = null;
@@ -606,7 +611,7 @@ export function createCardScene(config = {}) {
       visual: [...visual.entries()].map(([cardId, pose]) => ({ cardId, pose: copy(pose), physicalSide: physicalSide(pose) })),
       settling: channels.size > 0,
       renderer: renderer.type ?? "custom",
-      rendererReason: renderer.reason ?? null,
+      rendererReason: rendererReason ?? renderer.reason ?? null,
       projection: renderer.projection ?? null,
     };
   }

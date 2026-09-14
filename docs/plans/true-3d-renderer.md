@@ -17,9 +17,11 @@ CSS adapter is available only through explicit `renderMode: "css"` selection. Th
 rounded-rectangle and shield profiles, front/back content planes, orthographic
 projection by default, optional perspective, lighting, and depth,
 and composed X/Y rotations. The scene also supports optional history-dependent
-logical face cycles over the two physical surfaces. Content-quality comparison,
-browser smoke, context loss, and performance gates remain open; the browser
-procedure is documented in [WebGL browser smoke checks](../verification/webgl-browser-smoke.md).
+logical face cycles over the two physical surfaces. Renderer status now reports
+WebGL context loss/restoration through the scene and the adapter refreshes card
+content after restoration. Content-quality comparison, browser smoke, and
+performance gates remain open; the browser procedure is documented in
+[WebGL browser smoke checks](../verification/webgl-browser-smoke.md).
 
 The renderer seam is the existing implementation slot with `mount`, `update`,
 `remove`, and `destroy` responsibilities. The WebGL adapter mounts one stable
@@ -79,7 +81,9 @@ The adapter must:
 4. dispose textures, geometry, materials, render targets, and frame resources on
    removal and destroy;
 5. pause rendering when the scene is hidden or reduced-motion policy allows it;
-6. report unsupported WebGL or asset failures as explicit initialization failures.
+6. report unsupported WebGL or asset failures as explicit initialization failures;
+   report context loss/restoration as renderer status changes and recover mounted
+   card content after restoration.
 
 Motion remains time-based and sampleable. X and Y flip channels continue to animate
 independently and compose on the same 3D object. Stopping or retargeting one channel
@@ -122,6 +126,8 @@ combined motion scenarios with one render object per card.
 
 - Keep CSS as an explicit prototype/test adapter, never as evidence of true 3D.
 - Add feature detection, context-loss handling, asset recovery, and disposal checks.
+  Context-loss status propagation and mounted-card texture refresh are implemented;
+  browser recovery evidence is still required.
 - Run Chromium, Firefox, and WebKit smoke scenarios at touch and desktop sizes.
 - Benchmark 1, 6, 50, and 200 cards with one-card and cohort animation.
 

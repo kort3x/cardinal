@@ -430,7 +430,7 @@ function accessibleContent(card, pose) {
   return { side, content: card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? {} };
 }
 
-export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {} } = {}) {
+export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {}, onStatus = () => {} } = {}) {
   if (!element) return createHeadlessRenderer({ reason: "no-element" });
   if (typeof document === "undefined") throw new Error("Cardinal WebGL renderer requires a browser document");
 
@@ -468,6 +468,30 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   accessibilityLayer.className = "cardinal-webgl-accessibility";
   element.append(accessibilityLayer);
 
+  let contextAvailable = true;
+  let rendererReason = null;
+  const setRendererReason = (reason) => {
+    rendererReason = reason;
+    onStatus({ reason });
+  };
+  const handleContextLost = (event) => {
+    event.preventDefault();
+    contextAvailable = false;
+    setRendererReason("webgl-context-lost");
+  };
+  const handleContextRestored = () => {
+    contextAvailable = true;
+    setRendererReason("webgl-context-restored");
+    for (const mounted of cards.values()) {
+      mounted.frontKey = null;
+      mounted.backKey = null;
+      if (mounted.lastCard && mounted.lastPose) update(mounted.lastCard, mounted.lastPose);
+    }
+    render();
+  };
+  canvas.addEventListener("webglcontextlost", handleContextLost, false);
+  canvas.addEventListener("webglcontextrestored", handleContextRestored, false);
+
   const cards = new Map();
   const imageCache = new Map();
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
@@ -489,6 +513,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function render() {
+    if (!contextAvailable) return;
     webgl.render(renderScene, camera);
   }
 
@@ -723,6 +748,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const textureDimensions = textureDimensionsForPose(card, pose, templates);
     const thickness = pose.thickness ?? cardThickness(card, templates);
     const mounted = mount(card, textureDimensions, thickness);
+    mounted.lastCard = card;
+    mounted.lastPose = pose;
     updateGeometry(mounted, card, dimensions, thickness);
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
     const x = pose.x - stageSize.width / 2;
@@ -776,11 +803,16 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     remove,
     destroy() {
       resizeObserver?.disconnect();
+      canvas.removeEventListener("webglcontextlost", handleContextLost);
+      canvas.removeEventListener("webglcontextrestored", handleContextRestored);
       for (const cardId of cards.keys()) remove(cardId);
       webgl.dispose();
       canvas.remove();
       accessibilityLayer.remove();
       element.classList.remove("cardinal-stage--webgl");
+    },
+    get reason() {
+      return rendererReason;
     },
   };
 }

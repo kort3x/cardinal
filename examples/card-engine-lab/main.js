@@ -247,6 +247,7 @@ function startScene(cards = sceneCards()) {
     });
     scene.apply(desiredSnapshot(cards));
     scene.on("change", updateStatus);
+    scene.on("renderer-status", updateStatus);
     selectedCardIds = new Set([...selectedCardIds].filter((id) => cards.some((card) => card.id === id)));
     if (selectedCardIds.size === 0 && cards[0]) selectedCardIds.add(cards[0].id);
     renderCardList();

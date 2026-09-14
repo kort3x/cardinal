@@ -3,8 +3,8 @@
 A reusable browser card engine for spatial card layouts, composable motion, and
 project-defined interaction rules.
 
-Status: Slice 01 core prototype implemented. The true 3D WebGL renderer spike is
-now in progress; browser smoke validation remains pending.
+Status: Slice 01 core prototype and true 3D WebGL renderer are implemented.
+Cross-browser smoke validation and performance baselines remain pending.
 
 ## Start here
 

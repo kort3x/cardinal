@@ -4,6 +4,10 @@ These checks are the visual and runtime gate for the true-3D adapter. Unit tests
 cannot establish texture sharpness, frame timing, input latency, or context
 recovery.
 
+The WebGL adapter emits `renderer-status` events for `webgl-context-lost` and
+`webgl-context-restored`. The lab reflects those states in its renderer status
+line; a real browser context-loss run is still required for acceptance evidence.
+
 ## Run
 
 Start either consumer from the repository root:

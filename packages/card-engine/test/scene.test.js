@@ -308,6 +308,24 @@ test("a scene can use an injected renderer adapter", () => {
   assert.deepEqual(calls, ["update:card-1", "destroy"]);
 });
 
+test("a scene exposes renderer context status changes", () => {
+  let reportStatus;
+  const renderer = ({ onStatus }) => {
+    reportStatus = onStatus;
+    return { type: "webgl", update() {}, destroy() {} };
+  };
+  const scene = createCardScene({ renderer });
+  const events = [];
+  scene.on("renderer-status", (detail) => events.push(detail));
+  scene.apply({ cards: [card], zones: [zone] });
+
+  reportStatus({ reason: "webgl-context-lost" });
+
+  assert.equal(scene.snapshot().rendererReason, "webgl-context-lost");
+  assert.deepEqual(events, [{ reason: "webgl-context-lost" }]);
+  scene.destroy();
+});
+
 test("a CSS scene identifies its active renderer", () => {
   const scene = createCardScene({ renderMode: "css" });
 
