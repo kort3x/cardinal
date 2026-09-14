@@ -316,14 +316,22 @@ function selectedElementOperations(makeOperation) {
   return selectedCards().flatMap((card) => {
     const face = card.faces[card.activeFaceId];
     return face?.elements?.some(({ id }) => id === makeOperation.elementId) || makeOperation.action === "add"
-      ? [{ cardId: card.id, faceId: card.activeFaceId, ...makeOperation }]
+      ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, ...makeOperation }]
       : [];
   });
 }
 
 function applyElementOperation(operation) {
   if (selectedCards().length === 0) return;
-  run(selectedElementOperations(operation), { immediate: true });
+  const operations = selectedElementOperations(operation);
+  if (operations.length === 0) return;
+  try {
+    run(operations, { immediate: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    status.textContent = `Element update failed: ${message}`;
+    console.error("Cardinal element update failed", error);
+  }
 }
 
 function elementEditorValue(element) {
