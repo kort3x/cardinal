@@ -161,7 +161,7 @@ function createCardFaceBaseMaterial(color) {
   return createCardFaceSurfaceMaterial(color);
 }
 
-function contentKey(content, dimensions) {
+function contentIdentityKey(content) {
   return JSON.stringify([
     content?.title,
     content?.image,
@@ -171,6 +171,12 @@ function contentKey(content, dimensions) {
     content?.textColor,
     content?.mutedTextColor,
     content?.elements,
+  ]);
+}
+
+function contentKey(content, dimensions) {
+  return JSON.stringify([
+    contentIdentityKey(content),
     dimensions.width,
     dimensions.height,
   ]);
@@ -224,6 +230,24 @@ function sortedElements(content, includePreserved = false) {
     .sort((first, second) => (first.element.layout?.order ?? first.index) - (second.element.layout?.order ?? second.index) || first.index - second.index);
 }
 
+function flowEntries(content) {
+  return sortedElements(content, true).filter(({ element }) => (element.layout?.mode ?? "flow") === "flow");
+}
+
+export function flowTransitionPolicy(previousContent, nextContent) {
+  if (!previousContent) return { preserveBottom: false, deferFlowIds: [] };
+  const previousFlow = flowEntries(previousContent);
+  const nextFlow = flowEntries(nextContent);
+  const previousIds = new Set(previousFlow.map(({ element }) => element.id));
+  const nextIds = new Set(nextFlow.map(({ element }) => element.id));
+  const preserveBottom = previousFlow.some(({ element }, index) => !nextIds.has(element.id)
+    && previousFlow.slice(index + 1).some(({ element: later }) => nextIds.has(later.id)));
+  const deferFlowIds = nextFlow
+    .filter(({ element }) => elementVisible(element) && !previousIds.has(element.id))
+    .map(({ element }) => element.id);
+  return { preserveBottom, deferFlowIds };
+}
+
 function imageFrom(images, element, fallback) {
   const source = elementImageSource(element);
   if (images instanceof Map) return images.get(source) ?? null;
@@ -271,14 +295,15 @@ function drawImageElement(context, element, dimensions, x, y, width, height, ima
   return height;
 }
 
-export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false } = {}) {
+export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false, deferFlowIds = [] } = {}) {
   context.fillStyle = content?.background ?? "#ffffff";
   context.fillRect(0, 0, dimensions.width, dimensions.height);
   const inner = 18;
   const innerWidth = Math.max(1, dimensions.width - inner * 2);
   const textColor = content?.textColor ?? "#17212b";
+  const deferredIds = new Set(deferFlowIds ?? []);
   const entries = sortedElements(content, true);
-  const flow = entries.filter(({ element }) => (element.layout?.mode ?? "flow") === "flow");
+  const flow = entries.filter(({ element }) => (element.layout?.mode ?? "flow") === "flow" && !deferredIds.has(element.id));
   const overlays = entries
     .filter(({ element }) => element.layout?.mode === "overlay")
     .filter(({ element }) => elementVisible(element))
@@ -567,7 +592,37 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     accessibilityShell.setAttribute("tabindex", "0");
     accessibilityShell.setAttribute("role", "button");
     accessibilityLayer.append(accessibilityShell);
-    const mounted = { cardGroup, pivotGroup, bodyGroup, faceGroup, front, back, frontMaterial, backMaterial, frontBaseGeometry, backBaseGeometry, frontBaseMaterial, backBaseMaterial, geometry, bodyMaterial, sideMaterial, accessibilityShell, frontTexture: null, backTexture: null, frontKey: null, backKey: null, width, height, thickness };
+    const mounted = {
+      cardGroup,
+      pivotGroup,
+      bodyGroup,
+      faceGroup,
+      front,
+      back,
+      frontMaterial,
+      backMaterial,
+      frontBaseGeometry,
+      backBaseGeometry,
+      frontBaseMaterial,
+      backBaseMaterial,
+      geometry,
+      bodyMaterial,
+      sideMaterial,
+      accessibilityShell,
+      frontTexture: null,
+      backTexture: null,
+      frontKey: null,
+      backKey: null,
+      frontContent: null,
+      backContent: null,
+      frontContentKey: null,
+      backContentKey: null,
+      frontTransition: null,
+      backTransition: null,
+      width,
+      height,
+      thickness,
+    };
     mounted.body = body;
     mounted.frontBase = frontBase;
     mounted.backBase = backBase;
@@ -615,10 +670,30 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     oldBackGeometry.dispose();
   }
 
-  function updateTexture(mounted, side, content, dimensions, options = {}) {
-    const key = JSON.stringify([contentKey(content, dimensions), options.preserveBottom === true]);
+  function updateTexture(mounted, side, content, dimensions, targetDimensions) {
+    const contentStateName = `${side}Content`;
+    const contentStateKeyName = `${side}ContentKey`;
+    const transitionName = `${side}Transition`;
+    const structureKey = contentIdentityKey(content);
+    if (mounted[contentStateKeyName] !== structureKey) {
+      mounted[transitionName] = flowTransitionPolicy(mounted[contentStateName], content);
+      mounted[contentStateName] = content;
+      mounted[contentStateKeyName] = structureKey;
+    }
+    const transition = mounted[transitionName] ?? { preserveBottom: false, deferFlowIds: [] };
+    const isResizing = Math.abs(dimensions.height - targetDimensions.height) > 0.0001;
+    const isShrinking = dimensions.height > targetDimensions.height + 0.0001;
+    const isGrowing = dimensions.height < targetDimensions.height - 0.0001;
+    const options = {
+      preserveBottom: isResizing && isShrinking && transition.preserveBottom,
+      deferFlowIds: isResizing && isGrowing ? transition.deferFlowIds : [],
+    };
+    const key = JSON.stringify([contentKey(content, dimensions), options.preserveBottom === true, options.deferFlowIds]);
     const keyName = `${side}Key`;
-    if (mounted[keyName] === key) return;
+    if (mounted[keyName] === key) {
+      if (!isResizing) mounted[transitionName] = null;
+      return;
+    }
     const texture = makeTexture(content, dimensions, options);
     if (!texture) return;
     const textureName = `${side}Texture`;
@@ -627,6 +702,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted[`${side}Material`].map = texture;
     mounted[`${side}Material`].needsUpdate = true;
     mounted[keyName] = key;
+    if (!isResizing) mounted[transitionName] = null;
   }
 
   function update(card, pose) {
@@ -634,9 +710,6 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const dimensions = { width: pose.width ?? targetDimensions.width, height: pose.height ?? targetDimensions.height };
     const textureDimensions = textureDimensionsForPose(card, pose, templates);
     const thickness = pose.thickness ?? cardThickness(card, templates);
-    const template = templates[card.template] ?? {};
-    const sizing = card.sizing ?? template.sizing;
-    const preserveBottom = sizing?.mode === "content" && Math.abs(dimensions.height - targetDimensions.height) > 0.0001;
     const mounted = mount(card, textureDimensions, thickness);
     updateGeometry(mounted, card, dimensions, thickness);
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
@@ -653,8 +726,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
     mounted.accessibilityShell.textContent = accessibleText || "Card";
     mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
-    updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, { preserveBottom });
-    updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, { preserveBottom });
+    updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, targetDimensions);
+    updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, targetDimensions);
     render();
   }
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
-import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent, textureDimensionsForPose } from "../src/renderers/webgl.js";
+import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent, flowTransitionPolicy, textureDimensionsForPose } from "../src/renderers/webgl.js";
 
 const card = {
   id: "card-1",
@@ -231,8 +231,29 @@ test("auto-height reflow keeps the bottom element anchored while the gap closes"
   };
   const after = { elements: [before.elements[0], before.elements[2]] };
 
+  assert.equal(flowTransitionPolicy(before, after).preserveBottom, true);
+  assert.equal(flowTransitionPolicy(before, { elements: before.elements.slice(0, 2) }).preserveBottom, false);
+  assert.deepEqual(flowTransitionPolicy(after, before).deferFlowIds, ["middle"]);
   assert.equal(positions(after, { preserveBottom: true })[1], positions(before)[2]);
   assert.equal(positions(after)[1] < positions(after, { preserveBottom: true })[1], true);
+});
+
+test("auto-height additions do not place incoming flow before the shell grows", () => {
+  const calls = [];
+  const context = {
+    fillText(...args) { calls.push(["text", ...args]); },
+    fillRect() {},
+    measureText(text) { return { width: text.length * 8 }; },
+  };
+  drawCardTextureContent(context, {
+    elements: [
+      { id: "top", type: "text", content: { text: "Top" }, layout: { mode: "flow", order: 0 } },
+      { id: "incoming", type: "text", content: { text: "Incoming" }, layout: { mode: "flow", order: 1 } },
+      { id: "bottom", type: "text", content: { text: "Bottom" }, layout: { mode: "flow", order: 2 } },
+    ],
+  }, { width: 180, height: 86 }, null, { deferFlowIds: new Set(["incoming"]) });
+
+  assert.deepEqual(calls.map(([, text]) => text), ["Top", "Bottom"]);
 });
 
 test("hidden preserved elements reserve flow space without rendering", () => {

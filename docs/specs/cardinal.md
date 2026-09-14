@@ -506,7 +506,10 @@ before applying zone fit and explicit scale.
 During an auto-height morph, render content against the current visible shell
 height so elements retain their size while the shell changes. Fixed-size and
 explicit resize textures may retain canonical target dimensions to keep text
-wrapping stable.
+wrapping stable. When a flow element is added, stage the incoming element until
+the growing shell reaches its target height; when an element is removed, keep a
+later surviving flow element bottom-anchored only when the removed element was
+before it, so trailing removals reflow normally.
 
 The card's configured anchor remains attached to its animated pose as dimensions
 change. Default to the center; a top-center anchor allows shortening upward from
