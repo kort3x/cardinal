@@ -15,6 +15,7 @@ Start either consumer from the repository root:
 ```sh
 npm --prefix examples/card-engine-lab start
 npm --prefix examples/card-engine-use start
+npm run test:cross-browser
 ```
 
 Check the lab at `http://localhost:4173/` and the independent consumer at
@@ -41,3 +42,7 @@ Record the reference browser/OS/device, card count, display scale, missed frames
 input latency, texture memory, and landing error in the issue or release note.
 Do not mark the slice's browser acceptance checkbox until all three browser
 families have evidence.
+
+`test:cross-browser` runs the current acceptance flow in Firefox BiDi and Safari
+WebDriver, including motion, scale, flips, edge-on pose, reduced motion,
+context-loss recovery, scene disposal/recreation, and element lifecycle controls.

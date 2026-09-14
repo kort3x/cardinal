@@ -738,15 +738,22 @@ export function createCardScene(config = {}) {
   }
 
   function snapshot() {
+    const spinning = [...channels.values()].some((cardChannels) => Object.keys(cardChannels)
+      .some((channelName) => channelName === "spinX" || channelName === "spinY"));
     return {
       desired: copy(desired ?? { cards: [], zones: [] }),
       visual: [...visual.entries()].map(([cardId, pose]) => ({ cardId, pose: copy(pose), physicalSide: physicalSide(pose) })),
       selection: copy(selection),
       settling: channels.size > 0,
+      spinning,
       renderer: renderer.type ?? "custom",
       rendererReason: rendererReason ?? renderer.reason ?? null,
       projection: renderer.projection ?? null,
     };
+  }
+
+  function viewport() {
+    return renderer.viewport ? copy(renderer.viewport) : null;
   }
 
   function on(event, listener) {
@@ -775,5 +782,5 @@ export function createCardScene(config = {}) {
     listeners.clear();
   }
 
-  return { apply, transact, spin, stopSpin, select, hitTest, target, snapshot, on, destroy };
+  return { apply, transact, spin, stopSpin, select, hitTest, target, snapshot, viewport, on, destroy };
 }

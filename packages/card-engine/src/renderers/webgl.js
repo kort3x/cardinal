@@ -27,7 +27,7 @@ export function createSafeWebGLContext(canvas) {
   return normalizeWebGLContext(canvas.getContext("webgl2", webglContextAttributes));
 }
 
-export function createCardCamera({ projection = "orthographic", width = 900, height = 500, distance = 1000, fov = 35, zoom = 1 } = {}) {
+export function createCardCamera({ projection = "orthographic", width = 1, height = 1, distance = 1000, fov = 35, zoom = 1 } = {}) {
   if (projection !== "orthographic" && projection !== "perspective") {
     throw new TypeError(`Unknown camera projection: ${projection}`);
   }
@@ -49,9 +49,34 @@ export function createCardCamera({ projection = "orthographic", width = 900, hei
 function elementSize(element) {
   const rect = element.getBoundingClientRect?.();
   return {
-    width: Math.max(1, element.clientWidth || rect?.width || 900),
-    height: Math.max(1, element.clientHeight || rect?.height || 500),
+    width: Math.max(1, element.clientWidth || rect?.width || 1),
+    height: Math.max(1, element.clientHeight || rect?.height || 1),
   };
+}
+
+export function cameraViewportForStage({ stageWidth, stageHeight, sceneWidth, sceneHeight, projection = "orthographic", scaleMode, unitsPerPixel = 1 } = {}) {
+  const hasSceneDimensions = sceneWidth !== undefined || sceneHeight !== undefined;
+  const resolvedScaleMode = scaleMode ?? (hasSceneDimensions ? "fit" : "stage");
+  if (![stageWidth, stageHeight, unitsPerPixel].every(Number.isFinite)
+    || stageWidth <= 0 || stageHeight <= 0 || unitsPerPixel <= 0) {
+    throw new RangeError("Stage dimensions and camera scale must be positive and finite");
+  }
+  if (!["fit", "stage"].includes(resolvedScaleMode)) {
+    throw new TypeError(`Unknown camera scale mode: ${resolvedScaleMode}`);
+  }
+  if (resolvedScaleMode === "stage") {
+    return { width: stageWidth / unitsPerPixel, height: stageHeight / unitsPerPixel };
+  }
+  if (![sceneWidth, sceneHeight].every(Number.isFinite) || sceneWidth <= 0 || sceneHeight <= 0) {
+    throw new RangeError("Fit camera mode requires positive and finite scene dimensions");
+  }
+  if (projection !== "orthographic") return { width: stageWidth, height: stageHeight };
+
+  const stageAspect = stageWidth / stageHeight;
+  const sceneAspect = sceneWidth / sceneHeight;
+  return stageAspect >= sceneAspect
+    ? { width: sceneHeight * stageAspect, height: sceneHeight }
+    : { width: sceneWidth, height: sceneWidth / stageAspect };
 }
 
 function wrapText(context, text, width) {
@@ -168,6 +193,7 @@ function contentIdentityKey(content) {
     content?.imageAlt,
     content?.flavour,
     content?.background,
+    content?.backgroundImage,
     content?.textColor,
     content?.mutedTextColor,
     content?.elements,
@@ -204,6 +230,16 @@ function elementImageSource(element) {
 function elementImageAlt(element) {
   const content = elementContent(element);
   return content.alt ?? content.imageAlt ?? content.label;
+}
+
+function backgroundImageSource(content) {
+  const backgroundImage = content?.backgroundImage;
+  return typeof backgroundImage === "string" ? backgroundImage : backgroundImage?.src;
+}
+
+function backgroundImageFit(content) {
+  const backgroundImage = content?.backgroundImage;
+  return typeof backgroundImage === "object" ? backgroundImage.fit ?? "cover" : "cover";
 }
 
 function elementVisible(element) {
@@ -303,17 +339,28 @@ function drawImageElement(context, element, dimensions, x, y, width, height, ima
   if (!elementVisible(element)) return height;
   const image = imageFrom(images, element, fallbackImage);
   if (!image) return height;
+  drawFittedImage(context, image, x, y, width, height, "contain");
+  return height;
+}
+
+function drawFittedImage(context, image, x, y, width, height, fit) {
   const sourceWidth = image.naturalWidth ?? image.videoWidth ?? image.width;
   const sourceHeight = image.naturalHeight ?? image.videoHeight ?? image.height;
-  if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
+  if (fit === "stretch" || !Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) {
     context.drawImage(image, x, y, width, height);
-    return height;
+    return;
   }
-  const scale = Math.min(width / sourceWidth, height / sourceHeight);
+  const scale = (fit === "cover" ? Math.max : Math.min)(width / sourceWidth, height / sourceHeight);
   const fittedWidth = sourceWidth * scale;
   const fittedHeight = sourceHeight * scale;
   context.drawImage(image, x + (width - fittedWidth) / 2, y + (height - fittedHeight) / 2, fittedWidth, fittedHeight);
-  return height;
+}
+
+function drawBackgroundImage(context, content, dimensions, images) {
+  const source = backgroundImageSource(content);
+  const image = images instanceof Map ? images.get(source) : null;
+  if (!image) return;
+  drawFittedImage(context, image, 0, 0, dimensions.width, dimensions.height, backgroundImageFit(content));
 }
 
 const builtInElementRenderers = {
@@ -339,6 +386,7 @@ function elementRendererFor(type, customRenderers) {
 export function drawCardTextureContent(context, content, dimensions, images = null, { preserveBottom = false, deferFlowIds = [], gapIndex = null, elementRenderers = {} } = {}) {
   context.fillStyle = content?.background ?? "#ffffff";
   context.fillRect(0, 0, dimensions.width, dimensions.height);
+  drawBackgroundImage(context, content, dimensions, images);
   const inner = 18;
   const innerWidth = Math.max(1, dimensions.width - inner * 2);
   const deferredIds = new Set(deferFlowIds ?? []);
@@ -471,7 +519,27 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
 
   const renderScene = new THREE.Scene();
   const projection = cameraOptions.projection ?? "orthographic";
-  let camera = createCardCamera({ ...cameraOptions, projection, width: 900, height: 500 });
+  const scaleMode = cameraOptions.scaleMode ?? (cameraOptions.width !== undefined || cameraOptions.height !== undefined ? "fit" : "stage");
+  const unitsPerPixel = cameraOptions.unitsPerPixel ?? 1;
+  const sceneWidth = cameraOptions.width;
+  const sceneHeight = cameraOptions.height;
+  const center = cameraOptions.center ?? { x: 0, y: 0 };
+  if (![center.x, center.y].every(Number.isFinite)) throw new RangeError("Camera center must be finite");
+  let stageSize = elementSize(element);
+  let viewport = cameraViewportForStage({
+    stageWidth: stageSize.width,
+    stageHeight: stageSize.height,
+    sceneWidth,
+    sceneHeight,
+    projection,
+    scaleMode,
+    unitsPerPixel,
+  });
+  let camera = createCardCamera({
+    ...cameraOptions,
+    projection,
+    ...viewport,
+  });
   const ambient = new THREE.AmbientLight(0xffffff, 1.8);
   const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
   keyLight.position.set(-240, 360, 700);
@@ -516,20 +584,32 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   const cards = new Map();
   const imageCache = new Map();
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+  const handleWindowResize = () => {
+    if (!resizeObserver) resize();
+  };
   resizeObserver?.observe(element);
-  let stageSize = elementSize(element);
+  window.addEventListener("resize", handleWindowResize);
 
   function resize() {
     stageSize = elementSize(element);
     const pixelRatio = Math.min(2, globalThis.devicePixelRatio || 1);
     webgl.setPixelRatio(pixelRatio);
     webgl.setSize(stageSize.width, stageSize.height, false);
+    viewport = cameraViewportForStage({
+      stageWidth: stageSize.width,
+      stageHeight: stageSize.height,
+      sceneWidth,
+      sceneHeight,
+      projection,
+      scaleMode,
+      unitsPerPixel,
+    });
     camera = createCardCamera({
       ...cameraOptions,
       projection,
-      width: stageSize.width,
-      height: stageSize.height,
+      ...viewport,
     });
+    onStatus({ reason: rendererReason, viewport: { ...viewport, center: { ...center }, scaleMode, unitsPerPixel } });
     render();
   }
 
@@ -579,9 +659,13 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = webgl.capabilities.getMaxAnisotropy();
-    const imageEntries = contentElements(content)
+    const imageSources = [
+      backgroundImageSource(content),
+      ...contentElements(content)
       .filter((element) => elementVisible(element) && element.type === "image")
       .map((element) => elementImageSource(element))
+    ];
+    const imageEntries = imageSources
       .filter(Boolean)
       .filter((source, index, sources) => sources.indexOf(source) === index)
       .map((source) => [source, cachedImage(source)]);
@@ -780,8 +864,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.lastPose = pose;
     updateGeometry(mounted, card, dimensions, thickness);
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
-    const x = pose.x - stageSize.width / 2;
-    const y = stageSize.height / 2 - pose.y;
+    const x = pose.x - center.x;
+    const y = center.y - pose.y;
     mounted.cardGroup.position.set(x, y, pose.z);
     mounted.cardGroup.renderOrder = pose.drawOrder ?? 0;
     mounted.cardGroup.scale.setScalar(renderedScale);
@@ -801,12 +885,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   function hitTest(point) {
     renderScene.updateMatrixWorld(true);
     camera.updateMatrixWorld(true);
-    const worldX = point.x - stageSize.width / 2;
-    const worldY = stageSize.height / 2 - point.y;
-    const x = worldX / (stageSize.width / 2);
-    const y = worldY / (stageSize.height / 2);
+    const worldPoint = new THREE.Vector3(point.x - center.x, center.y - point.y, 0);
+    const projectedPoint = worldPoint.project(camera);
     const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera({ x, y }, camera);
+    raycaster.setFromCamera({ x: projectedPoint.x, y: projectedPoint.y }, camera);
     const intersections = raycaster.intersectObjects([...cards.values()].map(({ cardGroup }) => cardGroup), true);
     const hit = intersections.find(({ object }) => object.userData.cardId || object.parent?.userData.cardId);
     if (!hit) {
@@ -874,6 +956,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     remove,
     destroy() {
       resizeObserver?.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
       canvas.removeEventListener("webglcontextlost", handleContextLost);
       canvas.removeEventListener("webglcontextrestored", handleContextRestored);
       for (const cardId of cards.keys()) remove(cardId);
@@ -884,6 +967,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     },
     get reason() {
       return rendererReason;
+    },
+    get viewport() {
+      return { ...viewport, center: { ...center }, scaleMode, unitsPerPixel };
     },
   };
 }

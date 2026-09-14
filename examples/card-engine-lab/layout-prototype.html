@@ -1,0 +1,143 @@
+<!doctype html>
+<!-- PROTOTYPE: Three throwaway lab-layout variants, switch with ?variant=A|B|C. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cardinal · Lab layout prototype</title>
+    <style>
+      :root {
+        color: #f7f4e9;
+        background: #0b1118;
+        font: 14px/1.35 system-ui, sans-serif;
+        color-scheme: dark;
+        --bg: #0b1118;
+        --panel: #151f29;
+        --panel-2: #1b2a35;
+        --line: #324957;
+        --muted: #9aabb2;
+        --gold: #f4c95d;
+        --red: #d6564d;
+        --cyan: #8ad7d1;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 1050px; background: radial-gradient(circle at 50% 0%, #1a303d, var(--bg) 46%); }
+      button, input, select { color: inherit; font: inherit; }
+      button, select { border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); padding: 7px 9px; }
+      button { cursor: pointer; }
+      button:hover, button:focus-visible { border-color: var(--gold); }
+      input[type="range"] { width: 100%; accent-color: var(--gold); }
+      .prototype { width: min(1800px, calc(100% - 32px)); min-height: 1900px; margin: 0 auto; padding: 30px 0 110px; }
+      .prototype-kicker { color: var(--gold); font-size: 12px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+      h1 { margin: 5px 0 3px; font-size: 30px; letter-spacing: -.03em; }
+      .subtitle { margin: 0 0 24px; color: var(--muted); }
+      .lab-grid { display: grid; grid-template-columns: 190px minmax(0, 1fr) 210px; gap: 10px; align-items: start; }
+      .rail { display: grid; gap: 10px; min-width: 0; }
+      .box { border: 1px solid var(--line); border-radius: 11px; background: color-mix(in srgb, var(--panel) 91%, transparent); box-shadow: 0 10px 26px rgb(0 0 0 / 12%); }
+      .box > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 11px 8px; border-bottom: 1px solid rgb(50 73 87 / 65%); }
+      .box h2 { margin: 0; color: var(--gold); font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+      .box-body { padding: 10px; }
+      .micro { color: var(--muted); font-size: 12px; }
+      .stack { display: grid; gap: 8px; }
+      .compact-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 42px; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+      .compact-row output { color: var(--gold); text-align: right; font-variant-numeric: tabular-nums; }
+      .segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+      .segmented button { padding: 5px 3px; font-size: 12px; }
+      .segmented .active { border-color: var(--gold); color: var(--gold); }
+      .card-list { display: grid; gap: 5px; }
+      .card-choice { display: flex; align-items: center; gap: 7px; width: 100%; padding: 6px 7px; border: 1px solid transparent; border-radius: 7px; background: #101a22; text-align: left; }
+      .card-choice.active { border-color: var(--gold); background: #263a43; }
+      .card-choice input { accent-color: var(--gold); }
+      .card-choice small { margin-left: auto; color: var(--muted); }
+      .scene-wrap { min-width: 0; }
+      .scene-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+      .scene-toolbar strong { color: var(--gold); font-size: 13px; }
+      .toolbar-actions { display: flex; gap: 5px; }
+      .toolbar-actions button { padding: 5px 8px; font-size: 12px; }
+      .stage { position: relative; min-height: 1110px; overflow: hidden; border: 1px solid #3a5360; border-radius: 18px; background: radial-gradient(circle at 50% 39%, #2a4b58, #152731 63%, #101a22); box-shadow: inset 0 0 100px rgb(0 0 0 / 15%); }
+      .stage::before { position: absolute; inset: 0; opacity: .17; background-image: linear-gradient(rgb(185 226 223 / 13%) 1px, transparent 1px), linear-gradient(90deg, rgb(185 226 223 / 13%) 1px, transparent 1px); background-size: 48px 48px; content: ""; mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent); }
+      .stage-note { position: absolute; top: 16px; left: 18px; color: #b0c4c8; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+      .stage-scale { position: absolute; right: 18px; top: 16px; color: #b0c4c8; font-size: 11px; }
+      .card { position: absolute; width: 245px; height: 344px; padding: 17px; border: 3px solid #fff2b5; border-radius: 22px; background: #f4cf63; color: #18242d; box-shadow: 0 26px 35px rgb(0 0 0 / 30%), 7px 8px 0 #8f7033; }
+      .card h3 { margin: 0 0 13px; font-size: 20px; }
+      .card-art { height: 163px; border-radius: 13px; background: #b45f3d; display: grid; place-items: center; color: #f4d66f; font-size: 64px; }
+      .card p { margin: 15px 0 0; color: #66747a; font-size: 15px; }
+      .card-a { left: 50%; top: 39%; transform: translate(-50%, -50%) rotate(-5deg); z-index: 3; }
+      .card-b { left: 37%; top: 42%; transform: translate(-50%, -50%) rotate(7deg) scale(.92); opacity: .72; z-index: 2; }
+      .card-c { left: 63%; top: 42%; transform: translate(-50%, -50%) rotate(11deg) scale(.92); opacity: .62; z-index: 1; }
+      .crosshair { position: absolute; left: 50%; top: 39%; width: 27px; height: 27px; transform: translate(-50%, -50%); border: 1px solid rgb(244 201 93 / 75%); border-radius: 50%; z-index: 4; }
+      .crosshair::before, .crosshair::after { position: absolute; background: var(--gold); content: ""; }
+      .crosshair::before { top: 12px; left: -12px; width: 51px; height: 1px; }
+      .crosshair::after { top: -12px; left: 12px; width: 1px; height: 51px; }
+      .statusbar { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: 8px; margin-top: 10px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: #111b23; color: var(--muted); font-size: 12px; }
+      .statusbar span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .statusbar b { color: var(--gold); font-weight: 600; }
+      .element { display: grid; grid-template-columns: 15px 1fr auto; align-items: center; gap: 6px; padding: 6px; border-radius: 6px; background: #101a22; }
+      .element input { accent-color: var(--gold); }
+      .element small { color: var(--muted); }
+      .element button { border: 0; padding: 1px 3px; background: transparent; color: var(--muted); }
+      .swatches { display: flex; gap: 5px; }
+      .swatch { width: 21px; height: 21px; border: 2px solid rgb(255 255 255 / 35%); border-radius: 50%; }
+      .swatch.active { border-color: var(--gold); box-shadow: 0 0 0 2px rgb(244 201 93 / 25%); }
+      .swatch.gold { background: #f4cf63; } .swatch.red { background: #b45f3d; } .swatch.dark { background: #17212b; } .swatch.cyan { background: #8ad7d1; }
+      .mode-badge { padding: 3px 6px; border: 1px solid #45616a; border-radius: 99px; color: var(--cyan); font-size: 11px; }
+      .variant-b { grid-template-columns: 180px minmax(0, 1fr) 245px; }
+      .variant-b .stage { min-height: 1060px; }
+      .variant-b .card-a { top: 42%; }
+      .variant-b .card-b { top: 46%; left: 35%; }
+      .variant-b .card-c { top: 46%; left: 65%; }
+      .variant-c { grid-template-columns: 160px minmax(0, 1fr) 180px; gap: 8px; }
+      .variant-c .rail { gap: 7px; }
+      .variant-c .box > header { padding: 8px 9px 6px; }
+      .variant-c .box-body { padding: 8px; }
+      .variant-c .stage { min-height: 1170px; }
+      .variant-c .card { width: 275px; height: 388px; }
+      .variant-c .card-a { top: 40%; }
+      .variant-c .card-b, .variant-c .card-c { top: 43%; }
+      .variant-c .statusbar { grid-template-columns: repeat(2, 1fr); }
+      .switcher { position: fixed; bottom: 22px; left: 50%; z-index: 10; display: flex; align-items: center; gap: 8px; transform: translateX(-50%); padding: 8px 10px; border: 1px solid var(--gold); border-radius: 99px; background: #0c151d; box-shadow: 0 12px 30px rgb(0 0 0 / 45%); }
+      .switcher button { width: 30px; height: 30px; padding: 0; border-radius: 50%; }
+      .switcher strong { min-width: 180px; color: var(--gold); text-align: center; font-size: 12px; }
+      @media (max-width: 1160px) { body { min-width: 0; } .prototype { width: calc(100% - 24px); } .lab-grid, .variant-b, .variant-c { grid-template-columns: 190px minmax(0, 1fr) 220px; } .stage { min-height: 1000px; } }
+    </style>
+  </head>
+  <body>
+    <main class="prototype">
+      <div class="prototype-kicker">Throwaway layout prototype · 1400 × 2000 target</div>
+      <h1>Cardinal Card Lab</h1>
+      <p class="subtitle">A working cockpit for inspecting one or many physical cards with an intentionally compact control vocabulary.</p>
+      <div id="app"></div>
+    </main>
+    <nav class="switcher" aria-label="Prototype variants">
+      <button id="previous" aria-label="Previous layout">←</button>
+      <strong id="variant-label"></strong>
+      <button id="next" aria-label="Next layout">→</button>
+    </nav>
+    <script>
+      const variants = ["A", "B", "C"];
+      const names = { A: "A · Command deck", B: "B · Selection-first", C: "C · Stage-first" };
+      const params = new URLSearchParams(location.search);
+      let variant = variants.includes(params.get("variant")) ? params.get("variant") : "A";
+      const railBox = (title, body, action = "") => `<section class="box"><header><h2>${title}</h2>${action}</header><div class="box-body">${body}</div></section>`;
+      const sliders = (rows) => `<div class="stack">${rows.map(([label, value, output]) => `<label class="compact-row"><span>${label}</span><input type="range" value="${value}"><output>${output}</output></label>`).join("")}</div>`;
+      const cards = `<div class="card-list"><label class="card-choice active"><input type="checkbox" checked> Card 1 <small>z 0.0</small></label><label class="card-choice"><input type="checkbox"> Card 2 <small>z 8.0</small></label><label class="card-choice"><input type="checkbox"> Card 3 <small>z 16.0</small></label></div>`;
+      const elements = `<div class="stack"><label class="element"><input type="checkbox" checked><span>Title <small>· text</small></span><button>⋮</button></label><label class="element"><input type="checkbox" checked><span>Image <small>· image</small></span><button>⋮</button></label><label class="element"><input type="checkbox" checked><span>Flavour <small>· text</small></span><button>⋮</button></label><button>＋ Add element</button></div>`;
+      const motion = `<div class="segmented"><button class="active">Move</button><button>Rotate</button><button>Scale</button></div><div class="segmented"><button>Flip X</button><button class="active">Flip Y</button><button>Spin</button></div>${sliders([["X", 50, "450"], ["Y", 50, "250"], ["Angle", 50, "0°"], ["Size", 70, "150%"]])}`;
+      const appearance = `<div class="stack"><label class="compact-row"><span>Shape</span><select><option>Rounded rect</option><option>Shield</option></select><output></output></label><label class="compact-row"><span>Faces</span><select><option>1 logical face</option><option>3 logical faces</option></select><output></output></label><label class="compact-row"><span>Depth</span><input type="range" value="20"><output>6.0</output></label><div class="swatches"><span class="swatch gold active"></span><span class="swatch red"></span><span class="swatch dark"></span><span class="swatch cyan"></span></div></div>`;
+      const stage = (extra = "") => `<div class="scene-wrap"><div class="scene-toolbar"><strong>Scene · 3 cards · 1 selected</strong><div class="toolbar-actions"><button>Reset</button><button>Pause</button><button>⌘ Run together</button></div></div><div class="stage"><span class="stage-note">orthographic · webgl · true 3D</span><span class="stage-scale">scene 900 × 500</span><div class="card card-b"><h3>Card 2</h3><div class="card-art">◒</div><p>Independent card content.</p></div><div class="card card-c"><h3>Card 3</h3><div class="card-art">◒</div><p>Independent card content.</p></div><div class="card card-a"><h3>The Cardinal</h3><div class="card-art">◒</div><p>One card from the new independent engine.</p></div><div class="crosshair"></div>${extra}</div><div class="statusbar"><span><b>Renderer</b> WebGL</span><span><b>Selected</b> 1 / 3</span><span><b>Pose</b> x 450 · y 250 · z 0</span><span><b>State</b> stable · face up</span></div></div>`;
+      const renderA = () => `<div class="lab-grid"><aside class="rail">${railBox("Cards", cards, "<span class='mode-badge'>3 total</span>")}${railBox("Placement", motion)}${railBox("Scene", `<div class="stack"><button>Center selection</button><button>Spread cards</button><button>Remove selected</button></div>`)}</aside>${stage()}<aside class="rail">${railBox("Inspector", `<div class="micro">Card 1 · logical face A · physical front</div>${appearance}`)}${railBox("Elements", elements)}${railBox("Motion", `<div class="segmented"><button>100%</button><button class="active">150%</button><button>200%</button></div><div class="micro">All channels are sampled together.</div>`)}</aside></div>`;
+      const renderB = () => `<div class="lab-grid variant-b"><aside class="rail">${railBox("Selection", `<div class="segmented"><button class="active">Single</button><button>Multi</button><button>Range</button></div>${cards}<div class="stack"><button>Select all</button><button>Invert</button></div>`)}${railBox("Batch move", sliders([["X", 50, "450"], ["Y", 50, "250"]]) + `<div class="segmented"><button>Left</button><button class="active">Center</button><button>Right</button></div>`)}${railBox("Batch actions", `<div class="stack"><button>Flip selected</button><button>Spin selected</button><button>Delete selected</button></div>`)}</aside>${stage(`<div class="stage-note" style="top:auto;bottom:17px">drag target preview · selected cohort</div>`)}<aside class="rail">${railBox("Elements", elements, "<span class='mode-badge'>Card 1</span>")}${railBox("Element layout", `<div class="segmented"><button class="active">Flow</button><button>Overlay</button><button>Preserve</button></div>${sliders([["Width", 65, "100%"], ["Gap", 30, "10"]])}`)}${railBox("Content", `<div class="stack"><button>Front · logical A</button><button>Back · shared</button><button>＋ Add face</button></div>`)}</aside></div>`;
+      const renderC = () => `<div class="lab-grid variant-c"><aside class="rail">${railBox("Cards", cards)}${railBox("Move", sliders([["X", 50, "450"], ["Y", 50, "250"]]))}${railBox("Flip", `<div class="segmented"><button class="active">X</button><button>Y</button><button>Both</button></div>${sliders([["Angle", 50, "0°"]])}`)}</aside>${stage(`<div class="stage-note" style="top:auto;bottom:17px">large stage · direct visual inspection area</div>`)}<aside class="rail">${railBox("Tools", `<div class="stack"><button>Rotate 45°</button><button>Scale 150%</button><button>Face down</button><button>Run together</button></div>`)}${railBox("Shape", appearance)}${railBox("Elements", elements)}</aside></div>`;
+      const render = () => {
+        document.querySelector("#app").innerHTML = variant === "A" ? renderA() : variant === "B" ? renderB() : renderC();
+        document.querySelector("#variant-label").textContent = names[variant];
+        history.replaceState(null, "", `?variant=${variant}`);
+      };
+      const step = (direction) => { variant = variants[(variants.indexOf(variant) + direction + variants.length) % variants.length]; render(); };
+      document.querySelector("#previous").addEventListener("click", () => step(-1));
+      document.querySelector("#next").addEventListener("click", () => step(1));
+      document.addEventListener("keydown", (event) => { if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) return; if (event.key === "ArrowLeft") step(-1); if (event.key === "ArrowRight") step(1); });
+      render();
+    </script>
+  </body>
+</html>

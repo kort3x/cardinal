@@ -6,6 +6,13 @@
     "test": "npm --prefix packages/card-engine test",
     "test:chrome": "node scripts/chrome-lab.mjs --headless --scenario elements",
     "test:chrome:acceptance": "node scripts/chrome-lab.mjs --headless --scenario acceptance",
+    "test:chrome:layout": "node scripts/chrome-lab.mjs --headless --scenario layout",
+    "test:chrome:resize": "node scripts/chrome-lab.mjs --headless --scenario resize",
+    "test:chrome:movement": "node scripts/chrome-lab.mjs --headless --scenario movement",
+    "test:chrome:random": "node scripts/chrome-lab.mjs --headless --scenario random",
+    "test:chrome:spin-state": "node scripts/chrome-lab.mjs --headless --scenario spin-state",
+    "test:chrome:performance": "node scripts/chrome-lab.mjs --headless --scenario performance",
+    "test:cross-browser": "node scripts/cross-browser-lab.mjs",
     "show:chrome": "node scripts/chrome-lab.mjs --show"
   }
 }

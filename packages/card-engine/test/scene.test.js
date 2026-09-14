@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
 import { normalizeSnapshot } from "../src/model.js";
-import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent, flowTransitionPolicy, textureDimensionsForPose } from "../src/renderers/webgl.js";
+import { cameraViewportForStage, clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent, flowTransitionPolicy, textureDimensionsForPose } from "../src/renderers/webgl.js";
 
 function face({ title, image, imageAlt, flavour, ...rest } = {}) {
   return {
@@ -113,6 +113,38 @@ test("perspective projection is opt-in", () => {
   assert.equal(camera.isPerspectiveCamera, true);
 });
 
+test("an orthographic camera fits the logical scene inside a wide stage", () => {
+  const viewport = cameraViewportForStage({ stageWidth: 1376, stageHeight: 992, sceneWidth: 900, sceneHeight: 500 });
+
+  assert.equal(viewport.width, 900);
+  assert.equal(viewport.height, 992 / 1376 * 900);
+});
+
+test("a stage-scaled camera has no fixed logical scene bounds", () => {
+  assert.deepEqual(cameraViewportForStage({ stageWidth: 1376, stageHeight: 992, scaleMode: "stage" }), {
+    width: 1376,
+    height: 992,
+  });
+  assert.deepEqual(cameraViewportForStage({ stageWidth: 2515, stageHeight: 1322, scaleMode: "stage" }), {
+    width: 2515,
+    height: 1322,
+  });
+});
+
+test("a stage-scaled camera can use an explicit world-unit density", () => {
+  assert.deepEqual(cameraViewportForStage({ stageWidth: 1200, stageHeight: 800, scaleMode: "stage", unitsPerPixel: 2 }), {
+    width: 600,
+    height: 400,
+  });
+});
+
+test("fit camera mode requires an explicit logical viewport", () => {
+  assert.throws(
+    () => cameraViewportForStage({ stageWidth: 1200, stageHeight: 800, scaleMode: "fit" }),
+    /Fit camera mode requires positive and finite scene dimensions/,
+  );
+});
+
 test("WebGL face materials render content above the solid cuboid caps", () => {
   const material = createCardFaceMaterial();
 
@@ -210,6 +242,46 @@ test("card images preserve their intrinsic aspect ratio during resize", () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].length, 5);
   assert.equal(calls[0][3] / calls[0][4], 400 / 240);
+});
+
+test("face background images render behind elements without entering flow", () => {
+  const calls = [];
+  const context = {
+    drawImage(...args) { calls.push(["drawImage", ...args]); },
+    fillRect(...args) { calls.push(["fillRect", ...args]); },
+    fillText(...args) { calls.push(["fillText", ...args]); },
+    measureText(text) { return { width: text.length * 8 }; },
+  };
+  const background = { naturalWidth: 400, naturalHeight: 200 };
+  drawCardTextureContent(context, {
+    background: "#17212b",
+    backgroundImage: { src: "/background.png", fit: "cover" },
+    elements: [{ id: "title", type: "text", content: { text: "Title" }, layout: { mode: "flow" } }],
+  }, { width: 180, height: 250 }, new Map([["/background.png", background]]));
+
+  assert.deepEqual(calls[0], ["fillRect", 0, 0, 180, 250]);
+  assert.deepEqual(calls[1], ["drawImage", background, -160, 0, 500, 250]);
+  assert.equal(calls.some(([name, value]) => name === "fillText" && value === "Title"), true);
+});
+
+test("face background images default to cover and reject unknown fitting", () => {
+  const snapshot = normalizeSnapshot({
+    cards: [{
+      ...card,
+      faces: { front: { ...card.faces.front, backgroundImage: "/background.png" } },
+      back: { elements: [], backgroundImage: "/back-background.png" },
+    }],
+    zones: [zone],
+  });
+  assert.deepEqual(snapshot.cards[0].faces.front.backgroundImage, { src: "/background.png", fit: "cover" });
+  assert.deepEqual(snapshot.cards[0].back.backgroundImage, { src: "/back-background.png", fit: "cover" });
+  assert.throws(
+    () => normalizeSnapshot({
+      cards: [{ ...card, faces: { front: { ...card.faces.front, backgroundImage: { src: "/background.png", fit: "tile" } } } }],
+      zones: [zone],
+    }),
+    /Unknown face backgroundImage fit: tile/,
+  );
 });
 
 test("auto-height textures use the current animated height", () => {
@@ -927,16 +999,29 @@ test("a card can spin continuously and stop at its current flip angle", () => {
   scene.apply({ cards: [card], zones: [zone] });
 
   const spin = scene.spin("card-1", { axis: "y", direction: 1, speed: 180 });
+  assert.equal(scene.snapshot().spinning, true);
   clock.tick(500);
   assert.equal(scene.snapshot().visual[0].pose.flipY, 90);
   clock.tick(750);
   assert.equal(scene.snapshot().visual[0].pose.flipY, 225);
 
   assert.equal(spin.stop(), true);
+  assert.equal(scene.snapshot().spinning, false);
   assert.equal(scene.snapshot().settling, false);
   clock.tick(500);
   assert.equal(scene.snapshot().visual[0].pose.flipY, 225);
   assert.equal(scene.stopSpin("card-1"), false);
+});
+
+test("snapshot spin state clears when another operation cancels spinning", () => {
+  const clock = testClock();
+  const scene = createCardScene({ motion: { clock, duration: 320 } });
+  scene.apply({ cards: [card], zones: [zone] });
+
+  scene.spin("card-1", { axis: "y", direction: 1, speed: 180 });
+  assert.equal(scene.snapshot().spinning, true);
+  scene.transact([{ type: "face", cardId: "card-1", face: "faceDown", axis: "y" }]);
+  assert.equal(scene.snapshot().spinning, false);
 });
 
 test("continuous spinning supports the x flip axis", () => {

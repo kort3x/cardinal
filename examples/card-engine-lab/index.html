@@ -6,49 +6,96 @@
     <title>Cardinal · Card Lab</title>
     <link rel="stylesheet" href="../../packages/card-engine/src/styles.css">
     <style>
-      :root { color: #f7f4e9; background: #101923; font-family: system-ui, sans-serif; }
+      :root {
+        --lab-control-radius: 3px;
+        --lab-box-radius: 5px;
+        --lab-bg: #282c34;
+        --lab-bg-deep: #21252b;
+        --lab-panel: #2c313a;
+        --lab-border: #3e4451;
+        --lab-border-strong: #5c6370;
+        --lab-text: #abb2bf;
+        --lab-muted: #7f848e;
+        --lab-accent: #e5c07b;
+        --lab-focus: #61afef;
+        --lab-cyan: #56b6c2;
+        color: var(--lab-text);
+        background: var(--lab-bg);
+        font-family: system-ui, sans-serif;
+      }
       body { margin: 0; min-height: 100vh; }
-      main { width: min(1440px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
+      main { width: min(2500px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 40px; }
       h1 { margin: 0 0 8px; }
-      p { color: #bdcbd0; }
+      p { color: var(--lab-muted); }
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
-      button, label, select { border: 1px solid #45616a; border-radius: 8px; padding: 9px 12px; color: #f7f4e9; background: #1b303c; font: inherit; }
+      button, label, select { border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); padding: 9px 12px; color: var(--lab-text); background: var(--lab-panel); font: inherit; }
       button { cursor: pointer; }
-      button:hover, button:focus-visible { border-color: #f4c95d; }
+      button:hover, button:focus-visible { border-color: var(--lab-focus); }
+      button[aria-pressed="true"], label:has(> input[type="checkbox"]:checked) { border-color: var(--lab-accent); background: #3a3429; color: var(--lab-accent); box-shadow: 0 0 0 1px rgb(229 192 123 / 25%); }
+      input[type="checkbox"] { accent-color: var(--lab-accent); }
       label { display: inline-flex; align-items: center; gap: 8px; }
-      .control-panel { display: flex; flex-direction: column; gap: 12px; margin: 14px 0 22px; }
+      .control-panel { display: none; }
       .control-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
-      .control-group { min-width: 0; margin: 0; padding: 12px; border: 1px solid #314c55; border-radius: 12px; background: rgb(27 48 60 / 55%); }
-      .control-group legend { padding: 0 6px; color: #f4c95d; font-weight: 700; }
+      .control-group { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); background: var(--lab-bg-deep); }
+      .control-group legend { padding: 0 6px; color: var(--lab-accent); font-weight: 700; }
       .control-group p { margin: 10px 0 0; font-size: 0.9rem; }
       .control-row { display: grid; grid-template-columns: 34px minmax(90px, 1fr) 4.5em; align-items: center; gap: 8px; margin: 7px 0; }
-      .control-row input[type="range"] { width: 100%; accent-color: #f4c95d; }
-      .control-row select { width: 100%; padding: 5px 8px; }
-      .control-row output { color: #f4c95d; text-align: right; }
-      .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; color: #bdcbd0; font-size: 0.9rem; }
+      .control-row input[type="range"] { width: 100%; accent-color: var(--lab-accent); }
+      .control-row.select-row { grid-template-columns: max-content minmax(0, 1fr); }
+      .control-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
+      .control-row output { color: var(--lab-accent); text-align: right; }
+      .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; color: var(--lab-muted); font-size: 0.9rem; }
       .presets button { padding: 6px 8px; font-size: 0.9rem; }
       #card-list { display: flex; flex-wrap: wrap; gap: 6px; }
       #card-list label { padding: 6px 8px; cursor: pointer; }
-      #card-list .card-z { color: #f4c95d; font-variant-numeric: tabular-nums; }
+      #card-list .card-z { color: var(--lab-accent); font-variant-numeric: tabular-nums; }
       #selection-status { margin-bottom: 0; }
       #element-list { display: grid; gap: 8px; }
-      .element-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; align-items: center; padding: 8px; border: 1px solid #314c55; border-radius: 8px; }
-      .element-row > label { padding: 0; border: 0; background: transparent; }
+      .element-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); }
+      .element-row > label { grid-column: 1 / -1; min-width: 0; padding: 0; border: 0; background: transparent; }
       .element-row .element-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .element-row input[type="text"], .element-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
-      .element-row .element-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
+      .element-row input[type="text"], .background-controls input[type="text"] { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); color: var(--lab-text); background: var(--lab-panel); font: inherit; }
+      .element-row input[type="text"] { grid-column: 1 / -1; }
+      .element-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
+      .element-row .element-actions { grid-column: 1 / -1; display: flex; flex-wrap: nowrap; gap: 4px; min-width: 0; }
       .element-row button { padding: 4px 7px; font-size: 0.82rem; }
-      .lab-workspace { display: grid; grid-template-columns: minmax(190px, 220px) minmax(0, 900px) minmax(240px, 280px); gap: 14px; align-items: start; }
-      .side-controls { min-width: 0; }
-      .side-controls .control-group { height: 100%; box-sizing: border-box; }
+      .lab-workspace { display: grid; grid-template-columns: minmax(300px, 330px) minmax(0, 1fr) minmax(390px, 420px); gap: 12px; align-items: start; }
+      .side-controls { display: grid; gap: 10px; min-width: 0; }
+      .side-controls .control-group { height: auto; box-sizing: border-box; }
       .side-controls #card-list { flex-direction: column; align-items: stretch; }
       .side-controls #card-list label { justify-content: flex-start; }
+      .elements-group > .presets { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+      .elements-group > .presets label { padding: 0; border: 0; background: transparent; }
+      .elements-group > .presets #add-element { grid-column: 1 / -1; width: 100%; }
+      .background-controls { display: grid; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--lab-border); }
+      .background-controls label { padding: 0; border: 0; background: transparent; }
+      .background-controls input, .background-controls select { min-width: 0; width: 100%; box-sizing: border-box; }
+      .background-controls > button { width: 100%; }
+      .background-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+      .background-presets span { grid-column: 1 / -1; color: var(--lab-muted); }
+      .background-presets button { min-width: 0; padding: 6px 8px; }
       .scene-column { min-width: 0; }
-      .motion-actions { margin-top: 0; }
-      #stage { width: 900px; max-width: 100%; height: 500px; margin: 0; border: 1px solid #314c55; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #244554, #142631 70%); }
-      #status { min-height: 1.5em; color: #f4c95d; }
-      #pointer-status { min-height: 1.5em; margin: 0; color: #bdcbd0; font-variant-numeric: tabular-nums; }
-      code { color: #f4c95d; }
+      .scene-column > .motion-actions { margin: 0 0 10px; }
+      #stage { position: relative; width: 100%; height: min(1100px, calc(100vh - 330px)); min-height: 500px; margin: 0; border: 1px solid var(--lab-border); border-radius: 8px; background: radial-gradient(circle at 50% 35%, #323842, var(--lab-bg-deep) 70%); overflow: hidden; }
+      #full-window-control { position: absolute; top: 14px; right: 14px; z-index: 10; border-color: var(--lab-accent); background: rgb(33 37 43 / 90%); }
+      #renderer-status, #status, #pointer-status { margin: 7px 0 0; min-height: 1.4em; }
+      #renderer-status { color: var(--lab-muted); font-size: 0.82rem; }
+      #status { color: var(--lab-accent); }
+      #pointer-status { min-height: 1.5em; margin: 0; color: var(--lab-text); font-variant-numeric: tabular-nums; }
+      code { color: var(--lab-cyan); }
+      body.stage-full-window { overflow: hidden; }
+      body.stage-full-window main { width: 100%; height: 100vh; margin: 0; padding: 0; }
+      body.stage-full-window main > h1,
+      body.stage-full-window main > p { display: none; }
+      body.stage-full-window .lab-workspace { display: block; height: 100vh; }
+      body.stage-full-window .cards-sidebar,
+      body.stage-full-window .elements-sidebar,
+      body.stage-full-window .scene-column > .motion-actions,
+      body.stage-full-window #renderer-status,
+      body.stage-full-window #status,
+      body.stage-full-window #pointer-status { display: none; }
+      body.stage-full-window .scene-column { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100vh; }
+      body.stage-full-window #stage { position: fixed; inset: 0; z-index: 1; width: 100vw; height: 100vh; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; }
       @media (max-width: 980px) {
         .lab-workspace { grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr); }
         .elements-sidebar { grid-column: 1 / -1; }
@@ -70,25 +117,25 @@
         <button id="flip">Animate flip</button>
         <button id="spin" type="button" aria-pressed="false">Spin in place</button>
         <button id="combined">Run together · full spin</button>
+        <button id="random" type="button" aria-pressed="false">Random motion</button>
         <label><input id="reduced" type="checkbox"> Reduced motion</label>
       </div>
       <section class="control-panel" aria-label="Card controls">
         <div class="control-section" aria-label="Card model controls">
           <fieldset class="control-group">
             <legend>Shape</legend>
-            <label class="control-row" for="shape">
+            <label class="control-row select-row" for="shape">
               <span>Profile</span>
               <select id="shape" aria-label="Card shape">
                 <option value="illustrated" selected>Rounded rectangle</option>
                 <option value="shield">Shield</option>
               </select>
-              <span></span>
             </label>
           </fieldset>
 
           <fieldset class="control-group">
             <legend>Logical faces</legend>
-            <label class="control-row" for="face-count">
+            <label class="control-row select-row" for="face-count">
               <span>Count</span>
               <select id="face-count" aria-label="Number of logical faces">
                 <option value="1" selected>1</option>
@@ -97,20 +144,18 @@
                 <option value="4">4</option>
                 <option value="5">5</option>
               </select>
-              <span></span>
             </label>
             <p>One physical back · front cycle: A → … → A</p>
           </fieldset>
 
           <fieldset class="control-group">
             <legend>Dimensions</legend>
-            <label class="control-row" for="card-sizing">
+            <label class="control-row select-row" for="card-sizing">
               <span>Sizing</span>
               <select id="card-sizing" aria-label="Card sizing mode">
                 <option value="fixed">Fixed size</option>
                 <option value="content" selected>Auto height</option>
               </select>
-              <span></span>
             </label>
             <label class="control-row" for="card-width">
               <span>Width</span>
@@ -147,11 +192,11 @@
           </label>
           <div class="presets" aria-label="Move presets">
             <span>Presets:</span>
-            <button type="button" data-move-x="140" data-move-y="250">Left</button>
-            <button type="button" data-move-x="450" data-move-y="250">Center</button>
-            <button type="button" data-move-x="760" data-move-y="250">Right</button>
-            <button type="button" data-move-x="450" data-move-y="140">Top</button>
-            <button type="button" data-move-x="450" data-move-y="360">Bottom</button>
+            <button type="button" data-move-preset="left">Left</button>
+            <button type="button" data-move-preset="center">Center</button>
+            <button type="button" data-move-preset="right">Right</button>
+            <button type="button" data-move-preset="top">Top</button>
+            <button type="button" data-move-preset="bottom">Bottom</button>
           </div>
           </fieldset>
 
@@ -184,9 +229,7 @@
             <button type="button" data-scale="0.25">25%</button>
             <button type="button" data-scale="0.5">50%</button>
             <button type="button" data-scale="1">100%</button>
-            <button type="button" data-scale="1.25">125%</button>
             <button type="button" data-scale="1.5">150%</button>
-            <button type="button" data-scale="1.75">175%</button>
             <button type="button" data-scale="2">200%</button>
           </div>
           </fieldset>
@@ -220,15 +263,15 @@
         </div>
       </section>
       <section class="lab-workspace" aria-label="Card scene workspace">
-        <aside class="side-controls cards-sidebar" aria-label="Card selection controls">
+        <aside class="side-controls cards-sidebar" aria-label="Left control rail">
           <fieldset class="control-group">
             <legend>Cards</legend>
-            <div id="card-list" role="group" aria-label="Cards in the lab"></div>
             <div class="presets">
               <button id="add-card" type="button">Add card</button>
               <button id="remove-cards" type="button">Remove selected</button>
               <button id="select-all" type="button">Select all</button>
             </div>
+            <div id="card-list" role="group" aria-label="Cards in the lab"></div>
             <p id="selection-status" aria-live="polite"></p>
           </fieldset>
         </aside>
@@ -236,9 +279,11 @@
           <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
           <p id="status" aria-live="polite"></p>
           <p id="pointer-status" data-pointer-state='{"status":"not-observed"}'>Pointer: not observed yet</p>
-          <div id="stage" aria-label="Card stage"></div>
+          <div id="stage" aria-label="Card stage">
+            <button id="full-window-control" type="button" aria-pressed="false">Full window</button>
+          </div>
         </div>
-        <aside class="side-controls elements-sidebar" aria-label="Card element controls">
+        <aside class="side-controls elements-sidebar" aria-label="Right control rail">
           <fieldset class="control-group">
             <legend>Elements</legend>
             <div id="element-list" aria-live="polite"></div>
@@ -250,11 +295,68 @@
               </select>
               <button id="add-element" type="button">Add element</button>
             </div>
+            <div class="background-controls">
+              <label for="background-side">Background target</label>
+              <select id="background-side" aria-label="Background target">
+                <option value="face">Active logical face</option>
+                <option value="back">Physical back</option>
+              </select>
+              <label for="background-image">Background image URL</label>
+              <input id="background-image" type="text" placeholder="Image URL" aria-label="Background image URL">
+              <select id="background-fit" aria-label="Background image fit">
+                <option value="cover">Cover</option>
+                <option value="contain">Contain</option>
+                <option value="stretch">Stretch</option>
+              </select>
+              <div class="background-presets" aria-label="Background image presets">
+                <span>Presets:</span>
+                <button type="button" data-background-preset="modern">Modern</button>
+                <button type="button" data-background-preset="fantasy">Fantasy</button>
+                <button type="button" data-background-preset="science-fiction">Science fiction</button>
+                <button type="button" data-background-preset="simple">Simple</button>
+                <button type="button" data-background-preset="none">None</button>
+              </div>
+              <button id="apply-background" type="button">Apply background</button>
+            </div>
             <p>Elements belong to the selected cards’ active logical face. Reorder changes flow order; overlay elements use normalized position.</p>
           </fieldset>
         </aside>
       </section>
     </main>
+    <script>
+      // Keep the authored controls grouped by domain while presenting them as
+      // compact left/right rails around the scene.
+      const controlPanel = document.querySelector(".control-panel");
+      const modelControls = controlPanel.querySelector('[aria-label="Card model controls"]');
+      const motionControls = controlPanel.querySelector('[aria-label="Motion controls"]');
+      const leftRail = document.querySelector(".cards-sidebar");
+      const rightRail = document.querySelector(".elements-sidebar");
+      const group = (parent, title) => [...parent.querySelectorAll("fieldset")]
+        .find((candidate) => candidate.querySelector("legend")?.textContent.trim() === title);
+      const elementsGroup = group(rightRail, "Elements");
+      elementsGroup.classList.add("elements-group");
+      leftRail.append(group(modelControls, "Shape"), group(modelControls, "Logical faces"), group(modelControls, "Dimensions"), elementsGroup);
+      rightRail.append(group(motionControls, "Move"), group(motionControls, "Rotate"), group(motionControls, "Scale"), group(motionControls, "Flip"));
+      const sceneColumn = document.querySelector(".scene-column");
+      const toolbar = document.querySelector(".motion-actions");
+      const stage = document.querySelector("#stage");
+      const rendererStatus = document.querySelector("#renderer-status");
+      const status = document.querySelector("#status");
+      const pointerStatus = document.querySelector("#pointer-status");
+      const fullWindowControl = document.querySelector("#full-window-control");
+      const setFullWindow = (enabled) => {
+        document.body.classList.toggle("stage-full-window", enabled);
+        fullWindowControl.setAttribute("aria-pressed", String(enabled));
+        fullWindowControl.textContent = enabled ? "Exit full window" : "Full window";
+      };
+      fullWindowControl.addEventListener("click", () => setFullWindow(!document.body.classList.contains("stage-full-window")));
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && document.body.classList.contains("stage-full-window")) setFullWindow(false);
+      });
+      sceneColumn.prepend(toolbar);
+      sceneColumn.append(stage, rendererStatus, status, pointerStatus);
+      controlPanel.remove();
+    </script>
     <script type="importmap">
       {
         "imports": {

@@ -6,7 +6,7 @@ from a real WebGL lab run.
 
 ## Core engine coverage
 
-The command `npm --prefix packages/card-engine test` passes all 65 tests.
+The command `npm --prefix packages/card-engine test` passes all 72 tests.
 
 | Area | Covered behavior |
 | --- | --- |
@@ -21,9 +21,9 @@ The command `npm --prefix packages/card-engine test` passes all 65 tests.
 ## Lab control run
 
 The lab was exercised in Chrome 152.0.7977.83, Firefox 155.0.1, and Safari
-26.6.2 with the Three.js WebGL renderer and orthographic projection. Each
-scripted interaction pass used the real DOM controls and waited for each
-animation to settle.
+26.6.2 with the Three.js WebGL renderer and orthographic projection. The
+current-tree refresh used the real DOM controls and waited for each changed
+element/content operation to settle.
 
 Observed successful paths:
 
@@ -47,15 +47,21 @@ Observed successful paths:
 - Add an element during an active flip. The card settled on the new physical
   side with the element present and one persistent shell.
 
-All listed paths passed in all three browsers. Chrome and Firefox also verified
-that adding one element to a two-card selection creates the element on both
-card shells. The Chrome `elements` scenario is now checked into the repository;
-the Firefox and Safari passes remain additional external browser evidence.
+The full current-tree matrix passed in Chrome (56 checks across the checked-in
+scenarios). The current-tree acceptance flow passed 18/18 in Firefox and 18/18
+in Safari, including movement, rotation, scale, face changes, simultaneous
+flips, edge-on pose, combined motion, reduced motion, context loss/recovery,
+and scene disposal/recreation. The focused element/content regression checks also
+passed in both browsers. Chrome and the prior Firefox evidence verified that
+adding one element to a two-card selection creates the element on both card
+shells. The Chrome `elements` scenario is checked into the repository; the
+Firefox and Safari passes remain additional external browser evidence.
 
 ## Remaining gaps
 
-- The checked-in Chrome scenario does not yet run the same controls in Firefox
-  or Safari; those browser passes remain manual/external evidence.
+- The checked-in Chrome scenario and `test:cross-browser` now cover the
+  current-tree functional matrix; screenshot quality and performance envelopes
+  remain visual/release-review evidence rather than automated pixel assertions.
 - Visual screenshot review of every added/reordered element during oblique
   motion remains manual; the DOM/accessibility checks above do not prove pixel
   quality.

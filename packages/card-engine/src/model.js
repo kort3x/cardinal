@@ -45,6 +45,20 @@ function normalizeSizing(sizing) {
   return { ...copy(sizing), mode };
 }
 
+function normalizeBackgroundImage(backgroundImage) {
+  const source = typeof backgroundImage === "string"
+    ? { src: backgroundImage }
+    : backgroundImage;
+  if (!source || typeof source.src !== "string" || source.src.length === 0) {
+    throw new TypeError("Face backgroundImage requires a non-empty src");
+  }
+  const fit = source.fit ?? "cover";
+  if (!["cover", "contain", "stretch"].includes(fit)) {
+    throw new TypeError(`Unknown face backgroundImage fit: ${fit}`);
+  }
+  return { ...copy(source), src: source.src, fit };
+}
+
 export function normalizeElement(element, index = 0) {
   if (!element || typeof element.id !== "string" || element.id.length === 0) {
     throw new TypeError("Every card element requires a non-empty string id");
@@ -86,7 +100,9 @@ function normalizeFace(face) {
   if (new Set(elements.map(({ id }) => id)).size !== elements.length) {
     throw new Error("Element ids must be unique within a face");
   }
-  return { ...copy(source), elements };
+  const normalized = { ...copy(source), elements };
+  if (source.backgroundImage !== undefined) normalized.backgroundImage = normalizeBackgroundImage(source.backgroundImage);
+  return normalized;
 }
 
 export function normalizePose(pose = {}) {

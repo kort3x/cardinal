@@ -141,13 +141,18 @@ buffer before drawing the next card, preserving intentional overlap even while a
 card rotates or flips.
 
 The initial spatial model is a projected 2.5D stage: x/y plus real continuous depth
-in the scene model. The default orthographic camera keeps a card's apparent shape,
-size, and flip orientation stable as it moves across x/y; depth still controls
-ordering and true 3D side visibility. A consuming scene may opt into a perspective
-camera when camera-relative size and foreshortening are desired. Individual cards
-are rendered as true 3D rounded cuboids inside that stage, while draw order remains
-a separate resolved property rather than an implicit physics result. Arbitrary
-tilted zone planes and physically simulated cards are outside v1.
+in the scene model. A scene has no intrinsic rectangular bounds. Card and zone
+coordinates are world coordinates, while the camera owns the visible viewport,
+center, and world-unit density. The default orthographic camera uses the current
+stage as its viewport at one world unit per CSS pixel, preserving card pixel size
+while a stage resizes and revealing more or less world space around the camera
+center (the default camera center is the world origin). A consumer may opt into
+an explicit fitted viewport when it wants a known
+logical rectangle to fill the stage, or use a perspective camera when
+camera-relative size and foreshortening are desired.
+Individual cards are rendered as true 3D rounded cuboids inside that stage, while
+draw order remains a separate resolved property rather than an implicit physics
+result. Arbitrary tilted zone planes and physically simulated cards are outside v1.
 
 ## Zone placement and responsive geometry
 
@@ -260,6 +265,12 @@ returns a card ID plus physical side. `target()` creates a cancellable session
 for eligible card intent; finishing it reports IDs and pointer state but never
 changes membership or commits a move. The engine emits `target-start`,
 `target-change`, `target`, and `target-cancel` events.
+
+`viewport()` is a read-only renderer view description when the active adapter
+provides one. It reports the current visible world width and height, camera
+center, scaling mode, and world-unit density so callers can translate pointer
+coordinates without assuming a scene rectangle. It returns `null` for adapters
+that do not expose a view.
 
 This is the current Slice 01 interface; later slices may extend it. Snapshot
 reconciliation and commands share one validation/commit path. Transactions can also update content,
@@ -509,6 +520,14 @@ content-driven sizing and `draw({ context, element, x, y, width, height,
 images, content })` for WebGL texture output. Unknown types are rendered as an
 explicit unsupported marker, never silently omitted. Top-level legacy content
 fields such as `title`, `image`, and `flavour` are not part of the contract.
+
+Any face content, including the physical back, may define `backgroundImage`
+independently of its elements. It is either an image source string or
+`{ src, fit }`, where `fit` is `cover`, `contain`, or `stretch` and defaults to
+`cover`. The background image is drawn behind the content elements, does not
+participate in flow measurement, and is clipped by the card shape. The WebGL
+renderer loads and caches it like an image element; CSS fallback support remains
+deferred with the fallback renderer.
 
 Support two explicit region behaviors:
 

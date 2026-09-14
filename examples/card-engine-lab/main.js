@@ -24,6 +24,7 @@ const flipXSlider = document.querySelector("#flip-x-slider");
 const flipYSlider = document.querySelector("#flip-y-slider");
 const flipAxis = document.querySelector("#flip-axis");
 const spinButton = document.querySelector("#spin");
+const randomButton = document.querySelector("#random");
 const moveXValue = document.querySelector("#move-x-value");
 const moveYValue = document.querySelector("#move-y-value");
 const cardWidthValue = document.querySelector("#card-width-value");
@@ -36,6 +37,19 @@ const flipYValue = document.querySelector("#flip-y-value");
 const elementList = document.querySelector("#element-list");
 const elementType = document.querySelector("#element-type");
 const addElementButton = document.querySelector("#add-element");
+const backgroundSide = document.querySelector("#background-side");
+const backgroundImageInput = document.querySelector("#background-image");
+const backgroundFit = document.querySelector("#background-fit");
+const applyBackgroundButton = document.querySelector("#apply-background");
+const backgroundPresets = Object.freeze({
+  modern: { src: "/examples/card-engine-lab/assets/backgrounds/modern-abstract.jpg", fit: "cover" },
+  fantasy: { src: "/examples/card-engine-lab/assets/backgrounds/fantasy-forest.jpg", fit: "cover" },
+  "science-fiction": { src: "/examples/card-engine-lab/assets/backgrounds/science-fiction-space.jpg", fit: "cover" },
+  simple: { src: "/examples/card-engine-lab/assets/backgrounds/simple-paper.jpg", fit: "cover" },
+});
+const LAB_CAMERA_CENTER = Object.freeze({ x: 450, y: 250 });
+const LAB_CAMERA_UNITS_PER_PIXEL = 1;
+const LAB_ZONE_GEOMETRY = Object.freeze({ x: -250, y: -200, width: 1400, height: 900, depth: 0 });
 
 const logicalFaceDefinitions = [
   {
@@ -95,8 +109,8 @@ const baseCard = {
   faceUp: true,
   back: {
     elements: [
-      { id: "title", type: "text", content: { text: "Concealed" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
-      { id: "flavour", type: "text", content: { text: "This side remains hidden." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
+      { id: "title", type: "text", content: { text: "Card back" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
+      { id: "flavour", type: "text", content: { text: "The back of the card." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
     ],
     background: "#17212b",
     textColor: "#f7f4e9",
@@ -246,12 +260,17 @@ function setPointerStatus(state) {
 
 function updatePointerStatus(event) {
   const rect = stage.getBoundingClientRect();
+  const viewport = scene?.viewport?.() ?? {
+    width: rect.width / LAB_CAMERA_UNITS_PER_PIXEL,
+    height: rect.height / LAB_CAMERA_UNITS_PER_PIXEL,
+    center: LAB_CAMERA_CENTER,
+  };
   const insideStage = event.clientX >= rect.left
     && event.clientX <= rect.right
     && event.clientY >= rect.top
     && event.clientY <= rect.bottom;
-  const sceneX = Math.round(((event.clientX - rect.left) / rect.width) * 900);
-  const sceneY = Math.round(((event.clientY - rect.top) / rect.height) * 500);
+  const sceneX = Math.round(viewport.center.x - viewport.width / 2 + ((event.clientX - rect.left) / rect.width) * viewport.width);
+  const sceneY = Math.round(viewport.center.y - viewport.height / 2 + ((event.clientY - rect.top) / rect.height) * viewport.height);
   setPointerStatus({
     status: "observed",
     insideStage,
@@ -261,6 +280,46 @@ function updatePointerStatus(event) {
     sceneY,
     target: pagePointerTarget(event, sceneX, sceneY),
   });
+}
+
+function visibleWorldBounds() {
+  const view = scene?.viewport?.();
+  const stageRect = stage.getBoundingClientRect();
+  const viewport = view ?? {
+    width: stageRect.width / LAB_CAMERA_UNITS_PER_PIXEL,
+    height: stageRect.height / LAB_CAMERA_UNITS_PER_PIXEL,
+    center: LAB_CAMERA_CENTER,
+  };
+  return {
+    left: viewport.center.x - viewport.width / 2,
+    right: viewport.center.x + viewport.width / 2,
+    top: viewport.center.y - viewport.height / 2,
+    bottom: viewport.center.y + viewport.height / 2,
+    centerX: viewport.center.x,
+    centerY: viewport.center.y,
+  };
+}
+
+function updateMoveControlBounds(state = scene?.snapshot()) {
+  const bounds = visibleWorldBounds();
+  const selected = state?.desired?.cards?.filter(({ id }) => selectedCardIds.has(id)) ?? [];
+  const xValues = selected.map(({ pose }) => pose?.x).filter(Number.isFinite);
+  const yValues = selected.map(({ pose }) => pose?.y).filter(Number.isFinite);
+  const minX = Math.floor(Math.min(bounds.left, ...xValues));
+  const maxX = Math.ceil(Math.max(bounds.right, ...xValues));
+  const minY = Math.floor(Math.min(bounds.top, ...yValues));
+  const maxY = Math.ceil(Math.max(bounds.bottom, ...yValues));
+  moveXSlider.min = String(minX);
+  moveXSlider.max = String(maxX);
+  moveYSlider.min = String(minY);
+  moveYSlider.max = String(maxY);
+}
+
+function movePresetPosition(preset) {
+  const bounds = visibleWorldBounds();
+  const x = preset === "left" ? bounds.left : preset === "right" ? bounds.right : bounds.centerX;
+  const y = preset === "top" ? bounds.top : preset === "bottom" ? bounds.bottom : bounds.centerY;
+  return { x: Math.round(x), y: Math.round(y) };
 }
 
 window.addEventListener("pointermove", updatePointerStatus, { passive: true });
@@ -334,7 +393,7 @@ function desiredSnapshot(cards = sceneCards()) {
     zones: [{
       id: "demo-table",
       cardIds: cards.map(({ id }) => id),
-      geometry: { x: 0, y: 0, width: 900, height: 500, depth: 0 },
+      geometry: LAB_ZONE_GEOMETRY,
       arrangement: { type: "grid", gap: 16 },
     }],
   };
@@ -357,7 +416,7 @@ function footprintsOverlap(first, second, gap) {
 
 function nextCardPosition(cards) {
   const scale = Number(scaleSlider.value);
-  const candidate = { ...baseCard, pose: { x: 450, y: 250, scale } };
+  const candidate = { ...baseCard, pose: { ...LAB_CAMERA_CENTER, scale } };
   const offsets = [
     [1, 0], [-1, 0], [0, 1], [0, -1],
     [1, 1], [-1, 1], [1, -1], [-1, -1],
@@ -371,12 +430,12 @@ function nextCardPosition(cards) {
       ? [[0, 0]]
       : offsets.map(([x, y]) => [x * radius, y * radius]);
     for (const [x, y] of candidates) {
-      const position = { x: 450 + x * stepX, y: 250 + y * stepY };
+      const position = { x: LAB_CAMERA_CENTER.x + x * stepX, y: LAB_CAMERA_CENTER.y + y * stepY };
       const placed = { ...candidate, pose: { ...candidate.pose, ...position } };
       if (!cards.some((card) => footprintsOverlap(card, placed, gap))) return position;
     }
   }
-  return { x: 450 + cards.length * (size.width + gap), y: 250 };
+  return { x: LAB_CAMERA_CENTER.x + cards.length * (size.width + gap), y: LAB_CAMERA_CENTER.y };
 }
 
 function currentCard(state = scene.snapshot()) {
@@ -386,9 +445,85 @@ function currentCard(state = scene.snapshot()) {
 let spinHandles = new Map();
 let spinTimer;
 let spinning = false;
+let randomTimer;
+let randomGeneration = 0;
+let randomMotion = false;
+
+function updateRandomButton() {
+  randomButton.textContent = randomMotion ? "Stop random motion" : "Random motion";
+  randomButton.setAttribute("aria-pressed", String(randomMotion));
+}
+
+function stopRandomMotion() {
+  randomGeneration += 1;
+  if (randomTimer) clearTimeout(randomTimer);
+  randomTimer = undefined;
+  randomMotion = false;
+  updateRandomButton();
+}
+
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function randomMoveTarget(card, bounds) {
+  const pose = card.pose ?? {};
+  const scale = pose.scale ?? 1;
+  const halfWidth = ((card.dimensions?.width ?? 180) * scale) / 2;
+  const halfHeight = ((card.dimensions?.height ?? 250) * scale) / 2;
+  const left = Math.min(bounds.right, bounds.left + halfWidth);
+  const right = Math.max(bounds.left, bounds.right - halfWidth);
+  const top = Math.min(bounds.bottom, bounds.top + halfHeight);
+  const bottom = Math.max(bounds.top, bounds.bottom - halfHeight);
+  return {
+    x: Math.round(randomBetween(left, right)),
+    y: Math.round(randomBetween(top, bottom)),
+  };
+}
+
+async function runRandomCycle(generation) {
+  if (!randomMotion || generation !== randomGeneration) return;
+  const cards = selectedCards();
+  if (cards.length === 0) {
+    randomTimer = setTimeout(() => runRandomCycle(generation), 200);
+    return;
+  }
+  const bounds = visibleWorldBounds();
+  const operations = cards.flatMap((card) => {
+    const pose = card.pose ?? {};
+    const move = randomMoveTarget(card, bounds);
+    const angle = normalizeAngle((pose.angle ?? 0) + randomBetween(90, 360) * (Math.random() < 0.5 ? -1 : 1));
+    const axis = Math.random() < 0.5 ? "x" : "y";
+    return [
+      { type: "move", cardId: card.id, position: move },
+      { type: "rotate", cardId: card.id, angle },
+      { type: "face", cardId: card.id, face: card.faceUp ? "faceDown" : "faceUp", axis },
+    ];
+  });
+  try {
+    await scene.transact(operations).finished;
+  } catch (error) {
+    if (randomMotion && generation === randomGeneration) console.error("Cardinal random motion stopped", error);
+    return;
+  }
+  if (randomMotion && generation === randomGeneration) randomTimer = setTimeout(() => runRandomCycle(generation), 0);
+}
+
+function toggleRandomMotion() {
+  if (randomMotion) {
+    stopRandomMotion();
+    return;
+  }
+  randomGeneration += 1;
+  randomMotion = true;
+  updateRandomButton();
+  runRandomCycle(randomGeneration);
+}
+
 function startScene(cards = sceneCards()) {
   scene?.destroy();
   if (spinTimer) clearTimeout(spinTimer);
+  stopRandomMotion();
   spinTimer = undefined;
   spinHandles = new Map();
   spinning = false;
@@ -399,6 +534,12 @@ function startScene(cards = sceneCards()) {
       templates: {
         illustrated: { width: 180, height: 250, thickness: 6, shape: "rounded-rectangle" },
         shield: { width: 180, height: 250, thickness: 6, shape: "shield" },
+      },
+      camera: {
+        projection: "orthographic",
+        scaleMode: "stage",
+        unitsPerPixel: LAB_CAMERA_UNITS_PER_PIXEL,
+        center: LAB_CAMERA_CENTER,
       },
       motion: { reducedMotion: reduced.checked, duration: 700 },
     });
@@ -467,6 +608,7 @@ function syncControlsFromSelection() {
   const state = scene.snapshot();
   const card = currentCard(state);
   if (!card) return;
+  updateMoveControlBounds(state);
   const pose = state.visual.find(({ cardId }) => cardId === card.id)?.pose ?? card.pose;
   setControls({
     x: pose.x,
@@ -504,6 +646,31 @@ function applyElementOperation(operation) {
   }
 }
 
+function applyBackgroundImage() {
+  const source = backgroundImageInput.value.trim();
+  const fit = backgroundFit.value;
+  const cards = sceneCards().map((card) => {
+    if (!selectedCardIds.has(card.id)) return card;
+    if (backgroundSide.value === "back") {
+      const nextBack = { ...(card.back ?? { elements: [] }) };
+      if (source) nextBack.backgroundImage = { src: source, fit };
+      else delete nextBack.backgroundImage;
+      return { ...card, back: nextBack };
+    }
+    const face = card.faces?.[card.activeFaceId];
+    if (!face) return card;
+    const nextFace = { ...face };
+    if (source) nextFace.backgroundImage = { src: source, fit };
+    else delete nextFace.backgroundImage;
+    return { ...card, faces: { ...card.faces, [card.activeFaceId]: nextFace } };
+  });
+  applyLabCards(cards);
+}
+
+function backgroundContentFor(card) {
+  return backgroundSide.value === "back" ? card?.back : card?.faces?.[card?.activeFaceId];
+}
+
 function elementEditorValue(element) {
   if (element.type === "image") return element.content?.src ?? "";
   return element.content?.text ?? element.content?.value ?? "";
@@ -512,17 +679,29 @@ function elementEditorValue(element) {
 function renderElementList(state = scene.snapshot()) {
   const card = currentCard(state);
   const face = card?.faces?.[card.activeFaceId];
-  const key = face ? JSON.stringify([card.id, card.activeFaceId, face.elements]) : "empty";
+  const backgroundContent = backgroundContentFor(card);
+  const key = face ? JSON.stringify([card.id, card.activeFaceId, face.elements, face.backgroundImage, card.back?.backgroundImage, backgroundSide.value]) : "empty";
   if (key === renderedElementKey) return;
   renderedElementKey = key;
   if (!face) {
     elementList.replaceChildren(document.createTextNode("Select a card to inspect its elements."));
     addElementButton.disabled = true;
     elementType.disabled = true;
+    backgroundSide.disabled = true;
+    backgroundImageInput.disabled = true;
+    backgroundFit.disabled = true;
+    applyBackgroundButton.disabled = true;
     return;
   }
   addElementButton.disabled = false;
   elementType.disabled = false;
+  backgroundSide.disabled = false;
+  backgroundImageInput.disabled = false;
+  backgroundFit.disabled = false;
+  applyBackgroundButton.disabled = false;
+  const backgroundImage = backgroundContent?.backgroundImage;
+  backgroundImageInput.value = typeof backgroundImage === "string" ? backgroundImage : backgroundImage?.src ?? "";
+  backgroundFit.value = typeof backgroundImage === "object" ? backgroundImage.fit ?? "cover" : "cover";
   const rows = (face.elements ?? []).map((element, index) => {
     const row = document.createElement("div");
     row.className = "element-row";
@@ -600,6 +779,8 @@ function renderElementList(state = scene.snapshot()) {
 
 function updateStatus() {
   const state = scene.snapshot();
+  syncSpinState(state);
+  updateMoveControlBounds(state);
   updateCardListDepth(state);
   renderElementList(state);
   const card = currentCard(state);
@@ -609,10 +790,14 @@ function updateStatus() {
     ? "Three.js WebGL (true 3D)"
     : state.renderer === "css" ? "CSS (explicit mode)" : state.renderer;
   const projectionLabel = state.projection ? ` · ${state.projection}` : "";
-  rendererStatus.textContent = `Renderer: ${rendererLabel}${projectionLabel}${state.rendererReason && state.rendererReason !== "css" ? ` — ${state.rendererReason}` : ""}`;
+  const viewport = scene.viewport?.();
+  const viewportLabel = viewport
+    ? ` · view ${viewport.width.toFixed(0)}×${viewport.height.toFixed(0)} @ ${viewport.center.x.toFixed(0)},${viewport.center.y.toFixed(0)} · ${viewport.scaleMode}`
+    : "";
+  rendererStatus.textContent = `Renderer: ${rendererLabel}${projectionLabel}${viewportLabel}${state.rendererReason && state.rendererReason !== "css" ? ` — ${state.rendererReason}` : ""}`;
   const physicalSide = visual?.physicalSide ?? "unknown";
   status.textContent = pose
-    ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · z ${pose.z.toFixed(1)} · size ${pose.width.toFixed(0)}×${pose.height.toFixed(0)} · depth ${pose.thickness.toFixed(1)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}`
+    ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · z ${pose.z.toFixed(1)} · size ${pose.width.toFixed(0)}×${pose.height.toFixed(0)} · depth ${pose.thickness.toFixed(1)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}${randomMotion ? " · random motion" : ""}`
     : `${state.desired.cards.length} cards · 0 selected`;
   selectionStatus.textContent = `${selectedCardIds.size} of ${state.desired.cards.length} selected`;
 }
@@ -624,6 +809,18 @@ function run(operations, options) {
 function updateSpinButton() {
   spinButton.textContent = spinning ? "Stop spinning" : "Spin in place";
   spinButton.setAttribute("aria-pressed", String(spinning));
+}
+
+function syncSpinState(state) {
+  const engineSpinning = Boolean(state.spinning);
+  if (engineSpinning === spinning) return;
+  if (!engineSpinning && spinTimer) clearTimeout(spinTimer);
+  if (!engineSpinning) {
+    spinTimer = undefined;
+    spinHandles = new Map();
+  }
+  spinning = engineSpinning;
+  updateSpinButton();
 }
 
 function stopContinuousFlip() {
@@ -784,8 +981,9 @@ function queueControl(channel, { immediate = true } = {}) {
 document.querySelector("#move").addEventListener("click", () => {
   const visual = currentVisual();
   if (!visual) return;
-  const x = visual.pose.x > 300 ? 140 : 600;
-  setControls({ x, y: 240 });
+  const bounds = visibleWorldBounds();
+  const x = visual.pose.x > bounds.centerX ? bounds.left : bounds.right;
+  setControls({ x: Math.round(x), y: Math.round(bounds.centerY) });
   run(controlOperations(new Set(["move"])));
 });
 
@@ -832,6 +1030,8 @@ spinButton.addEventListener("click", () => {
   spinning = [...spinHandles.values()].some((handle) => handle.active);
   updateSpinButton();
 });
+
+randomButton.addEventListener("click", toggleRandomMotion);
 
 [moveXSlider, moveYSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("move")));
 [cardWidthSlider, cardHeightSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("resize")));
@@ -881,9 +1081,9 @@ selectAllButton.addEventListener("click", () => {
   updateStatus();
 });
 
-document.querySelectorAll("[data-move-x]").forEach((button) => {
+document.querySelectorAll("[data-move-preset]").forEach((button) => {
   button.addEventListener("click", () => {
-    setControls({ x: Number(button.dataset.moveX), y: Number(button.dataset.moveY) });
+    setControls(movePresetPosition(button.dataset.movePreset));
     queueControl("move", { immediate: false });
   });
 });
@@ -908,6 +1108,17 @@ addElementButton.addEventListener("click", () => {
     ? { id, type: "image", content: { src: "/examples/card-engine-lab/cardinal.png", alt: "A stylized red cardinal" }, layout: { mode: "flow" } }
     : { id, type: "text", content: { text: "New text element" }, layout: { mode: "flow" } };
   applyElementOperation({ action: "add", elementId: id, element });
+});
+
+applyBackgroundButton.addEventListener("click", applyBackgroundImage);
+backgroundSide.addEventListener("change", () => renderElementList());
+document.querySelectorAll("[data-background-preset]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const preset = backgroundPresets[button.dataset.backgroundPreset];
+    backgroundImageInput.value = preset?.src ?? "";
+    backgroundFit.value = preset?.fit ?? "cover";
+    applyBackgroundImage();
+  });
 });
 
 document.querySelector("#combined").addEventListener("click", () => {
