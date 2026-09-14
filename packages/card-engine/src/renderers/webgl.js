@@ -129,7 +129,7 @@ function createCardFaceSurfaceMaterial(color) {
     color,
     roughness: 0.8,
     metalness: 0,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
     // Face content is a surface layer on top of the solid cuboid caps.
     depthWrite: false,
     polygonOffset: true,

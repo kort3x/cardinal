@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
 import { clearCardDepth, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
 
@@ -87,7 +88,7 @@ test("the WebGL shape seam rejects unknown profiles", () => {
 test("WebGL face materials render content above the solid cuboid caps", () => {
   const material = createCardFaceMaterial();
 
-  assert.equal(material.side, 2);
+  assert.equal(material.side, THREE.FrontSide);
   assert.equal(material.depthWrite, false);
   assert.equal(material.polygonOffset, true);
   assert.equal(material.polygonOffsetFactor, -1);
