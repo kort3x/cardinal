@@ -109,6 +109,124 @@ let selectedCardIds = new Set([baseCard.id]);
 let nextCardNumber = 2;
 let nextElementNumber = 1;
 let renderedElementKey;
+let scene;
+
+function sortedPointerElements(content) {
+  return (content?.elements ?? [])
+    .map((element, index) => ({ element, index }))
+    .filter(({ element }) => element.visible !== false || element.visibilityMode === "preserve-space")
+    .sort((first, second) => (first.element.layout?.order ?? first.index) - (second.element.layout?.order ?? second.index));
+}
+
+function pointerTextLineCount(element, width) {
+  const text = element.content?.text ?? element.content?.value ?? "";
+  const style = element.style ?? {};
+  const isTitle = style.variant === "title" || element.id === "title";
+  const font = style.font ?? (isTitle ? "700 18.4px system-ui, sans-serif" : "14.4px system-ui, sans-serif");
+  const context = document.createElement("canvas").getContext("2d");
+  context.font = font;
+  return String(text).split("\n").reduce((total, paragraph) => {
+    const words = paragraph.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return total + 1;
+    let lines = 1;
+    let line = "";
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && context.measureText(candidate).width > width) {
+        lines += 1;
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    return total + lines;
+  }, 0);
+}
+
+function pointerElementAt(card, pose, content, localX, localTop) {
+  const width = pose.width;
+  const height = pose.height;
+  const inner = 18;
+  const innerWidth = Math.max(1, width - inner * 2);
+  let cursor = inner;
+  for (const { element } of sortedPointerElements(content)) {
+    const layout = element.layout ?? {};
+    if (layout.mode === "overlay") continue;
+    const elementHeight = element.type === "image"
+      ? (layout.height ? height * layout.height : 120)
+      : pointerTextLineCount(element, innerWidth) * (element.style?.lineHeight ?? (element.id === "title" ? 21 : 20));
+    if (element.visible !== false && localX >= inner && localX <= inner + innerWidth
+      && localTop >= cursor && localTop <= cursor + elementHeight) {
+      return { id: element.id, type: element.type };
+    }
+    cursor += elementHeight + 10;
+  }
+  for (const { element } of sortedPointerElements(content)) {
+    const layout = element.layout ?? {};
+    if (layout.mode !== "overlay" || element.visible === false) continue;
+    const x = (layout.x ?? 0) * width;
+    const y = (layout.y ?? 0) * height;
+    const elementWidth = (layout.width ?? 0.5) * width;
+    const elementHeight = (layout.height ?? 0.2) * height;
+    if (localX >= x && localX <= x + elementWidth && localTop >= y && localTop <= y + elementHeight) {
+      return { id: element.id, type: element.type };
+    }
+  }
+  return undefined;
+}
+
+function stagePointerTarget(sceneX, sceneY) {
+  const state = scene?.snapshot();
+  if (!state) return { kind: "stage", label: "Card stage" };
+  const candidates = state.visual
+    .map((visual) => ({
+      visual,
+      card: state.desired.cards.find((candidate) => candidate.id === visual.cardId),
+    }))
+    .filter(({ card, visual }) => card && visual.pose)
+    .map(({ card, visual }) => {
+      const pose = visual.pose;
+      const scale = pose.scale ?? 1;
+      const dx = (sceneX - pose.x) / scale;
+      const dy = (sceneY - pose.y) / scale;
+      const angle = (pose.angle ?? 0) * Math.PI / 180;
+      const localX = Math.cos(angle) * dx + Math.sin(angle) * dy;
+      const localY = -Math.sin(angle) * dx + Math.cos(angle) * dy;
+      return { card, pose, visual, localX, localTop: pose.height / 2 - localY };
+    })
+    .filter(({ pose, localX, localTop }) => Math.abs(localX) <= pose.width / 2 && localTop >= 0 && localTop <= pose.height)
+    .sort((first, second) => (second.pose.drawOrder ?? 0) - (first.pose.drawOrder ?? 0));
+  const hit = candidates[0];
+  if (!hit) return { kind: "stage", label: "Empty card stage" };
+  const cardIndex = state.desired.cards.findIndex(({ id }) => id === hit.card.id) + 1;
+  const side = hit.visual.physicalSide ?? "unknown";
+  if (side === "edge") return { kind: "card", cardId: hit.card.id, label: `Card ${cardIndex} · edge` };
+  const content = side === "back"
+    ? hit.card.back
+    : hit.card.faces?.[hit.card.faceCycleNextFaceId ?? hit.card.activeFaceId];
+  const element = pointerElementAt(hit.card, hit.pose, content, hit.localX + hit.pose.width / 2, hit.localTop);
+  return {
+    kind: element ? "card-element" : "card",
+    cardId: hit.card.id,
+    elementId: element?.id,
+    elementType: element?.type,
+    side,
+    label: element ? `Card ${cardIndex} · ${side} · ${element.id}` : `Card ${cardIndex} · ${side}`,
+  };
+}
+
+function pagePointerTarget(event, sceneX, sceneY) {
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  if (element && stage.contains(element)) return stagePointerTarget(sceneX, sceneY);
+  if (!element) return { kind: "page", label: "Page" };
+  const control = element.closest("button, input, select, textarea, label, fieldset, [role=button], [role=group]");
+  if (!control) return { kind: "page", label: element.id ? `#${element.id}` : element.tagName.toLowerCase() };
+  const label = control.getAttribute("aria-label")
+    ?? control.labels?.[0]?.textContent?.trim()
+    ?? control.querySelector("legend")?.textContent?.trim()
+    ?? control.textContent?.trim().replace(/\s+/g, " ");
+  return { kind: "control", label: label || control.tagName.toLowerCase(), id: control.id || undefined };
+}
 
 function setPointerStatus(state) {
   pointerStatus.dataset.pointerState = JSON.stringify(state);
@@ -118,10 +236,10 @@ function setPointerStatus(state) {
   }
   const viewport = `viewport x ${state.viewportX} · y ${state.viewportY}`;
   if (!state.insideStage) {
-    pointerStatus.textContent = `Pointer: ${viewport} · outside stage`;
+    pointerStatus.textContent = `Pointer: ${viewport} · outside stage · target ${state.target?.label ?? "page"}`;
     return;
   }
-  pointerStatus.textContent = `Pointer: ${viewport} · scene x ${state.sceneX} · y ${state.sceneY}`;
+  pointerStatus.textContent = `Pointer: ${viewport} · scene x ${state.sceneX} · y ${state.sceneY} · target ${state.target?.label ?? "stage"}`;
 }
 
 function updatePointerStatus(event) {
@@ -130,13 +248,16 @@ function updatePointerStatus(event) {
     && event.clientX <= rect.right
     && event.clientY >= rect.top
     && event.clientY <= rect.bottom;
+  const sceneX = Math.round(((event.clientX - rect.left) / rect.width) * 900);
+  const sceneY = Math.round(((event.clientY - rect.top) / rect.height) * 500);
   setPointerStatus({
     status: "observed",
     insideStage,
     viewportX: Math.round(event.clientX),
     viewportY: Math.round(event.clientY),
-    sceneX: Math.round(((event.clientX - rect.left) / rect.width) * 900),
-    sceneY: Math.round(((event.clientY - rect.top) / rect.height) * 500),
+    sceneX,
+    sceneY,
+    target: pagePointerTarget(event, sceneX, sceneY),
   });
 }
 
@@ -260,7 +381,6 @@ function currentCard(state = scene.snapshot()) {
   return state.desired.cards.find(({ id }) => selectedCardIds.has(id));
 }
 
-let scene;
 let spinHandles = new Map();
 let spinTimer;
 let spinning = false;

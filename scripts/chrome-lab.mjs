@@ -176,7 +176,8 @@ const elementScenario = String.raw`(async () => {
   }, () => {
     const pointer = JSON.parse(document.querySelector("#pointer-status").dataset.pointerState);
     return pointer.status === "observed" && pointer.insideStage === true
-      && pointer.sceneX === 450 && pointer.sceneY === 250;
+      && pointer.sceneX === 450 && pointer.sceneY === 250
+      && pointer.target?.kind === "card-element" && pointer.target.elementId === "image";
   });
   await step("hide image", () => click('#element-list input[aria-label="Show image"]'), (current) => {
     const image = current.elements.find((element) => element.name?.startsWith("image"));
