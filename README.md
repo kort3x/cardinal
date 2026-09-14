@@ -3,7 +3,8 @@
 A reusable browser card engine for spatial card layouts, composable motion, and
 project-defined interaction rules.
 
-Status: design and delivery planning. The engine and lab are not implemented yet.
+Status: Slice 01 core prototype implemented. The true 3D WebGL renderer spike is
+now in progress; browser smoke validation remains pending.
 
 ## Start here
 
@@ -19,6 +20,10 @@ responsive geometry, multiple arrangements, and project-controlled presentation.
 Cards can change shape as content changes, receive dynamic elements, attach to
 other cards, and participate in multi-card selection and dragging.
 
+Card geometry is implemented as a true rounded cuboid behind the same
+scene interface. WebGL is required by default. The CSS renderer remains available
+only as an explicit prototype mode; its implementation is deferred to [issue #16](https://github.com/kort3x/cardinal/issues/16).
+
 Cardinal owns visual state, layout, animation, and interaction mechanics. Consuming
 projects own business rules, permissions, networking, and persistence. Picko is one
 possible future consumer; no Picko integration is part of this project.
@@ -27,9 +32,13 @@ possible future consumer; no Picko integration is part of this project.
 
 Implement fresh modules in `packages/card-engine/`, with independent examples in
 `examples/card-engine-lab/` and `examples/card-engine-use/`. Do not import or wrap
-the old Picko engine. Backward compatibility is not required. The first slice will
-establish runnable tooling; no build or test commands are claimed before then.
+the old Picko engine. Backward compatibility is not required. The first slice has
+runnable tooling. Run deterministic engine tests with
+`npm --prefix packages/card-engine test`.
 
-Repository documentation, comments, tests, and issues use English. Demo-facing
-labels and accessibility text remain German until localization is requested;
-consumers supply their own localized content.
+See the [true 3D renderer plan](docs/plans/true-3d-renderer.md) and
+[ADR 0001](docs/adr/0001-true-3d-card-renderer.md) for the renderer seam, mesh,
+content-texture, and browser-evidence plan.
+
+Repository documentation, comments, tests, issues, demo-facing labels, and
+accessibility text use English. Localization may be added later by consumers.

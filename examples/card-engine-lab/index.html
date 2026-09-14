@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cardinal · Card Lab</title>
+    <link rel="stylesheet" href="../../packages/card-engine/src/styles.css">
+    <style>
+      :root { color: #f7f4e9; background: #101923; font-family: system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; }
+      main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
+      h1 { margin: 0 0 8px; }
+      p { color: #bdcbd0; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
+      button, label, select { border: 1px solid #45616a; border-radius: 8px; padding: 9px 12px; color: #f7f4e9; background: #1b303c; font: inherit; }
+      button { cursor: pointer; }
+      button:hover, button:focus-visible { border-color: #f4c95d; }
+      label { display: inline-flex; align-items: center; gap: 8px; }
+      .control-panel { display: flex; flex-direction: column; gap: 12px; margin: 14px 0 22px; }
+      .control-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+      .control-group { min-width: 0; margin: 0; padding: 12px; border: 1px solid #314c55; border-radius: 12px; background: rgb(27 48 60 / 55%); }
+      .control-group legend { padding: 0 6px; color: #f4c95d; font-weight: 700; }
+      .control-group p { margin: 10px 0 0; font-size: 0.9rem; }
+      .control-row { display: grid; grid-template-columns: 34px minmax(90px, 1fr) 4.5em; align-items: center; gap: 8px; margin: 7px 0; }
+      .control-row input[type="range"] { width: 100%; accent-color: #f4c95d; }
+      .control-row select { width: 100%; padding: 5px 8px; }
+      .control-row output { color: #f4c95d; text-align: right; }
+      .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; color: #bdcbd0; font-size: 0.9rem; }
+      .presets button { padding: 6px 8px; font-size: 0.9rem; }
+      .motion-actions { margin-top: 0; }
+      #stage { width: 900px; max-width: 100%; height: 500px; margin: 0 auto; border: 1px solid #314c55; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #244554, #142631 70%); }
+      #status { min-height: 1.5em; color: #f4c95d; }
+      code { color: #f4c95d; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Cardinal Card Lab</h1>
+      <p>One card · persistent shell · independent motion channels · simultaneous X/Y flips</p>
+      <div class="toolbar motion-actions" aria-label="Animated card actions">
+        <button id="move">Animate move</button>
+        <button id="rotate">Animate rotate</button>
+        <button id="scale">Animate scale</button>
+        <button id="flip">Animate flip</button>
+        <button id="spin" type="button" aria-pressed="false">Spin in place</button>
+        <button id="combined">Run together</button>
+        <label><input id="reduced" type="checkbox"> Reduced motion</label>
+      </div>
+      <section class="control-panel" aria-label="Card controls">
+        <div class="control-section" aria-label="Card model controls">
+          <fieldset class="control-group">
+            <legend>Shape</legend>
+            <label class="control-row" for="shape">
+              <span>Profile</span>
+              <select id="shape" aria-label="Card shape">
+                <option value="illustrated" selected>Rounded rectangle</option>
+                <option value="shield">Shield</option>
+              </select>
+              <span></span>
+            </label>
+          </fieldset>
+
+          <fieldset class="control-group">
+            <legend>Logical faces</legend>
+            <label class="control-row" for="face-count">
+              <span>Count</span>
+              <select id="face-count" aria-label="Number of logical faces">
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+              <span></span>
+            </label>
+            <p>One physical back · front cycle: A → … → A</p>
+          </fieldset>
+        </div>
+
+        <div class="control-section" aria-label="Motion controls">
+          <fieldset class="control-group">
+            <legend>Move</legend>
+          <label class="control-row" for="move-x">
+            <span>X</span>
+            <input id="move-x" type="range" min="100" max="800" step="1" value="450" aria-describedby="move-x-value">
+            <output id="move-x-value" for="move-x">450</output>
+          </label>
+          <label class="control-row" for="move-y">
+            <span>Y</span>
+            <input id="move-y" type="range" min="125" max="375" step="1" value="250" aria-describedby="move-y-value">
+            <output id="move-y-value" for="move-y">250</output>
+          </label>
+          <div class="presets" aria-label="Move presets">
+            <span>Presets:</span>
+            <button type="button" data-move-x="140" data-move-y="250">Left</button>
+            <button type="button" data-move-x="450" data-move-y="250">Center</button>
+            <button type="button" data-move-x="760" data-move-y="250">Right</button>
+            <button type="button" data-move-x="450" data-move-y="140">Top</button>
+            <button type="button" data-move-x="450" data-move-y="360">Bottom</button>
+          </div>
+          </fieldset>
+
+          <fieldset class="control-group">
+            <legend>Rotate</legend>
+          <label class="control-row" for="rotate-slider">
+            <span>Angle</span>
+            <input id="rotate-slider" type="range" min="-180" max="180" step="1" value="0" aria-describedby="rotate-value">
+            <output id="rotate-value" for="rotate-slider">0°</output>
+          </label>
+          <div class="presets" aria-label="Rotation presets">
+            <span>Presets:</span>
+            <button type="button" data-rotate="0">0°</button>
+            <button type="button" data-rotate="45">45°</button>
+            <button type="button" data-rotate="90">90°</button>
+            <button type="button" data-rotate="180">180°</button>
+            <button type="button" data-rotate="-45">-45°</button>
+          </div>
+          </fieldset>
+
+          <fieldset class="control-group">
+            <legend>Scale</legend>
+          <label class="control-row" for="scale-slider">
+            <span>Size</span>
+            <input id="scale-slider" type="range" min="0.25" max="2" step="0.01" value="1.5" aria-describedby="scale-value">
+            <output id="scale-value" for="scale-slider">150%</output>
+          </label>
+          <div class="presets" aria-label="Scale presets">
+            <span>Presets:</span>
+            <button type="button" data-scale="0.25">25%</button>
+            <button type="button" data-scale="0.5">50%</button>
+            <button type="button" data-scale="1">100%</button>
+            <button type="button" data-scale="1.25">125%</button>
+            <button type="button" data-scale="1.5">150%</button>
+            <button type="button" data-scale="1.75">175%</button>
+            <button type="button" data-scale="2">200%</button>
+          </div>
+          </fieldset>
+
+          <fieldset class="control-group">
+            <legend>Flip</legend>
+          <label class="control-row" for="flip-axis">
+            <span>Spin</span>
+            <select id="flip-axis" aria-label="Spin axis">
+              <option value="y" selected>Y</option>
+              <option value="x">X</option>
+            </select>
+            <span></span>
+          </label>
+          <label class="control-row" for="flip-x-slider">
+            <span>X</span>
+            <input id="flip-x-slider" type="range" min="0" max="180" step="1" value="0" aria-describedby="flip-x-value">
+            <output id="flip-x-value" for="flip-x-slider">0°</output>
+          </label>
+          <label class="control-row" for="flip-y-slider">
+            <span>Y</span>
+            <input id="flip-y-slider" type="range" min="0" max="180" step="1" value="0" aria-describedby="flip-y-value">
+            <output id="flip-y-value" for="flip-y-slider">0°</output>
+          </label>
+          <div class="presets" aria-label="Flip presets">
+            <span>Presets:</span>
+            <button type="button" data-flip="0">Face up</button>
+            <button type="button" data-flip="1">Face down</button>
+          </div>
+          </fieldset>
+        </div>
+      </section>
+      <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
+      <p id="status" aria-live="polite"></p>
+      <div id="stage" aria-label="Card stage"></div>
+    </main>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/packages/card-engine/node_modules/three/build/three.module.js",
+          "three/addons/": "/packages/card-engine/node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="/examples/card-engine-lab/main.js"></script>
+  </body>
+</html>

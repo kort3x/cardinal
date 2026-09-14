@@ -97,7 +97,7 @@ needed for the package/examples are permitted; existing application wiring is ou
 
 | Concept | Responsibility |
 | --- | --- |
-| Card | Stable ID, content faces, template, active face, independent faceUp/faceDown state |
+| Card | Stable ID, content faces, optional logical face cycle, template, active face, independent faceUp/faceDown state |
 | Zone | Arbitrary ID, spatial area and depth, membership, arrangement, presentation policy |
 | Arrangement | Grid, aligned row/column, fan, pile, or stack |
 | Presentation | Visibility, internal layout, and content-driven dimensions of the card |
@@ -113,9 +113,15 @@ needed for the package/examples are permitted; existing application wiring is ou
 All zones support zero, one, or many cards. An optional capacity is configured
 explicitly. Zone IDs carry no built-in meaning. Face belongs to each card and is
 independent of selection, arrangement, and region visibility. A card has one or
-more named content faces and an `activeFaceId`. `faceUp` displays that content face;
-`faceDown` displays the concealed back/sleeve. Changing the active content face
-does not reveal a face-down card. See the content-face contract below.
+more named content faces and an `activeFaceId`. With no `faceCycle`, the default
+card has one logical front face and one shared concealed back. `faceUp` displays that content face;
+`faceDown` displays the concealed back/sleeve. Cards may additionally declare a
+`faceCycle`, an ordered list of at least two named content-face IDs. For such a
+card, each completed return to the physical front advances the logical face to
+the next entry and wraps to the first; every back-facing state uses the one
+concealed back presentation. The physical card still has only two surfaces.
+Changing the active content face does not reveal a face-down card. See the
+content-face contract below.
 
 A card belongs to exactly one zone in a committed scene. Zone membership is stored
 once as a sequence of IDs. A stack uses that sequence as explicit bottom-to-top
@@ -124,9 +130,10 @@ also makes other arrangements reproducible without implying stack semantics.
 
 The initial spatial model is a projected 2.5D stage: x/y plus real continuous depth
 in the scene model. A shared camera derives apparent size; greater distance means
-smaller cards. Draw order is a separate resolved property, not the depth coordinate.
-This preserves the spatial concept without requiring a general 3D physics engine.
-Arbitrary tilted zone planes and physically simulated cards are outside v1.
+smaller cards. Individual cards are rendered as true 3D rounded cuboids inside that
+stage, while draw order remains a separate resolved property rather than an
+implicit physics result. Arbitrary tilted zone planes and physically simulated
+cards are outside v1.
 
 ## Zone placement and responsive geometry
 
@@ -187,9 +194,11 @@ a separate operation requiring explicit reassignment or removal of resident card
 
 ## One public scene interface
 
-Ship a framework-independent browser package. Use a DOM-independent model/layout
-implementation internally and one DOM renderer initially. Do not build speculative
-Canvas/WebGL adapters before a measured requirement exists.
+Ship a framework-independent browser package. Keep model, layout, and motion
+DOM-independent. The renderer seam supports a required true-3D WebGL adapter by
+default; CSS is available only when explicitly selected for prototype/testing.
+Neither adapter leaks its implementation objects through the scene interface. The
+CSS renderer cannot satisfy the true-3D visual acceptance gate.
 
 The proposed interface is intentionally small:
 
@@ -210,15 +219,20 @@ const transition = scene.transact([
   { type: "face", cardId: "card-7", face: "faceUp", axis: "y" },
 ]);
 
+const spin = scene.spin("card-7", { axis: ["x", "y"], direction: 1, speed: 180 });
+spin.stop();
+
 scene.on("activate", ({ cardId }) => { /* application decides intent */ });
 await transition.finished;
 scene.destroy();
 ```
 
-This is illustrative, not a finalized signature. Snapshot reconciliation and
-commands share one validation/commit path. Transactions can also update content,
+This is the current Slice 01 interface; later slices may extend it. Snapshot
+reconciliation and commands share one validation/commit path. Transactions can also update content,
 zone geometry, arrangements, and presentation. Read-only snapshots expose desired
-state and settling status; callers do not mutate card objects or DOM geometry.
+state and settling status; visual entries also expose the current physical side
+(`front`, `back`, or `edge`) separately from each card's logical `activeFaceId`.
+Callers do not mutate card objects or DOM geometry.
 
 Validate duplicate IDs, unknown references, multiple membership, invalid geometry,
 and capacity violations before mutation. Reject an invalid transaction atomically.
@@ -245,6 +259,27 @@ Keep application integration behind the same interface as features grow:
 Inspection and targeting are presentation sessions, not business transactions.
 Applications supply capability flags, eligible IDs, and localized instructions;
 the engine never calculates voting eligibility, combat legality, or resource costs.
+
+## True 3D card rendering
+
+Cardinal cards are closed extruded shape profiles, not flat DOM planes with
+decorative depth. The primary renderer adapter uses a real beveled mesh with two
+content surfaces, connecting side surfaces, continuous outline geometry, shared
+thickness, perspective, materials, and controlled lighting/shadows. X/Y flipping,
+local rotation/tilt, scale, and camera depth compose on that one object.
+
+The WebGL implementation is hidden behind the renderer seam. It owns mesh,
+material, camera, texture, render-target, context-loss, and disposal details; the
+scene owns desired state, pose, motion channels, and face visibility. The public
+scene interface must not expose Three.js objects or require callers to manage a
+render loop. A CSS adapter may remain as an explicit prototype/testing mode, but
+its simulated extrusion is not considered true-3D acceptance evidence.
+
+Front and concealed content use managed high-resolution textures. Texture resolution
+is derived from canonical card dimensions, device pixel ratio, and the supported
+scale/inspection envelope. Pose-only updates do not rerasterize content. The lab
+must verify stable line breaks and readable text/image detail at 100%, 150%, and
+200% scale during motion and at rest.
 
 ## Placement and movement
 
@@ -306,10 +341,30 @@ An operation is never implicitly queued until movement finishes.
   Layout allocation uses the footprint before explicit card scaling; visual overflow or inspection
   elevation must follow an explicit scene policy.
 - **Flip:** turn between faceUp and faceDown around a configured local x or y axis.
+  A face command may select both axes with `axis: ["x", "y"]`; its `angle`
+  may be a number shared by both axes or `{ x, y }` for independent angles.
+  The renderer composes both rotations on the same closed cuboid shell, so a
+  card can flip around X and Y simultaneously without creating a second card
+  or replacing its DOM shell.
   Both surfaces belong to the same persistent shell. Desired face changes at
   transaction commit; the visual angle reaches that face over time. Retargeting
   samples the current angle, including an interrupted half-flip. The renderer
   prevents mirrored backfaces and disables input to the concealed surface.
+  A face command may provide an intermediate angle from 0° through 180° for
+  direct manipulation. Persistent in-place spinning uses the same flip channels,
+  accepts an axis, direction, and degrees-per-second speed, and stops at the
+  current displayed angle without changing logical face state. For cards with a
+  `faceCycle`, continuous spinning shows the shared back on every back-facing
+  half-turn and advances the logical front cycle at each full revolution in the
+  spin direction; ordinary cards retain their two-surface behavior.
+  A card with `faceCycle: ["a", "b", "c"]` presents
+  `A → back → B → back → C` as it alternates physical orientation. The
+  renderer stages the next logical front during a return from the back; an
+  interrupted turn does not advance the cycle.
+  The primary renderer presents each card as a true closed beveled rounded
+  cuboid: two large face surfaces and continuous side geometry spanning the
+  shared thickness. CSS fallback implementation is deferred to issue #16; its
+  simulated extrusion cannot satisfy the true-3D acceptance gate.
   Switching between named content faces can use the same turn animation without
   changing faceUp/faceDown. Only one driver owns the combined displayed-surface
   transition, so reveal and content-face changes cannot compete on the flip axis.
@@ -337,6 +392,11 @@ The resulting unscaled width and height belong to the card's geometry and may
 change independently of its scale factor. Template content and styles remain local to the card subtree; zone ancestry
 selectors cannot control its appearance. Patch content without replacing the shell
 or unnecessarily replacing focused controls.
+
+Templates may also select a reusable shape profile for the card's face silhouette.
+The WebGL renderer extrudes and bevels that profile into the card's closed volume.
+The initial built-in profiles are `rounded-rectangle` and `shield`; shape profiles
+do not change the scene's motion or face-transition interface.
 
 Movement alone preserves the current internal geometry. Explicit content or
 presentation changes may reshape the card, including during movement. Depth uniformly scales
@@ -779,7 +839,9 @@ its business meaning.
 1. **Contracts and walking skeleton.** Implement in `packages/card-engine/` and
    `examples/card-engine-lab/`, with independent lab tooling and no legacy imports;
    arbitrary zones, persistent cards, grid placement, one move command, shared
-   camera and renderer, composed rotation, scale, and a two-sided flip. Define
+   camera and renderer, composed rotation, scale, and a two-sided flip. Prove a
+   true 3D beveled extruded shape profiles behind the renderer seam before expanding
+   the scene interface. Define
    active content face versus concealment, operation results, and channel ownership
    here, before expanding the interface. Define selection as a set and drag intent
    as a batch from the start, even when the initial lab gesture moves one card. Gate:
@@ -904,9 +966,10 @@ Set the supported population/device envelope from measurements. Target a 60 Hz
 frame budget on agreed reference hardware and report missed frames rather than
 promising unlimited card counts or zero rasterization artifacts.
 
-The first milestone must settle the highest-risk question: can the chosen renderer
-deliver the desired text and motion quality under depth scaling? If it cannot,
-resolve that before building out arrangements and further engine capabilities.
+The first milestone must settle the highest-risk question: can the chosen true-3D
+renderer deliver continuous card geometry, desired text quality, and motion quality
+under depth scaling? If it cannot, resolve that before building out arrangements and
+further engine capabilities.
 
 ## Comparison references
 

@@ -9,9 +9,13 @@ indicates suitability, not cleared prerequisites. Issues are vertical slices:
 each delivers working behavior through public commands, state, rendering, and a
 runnable standalone example.
 
+Slice 01 now includes the true-3D renderer foundation. Later slices remain gated
+on #2 so the engine does not expand its interaction surface while the WebGL
+renderer is still being validated. CSS fallback work is deferred to [#16](https://github.com/kort3x/cardinal/issues/16).
+
 | Slice | Issue | Outcome | Blocked by |
 | --- | --- | --- | --- |
-| 01 | [#2](https://github.com/kort3x/cardinal/issues/2) | One card: move, rotate, scale, and flip in the new standalone lab | None |
+| 01 | [#2](https://github.com/kort3x/cardinal/issues/2) | One true 3D card: move, rotate, scale, and flip in the new standalone lab | None |
 | 02 | [#3](https://github.com/kort3x/cardinal/issues/3) | Move cards between responsive zones with stable grid placement | #2 |
 | 03 | [#4](https://github.com/kort3x/cardinal/issues/4) | Drag a card across zones under project-defined rules | #3 |
 | 04 | [#5](https://github.com/kort3x/cardinal/issues/5) | Select and drag several cards as one project-approved batch | #4 |
