@@ -8,7 +8,7 @@
     <style>
       :root { color: #f7f4e9; background: #101923; font-family: system-ui, sans-serif; }
       body { margin: 0; min-height: 100vh; }
-      main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
+      main { width: min(1440px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0; }
       h1 { margin: 0 0 8px; }
       p { color: #bdcbd0; }
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
@@ -38,10 +38,24 @@
       .element-row input[type="text"], .element-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
       .element-row .element-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
       .element-row button { padding: 4px 7px; font-size: 0.82rem; }
+      .lab-workspace { display: grid; grid-template-columns: minmax(190px, 220px) minmax(0, 900px) minmax(240px, 280px); gap: 14px; align-items: start; }
+      .side-controls { min-width: 0; }
+      .side-controls .control-group { height: 100%; box-sizing: border-box; }
+      .side-controls #card-list { flex-direction: column; align-items: stretch; }
+      .side-controls #card-list label { justify-content: flex-start; }
+      .scene-column { min-width: 0; }
       .motion-actions { margin-top: 0; }
-      #stage { width: 900px; max-width: 100%; height: 500px; margin: 0 auto; border: 1px solid #314c55; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #244554, #142631 70%); }
+      #stage { width: 900px; max-width: 100%; height: 500px; margin: 0; border: 1px solid #314c55; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #244554, #142631 70%); }
       #status { min-height: 1.5em; color: #f4c95d; }
       code { color: #f4c95d; }
+      @media (max-width: 980px) {
+        .lab-workspace { grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr); }
+        .elements-sidebar { grid-column: 1 / -1; }
+      }
+      @media (max-width: 640px) {
+        .lab-workspace { grid-template-columns: 1fr; }
+        .elements-sidebar { grid-column: auto; }
+      }
     </style>
   </head>
   <body>
@@ -58,19 +72,6 @@
         <label><input id="reduced" type="checkbox"> Reduced motion</label>
       </div>
       <section class="control-panel" aria-label="Card controls">
-        <div class="control-section" aria-label="Card selection controls">
-          <fieldset class="control-group">
-            <legend>Cards</legend>
-            <div id="card-list" role="group" aria-label="Cards in the lab"></div>
-            <div class="presets">
-              <button id="add-card" type="button">Add card</button>
-              <button id="remove-cards" type="button">Remove selected</button>
-              <button id="select-all" type="button">Select all</button>
-            </div>
-            <p id="selection-status" aria-live="polite"></p>
-          </fieldset>
-        </div>
-
         <div class="control-section" aria-label="Card model controls">
           <fieldset class="control-group">
             <legend>Shape</legend>
@@ -100,19 +101,6 @@
             <p>One physical back · front cycle: A → … → A</p>
           </fieldset>
 
-          <fieldset class="control-group">
-            <legend>Elements</legend>
-            <div id="element-list" aria-live="polite"></div>
-            <div class="presets">
-              <label for="element-type">Add:</label>
-              <select id="element-type" aria-label="Element type to add">
-                <option value="text">Text</option>
-                <option value="image">Image</option>
-              </select>
-              <button id="add-element" type="button">Add element</button>
-            </div>
-            <p>Elements belong to the selected cards’ active logical face. Reorder changes flow order; overlay elements use normalized position.</p>
-          </fieldset>
         </div>
 
         <div class="control-section" aria-label="Motion controls">
@@ -202,9 +190,40 @@
           </fieldset>
         </div>
       </section>
-      <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
-      <p id="status" aria-live="polite"></p>
-      <div id="stage" aria-label="Card stage"></div>
+      <section class="lab-workspace" aria-label="Card scene workspace">
+        <aside class="side-controls cards-sidebar" aria-label="Card selection controls">
+          <fieldset class="control-group">
+            <legend>Cards</legend>
+            <div id="card-list" role="group" aria-label="Cards in the lab"></div>
+            <div class="presets">
+              <button id="add-card" type="button">Add card</button>
+              <button id="remove-cards" type="button">Remove selected</button>
+              <button id="select-all" type="button">Select all</button>
+            </div>
+            <p id="selection-status" aria-live="polite"></p>
+          </fieldset>
+        </aside>
+        <div class="scene-column">
+          <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
+          <p id="status" aria-live="polite"></p>
+          <div id="stage" aria-label="Card stage"></div>
+        </div>
+        <aside class="side-controls elements-sidebar" aria-label="Card element controls">
+          <fieldset class="control-group">
+            <legend>Elements</legend>
+            <div id="element-list" aria-live="polite"></div>
+            <div class="presets">
+              <label for="element-type">Add:</label>
+              <select id="element-type" aria-label="Element type to add">
+                <option value="text">Text</option>
+                <option value="image">Image</option>
+              </select>
+              <button id="add-element" type="button">Add element</button>
+            </div>
+            <p>Elements belong to the selected cards’ active logical face. Reorder changes flow order; overlay elements use normalized position.</p>
+          </fieldset>
+        </aside>
+      </section>
     </main>
     <script type="importmap">
       {
