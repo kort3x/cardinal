@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createHeadlessRenderer } from "../renderer.js";
-import { cardDimensions } from "../layout.js";
+import { CARD_DEPTH, cardDimensions } from "../layout.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
@@ -120,6 +120,10 @@ export function createCardFaceMaterial() {
   return createCardFaceSurfaceMaterial(0xffffff);
 }
 
+export function clearCardDepth(renderer, scene, camera, geometry, material, group) {
+  if (!group || group.materialIndex === 0) renderer.clearDepth();
+}
+
 function createCardFaceSurfaceMaterial(color) {
   return new THREE.MeshStandardMaterial({
     color,
@@ -161,7 +165,7 @@ function logicalFaceContent(card, side) {
   return destinationFace;
 }
 
-export function createCardGeometry(shape, { depth = 6, bevelSize = CARD_BEVEL_SIZE } = {}) {
+export function createCardGeometry(shape, { depth = CARD_DEPTH, bevelSize = CARD_BEVEL_SIZE } = {}) {
   const extrusionDepth = Math.max(0.1, depth - bevelSize * 2);
   const geometry = new THREE.ExtrudeGeometry(shape, {
     depth: extrusionDepth,
@@ -285,7 +289,7 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     if (cards.has(card.id)) return cards.get(card.id);
     const width = dimensions.width;
     const height = dimensions.height;
-    const depth = 6;
+    const depth = CARD_DEPTH;
     const shape = createCardShape(card.shape ?? templates[card.template]?.shape, { width, height });
     const geometry = createCardGeometry(shape, { depth });
     const faceShape = createCardShape(card.shape ?? templates[card.template]?.shape, {
@@ -295,6 +299,7 @@ export function createWebGLRenderer({ element, templates = {} } = {}) {
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0 });
     const sideMaterial = new THREE.MeshStandardMaterial({ color: 0x727d86, roughness: 0.75, metalness: 0 });
     const body = new THREE.Mesh(geometry, [bodyMaterial, sideMaterial]);
+    body.onBeforeRender = clearCardDepth;
     const frontBaseGeometry = new THREE.ShapeGeometry(faceShape);
     const backBaseGeometry = new THREE.ShapeGeometry(faceShape);
     const frontBaseMaterial = createCardFaceBaseMaterial(0xffffff);

@@ -1,6 +1,8 @@
 import { DEFAULT_POSE } from "./model.js";
 
 export const DEFAULT_CARD_DIMENSIONS = Object.freeze({ width: 180, height: 250 });
+export const CARD_DEPTH = 6;
+export const DEFAULT_CARD_LAYER_STEP = 8;
 
 export function cardDimensions(card, templates = {}) {
   const template = templates[card.template] ?? {};
@@ -18,7 +20,7 @@ export function depthScale(camera, depth) {
 export function solveCardPose(card, zone, index = 0, camera, templates) {
   const dimensions = cardDimensions(card, templates);
   const gap = zone.arrangement?.gap ?? 16;
-  const depthStep = zone.arrangement?.depthStep ?? 0.5;
+  const depthStep = zone.arrangement?.depthStep ?? DEFAULT_CARD_LAYER_STEP;
   const columns = Math.max(1, Math.floor((zone.geometry.width + gap) / (dimensions.width + gap)));
   const column = index % columns;
   const row = Math.floor(index / columns);

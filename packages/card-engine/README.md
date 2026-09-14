@@ -100,6 +100,8 @@ orientation as `front`, `back`, or `edge`. The resolved visual pose also include
 consume those values rather than inventing per-card Z positions.
 
 Cards in one zone use their `zone.cardIds` sequence as stable bottom-to-top order.
-The default arrangement adds `0.5` scene units between local depth layers; a zone
-may set `arrangement.depthStep` to another finite, non-negative value. `drawOrder`
-is resolved across the complete scene so overlapping cards remain deterministic.
+The default arrangement adds `8` scene units between local depth layers, enough to
+separate the default 6-unit cuboids; a zone may set `arrangement.depthStep` to
+another finite, non-negative value. `drawOrder` is resolved across the complete
+scene, and WebGL clears the previous card's depth layer before drawing the next
+card so intentional overlap remains deterministic during rotation and flipping.

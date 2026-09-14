@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createCardScene } from "../src/index.js";
-import { createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
+import { clearCardDepth, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
 
 const card = {
   id: "card-1",
@@ -96,6 +96,14 @@ test("WebGL face materials render content above the solid cuboid caps", () => {
   material.dispose();
 });
 
+test("card render layers clear prior card depth once per cuboid", () => {
+  let clears = 0;
+  const renderer = { clearDepth() { clears += 1; } };
+  clearCardDepth(renderer, null, null, null, null, { materialIndex: 0 });
+  clearCardDepth(renderer, null, null, null, null, { materialIndex: 1 });
+  assert.equal(clears, 1);
+});
+
 test("a rounded cuboid geometry includes a real bevel", () => {
   const geometry = createCardGeometry(
     createCardShape("rounded-rectangle", { width: 180, height: 250 }),
@@ -167,7 +175,7 @@ test("cards in one zone receive deterministic depth and draw order", () => {
 
   const [first, second] = scene.snapshot().visual;
   assert.equal(first.pose.z, 0);
-  assert.equal(second.pose.z, 0.5);
+  assert.equal(second.pose.z, 8);
   assert.equal(first.pose.drawOrder, 0);
   assert.equal(second.pose.drawOrder, 1);
   scene.destroy();

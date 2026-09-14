@@ -1,4 +1,4 @@
-import { cardDimensions } from "./layout.js";
+import { CARD_DEPTH, cardDimensions } from "./layout.js";
 
 const noop = () => {};
 
@@ -111,7 +111,7 @@ export function createRenderer({ element, templates = {}, reason = "css" } = {})
     mounted.shell.style.width = `${renderedWidth}px`;
     mounted.shell.style.height = `${renderedHeight}px`;
     mounted.shell.style.setProperty("--card-scale", String(renderedScale));
-    mounted.shell.style.setProperty("--card-depth", `${6 * renderedScale}px`);
+    mounted.shell.style.setProperty("--card-depth", `${CARD_DEPTH * renderedScale}px`);
     mounted.shell.dataset.faceUp = String(card.faceUp);
     mounted.travel.style.transform = `translate3d(${pose.x - renderedWidth / 2}px, ${pose.y - renderedHeight / 2}px, ${pose.z}px)`;
     mounted.body.style.transformOrigin = `${pose.pivotX * 100}% ${pose.pivotY * 100}%`;
