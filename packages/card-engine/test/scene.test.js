@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
-import { clearCardDepth, createCardCamera, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
+import { clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext } from "../src/renderers/webgl.js";
 
 const card = {
   id: "card-1",
@@ -133,6 +133,20 @@ test("a rounded cuboid geometry includes a real bevel", () => {
   const zValues = Array.from({ length: position.count }, (_, index) => position.getZ(index));
   assert.equal(Math.min(...zValues) >= -3.001, true);
   assert.equal(Math.max(...zValues) <= 3.001, true);
+  geometry.dispose();
+});
+
+test("card face geometries use normalized texture coordinates", () => {
+  const dimensions = { width: 176, height: 246 };
+  const geometry = createCardFaceGeometry(
+    createCardShape("rounded-rectangle", dimensions),
+    dimensions,
+  );
+  const uv = geometry.getAttribute("uv");
+  const values = Array.from(uv.array);
+
+  assert.equal(Math.min(...values) >= 0, true);
+  assert.equal(Math.max(...values) <= 1, true);
   geometry.dispose();
 });
 

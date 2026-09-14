@@ -203,6 +203,20 @@ export function createCardGeometry(shape, { depth = CARD_DEPTH, bevelSize = CARD
   return geometry;
 }
 
+export function createCardFaceGeometry(shape, dimensions) {
+  const geometry = new THREE.ShapeGeometry(shape);
+  const uv = geometry.getAttribute("uv");
+  for (let index = 0; index < uv.count; index += 1) {
+    uv.setXY(
+      index,
+      (uv.getX(index) + dimensions.width / 2) / dimensions.width,
+      (uv.getY(index) + dimensions.height / 2) / dimensions.height,
+    );
+  }
+  uv.needsUpdate = true;
+  return geometry;
+}
+
 function physicalSide(pose) {
   const facing = Math.cos(radians(pose.flipX ?? 0)) * Math.cos(radians(pose.flipY ?? pose.flipAngle ?? 0));
   if (Math.abs(facing) < 0.000001) return "edge";
@@ -327,20 +341,24 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       width: Math.max(1, width - CARD_BEVEL_SIZE * 2),
       height: Math.max(1, height - CARD_BEVEL_SIZE * 2),
     });
+    const faceDimensions = {
+      width: Math.max(1, width - CARD_BEVEL_SIZE * 2),
+      height: Math.max(1, height - CARD_BEVEL_SIZE * 2),
+    };
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0 });
     const sideMaterial = new THREE.MeshStandardMaterial({ color: 0x727d86, roughness: 0.75, metalness: 0 });
     const body = new THREE.Mesh(geometry, [bodyMaterial, sideMaterial]);
     body.onBeforeRender = clearCardDepth;
-    const frontBaseGeometry = new THREE.ShapeGeometry(faceShape);
-    const backBaseGeometry = new THREE.ShapeGeometry(faceShape);
+    const frontBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
+    const backBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const frontBaseMaterial = createCardFaceBaseMaterial(0xffffff);
     const backBaseMaterial = createCardFaceBaseMaterial(0x17212b);
     const frontBase = new THREE.Mesh(frontBaseGeometry, frontBaseMaterial);
     const backBase = new THREE.Mesh(backBaseGeometry, backBaseMaterial);
     const frontMaterial = createCardFaceMaterial();
     const backMaterial = createCardFaceMaterial();
-    const front = new THREE.Mesh(new THREE.ShapeGeometry(faceShape), frontMaterial);
-    const back = new THREE.Mesh(new THREE.ShapeGeometry(faceShape), backMaterial);
+    const front = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), frontMaterial);
+    const back = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), backMaterial);
     frontBase.renderOrder = 1;
     backBase.renderOrder = 1;
     front.renderOrder = 2;
