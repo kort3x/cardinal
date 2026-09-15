@@ -29,7 +29,7 @@
       html { scrollbar-gutter: stable; }
       html.stage-full-window { scrollbar-gutter: auto; }
       body { margin: 0; min-height: 100vh; }
-      main { width: min(2500px, calc(100% - 32px)); margin: 0 auto; padding: 12px 0 40px; }
+      main { position: relative; top: -20px; width: min(2500px, calc(100% - 32px)); margin: 0 auto; padding: 12px 0 40px; }
       .lab-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 96px; }
       .lab-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
       .lab-logo { display: block; position: relative; z-index: 3; width: 96px; height: 96px; flex: 0 0 auto; object-fit: contain; transform: translateY(22px); pointer-events: none; }
@@ -158,7 +158,7 @@
       #diagnostics-report { max-height: 360px; margin: 0 10px 10px; padding: 8px; overflow: auto; border: 1px solid var(--lab-border); color: var(--lab-text); background: var(--lab-panel); font: 0.75rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
       code { color: var(--lab-cyan); }
       body.stage-full-window { overflow: hidden; }
-      body.stage-full-window main { width: 100%; height: 100vh; margin: 0; padding: 0; }
+      body.stage-full-window main { position: static; top: auto; width: 100%; height: 100vh; margin: 0; padding: 0; }
       body.stage-full-window .lab-header,
       body.stage-full-window .lab-header h1,
       body.stage-full-window main > p { display: none; }
