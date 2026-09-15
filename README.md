@@ -3,7 +3,7 @@
 
   <h1>Cardinal Card Engine</h1>
 
-  <p>A browser card engine for spatial layouts, physical-feeling motion, and project-defined interaction.</p>
+  <p>A reusable JavaScript library providing a browser card engine for spatial layouts, physical-feeling motion, and project-defined interaction.</p>
 
   <p>
     <a href="https://kort3x.github.io/cardinal/"><strong>Try the live Card Lab →</strong></a>
@@ -12,9 +12,9 @@
   </p>
 </div>
 
-Cardinal is an independent, browser-native engine for building interactive card
-experiences. It gives consuming projects control over their data and rules while
-the engine handles visual state, layout, rendering, and motion.
+Cardinal is an independent, browser-native JavaScript library. Its card engine
+handles visual state, layout, rendering, motion, and interaction mechanics while
+consuming projects keep control over their data and rules.
 
 The [live Card Lab](https://kort3x.github.io/cardinal/) is the fastest way to see
 it in action. Try moving, rotating, scaling, flipping, resizing, and dragging
@@ -44,7 +44,7 @@ multiple logical faces, 3D depth, motion controls, and performance diagnostics.
 
 | Resource | Purpose |
 | --- | --- |
-| [Live Card Lab](https://kort3x.github.io/cardinal/) | Explore the engine in your browser |
+| [Live Card Lab](https://kort3x.github.io/cardinal/) | Explore the card engine in your browser |
 | [Engine design](docs/specs/cardinal.md) | Read the authoritative model and API decisions |
 | [Delivery roadmap](docs/slices/README.md) | Follow the vertical slices and next capabilities |
 | [Browser testing guide](docs/verification/browser-testing.md) | Run and extend Chrome, Firefox, and Safari checks |
@@ -83,7 +83,7 @@ animation channels, zone layout, and pointer/keyboard interaction mechanics.
 Consuming projects own card meaning, authorization, persistence, networking,
 and application-specific rules.
 
-The engine is developed in `packages/card-engine/`. Runnable examples live in
+The library is developed in `packages/card-engine/`. Runnable examples live in
 `examples/card-engine-lab/` and `examples/card-engine-use/`. The project does
 not import or wrap the old Picko engine, and backward compatibility is not a
 goal.
