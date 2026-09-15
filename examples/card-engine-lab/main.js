@@ -5,11 +5,21 @@ const rendererStatus = document.querySelector("#renderer-status");
 const status = document.querySelector("#status");
 const fpsStatus = document.querySelector("#fps-status");
 const pointerStatus = document.querySelector("#pointer-status");
+const collectDiagnosticsButton = document.querySelector("#collect-diagnostics");
+const runDiagnosticsBenchmarkButton = document.querySelector("#run-diagnostics-benchmark");
+const copyDiagnosticsButton = document.querySelector("#copy-diagnostics");
+const diagnosticsStatus = document.querySelector("#diagnostics-status");
+const diagnosticsReport = document.querySelector("#diagnostics-report");
 const cardList = document.querySelector("#card-list");
 const addCardButton = document.querySelector("#add-card");
 const removeCardsButton = document.querySelector("#remove-cards");
 const selectAllButton = document.querySelector("#select-all");
+const deselectAllButton = document.querySelector("#deselect-all");
 const selectionStatus = document.querySelector("#selection-status");
+const zoneList = document.querySelector("#zone-list");
+const zoneSlot = document.querySelector("#zone-slot");
+const spawnZone = document.querySelector("#spawn-zone");
+const transferZoneButtons = [...document.querySelectorAll("[data-transfer-zone]")];
 const shape = document.querySelector("#shape");
 const faceCount = document.querySelector("#face-count");
 const cardSizing = document.querySelector("#card-sizing");
@@ -26,6 +36,7 @@ const flipYSlider = document.querySelector("#flip-y-slider");
 const flipAxis = document.querySelector("#flip-axis");
 const spinButton = document.querySelector("#spin");
 const randomButton = document.querySelector("#random");
+const animationTestButton = document.querySelector("#animation-test");
 const moveXValue = document.querySelector("#move-x-value");
 const moveYValue = document.querySelector("#move-y-value");
 const cardWidthValue = document.querySelector("#card-width-value");
@@ -50,7 +61,11 @@ const backgroundPresets = Object.freeze({
 });
 const LAB_CAMERA_CENTER = Object.freeze({ x: 450, y: 250 });
 const LAB_CAMERA_UNITS_PER_PIXEL = 1;
-const LAB_ZONE_GEOMETRY = Object.freeze({ x: -250, y: -200, width: 1400, height: 900, depth: 0 });
+const LAB_ZONE_DEFINITIONS = Object.freeze([
+  { id: "archive", label: "Archive", anchor: "#zone-archive", arrangement: { type: "grid", gap: 16 } },
+  { id: "workbench", label: "Workbench", anchor: "#zone-workbench", arrangement: { type: "grid", gap: 16 } },
+  { id: "reserve", label: "Reserve", anchor: "#zone-reserve", arrangement: { type: "grid", gap: 16 } },
+]);
 
 let fpsFrameCount = 0;
 let fpsWindowStart = performance.now();
@@ -136,11 +151,190 @@ const baseCard = {
   template: "illustrated",
 };
 
+let cardZoneIds = new Map([[baseCard.id, "reserve"]]);
+
 let selectedCardIds = new Set([baseCard.id]);
 let nextCardNumber = 2;
 let nextElementNumber = 1;
 let renderedElementKey;
 let scene;
+let lastDiagnosticsBenchmark = [];
+let zoneVisibility = new Map(LAB_ZONE_DEFINITIONS.map(({ id }) => [id, true]));
+
+function webglDiagnosticValues(canvas) {
+  let context;
+  try {
+    context = canvas?.getContext("webgl2") ?? null;
+  } catch {
+    context = null;
+  }
+  if (!context) return { available: false };
+  const safeParameter = (parameter) => {
+    try {
+      const value = context.getParameter(parameter);
+      return ArrayBuffer.isView(value) ? [...value] : value;
+    } catch {
+      return null;
+    }
+  };
+  const debugInfo = (() => {
+    try {
+      return context.getExtension("WEBGL_debug_renderer_info");
+    } catch {
+      return null;
+    }
+  })();
+  return {
+    available: true,
+    version: safeParameter(context.VERSION),
+    shadingLanguageVersion: safeParameter(context.SHADING_LANGUAGE_VERSION),
+    vendor: safeParameter(debugInfo?.UNMASKED_VENDOR_WEBGL ?? context.VENDOR),
+    renderer: safeParameter(debugInfo?.UNMASKED_RENDERER_WEBGL ?? context.RENDERER),
+    antialias: context.getContextAttributes?.()?.antialias ?? null,
+    maxTextureSize: safeParameter(context.MAX_TEXTURE_SIZE),
+    maxRenderbufferSize: safeParameter(context.MAX_RENDERBUFFER_SIZE),
+    maxViewportDimensions: safeParameter(context.MAX_VIEWPORT_DIMS),
+    maxTextureImageUnits: safeParameter(context.MAX_TEXTURE_IMAGE_UNITS),
+    extensionCount: context.getSupportedExtensions?.()?.length ?? null,
+  };
+}
+
+async function collectDiagnostics() {
+  const state = scene?.snapshot();
+  const canvas = stage.querySelector(".cardinal-webgl-canvas");
+  const stageRect = stage.getBoundingClientRect();
+  const uaData = navigator.userAgentData;
+  let highEntropy = null;
+  try {
+    highEntropy = await uaData?.getHighEntropyValues?.(["architecture", "bitness", "model", "platformVersion", "uaFullVersion"]);
+  } catch {
+    highEntropy = null;
+  }
+  return {
+    collectedAt: new Date().toISOString(),
+    browser: {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform ?? null,
+      language: navigator.language,
+      userAgentData: uaData ? {
+        brands: uaData.brands,
+        mobile: uaData.mobile,
+        platform: uaData.platform,
+        highEntropy,
+      } : null,
+    },
+    device: {
+      hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+      deviceMemoryGiB: navigator.deviceMemory ?? null,
+      devicePixelRatio: globalThis.devicePixelRatio ?? 1,
+      screen: {
+        width: globalThis.screen?.width ?? null,
+        height: globalThis.screen?.height ?? null,
+        colorDepth: globalThis.screen?.colorDepth ?? null,
+        refreshRateHz: globalThis.screen?.refreshRate ?? null,
+      },
+      prefersReducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      visibilityState: document.visibilityState,
+    },
+    viewport: {
+      windowCss: { width: innerWidth, height: innerHeight },
+      stageCss: { width: Number(stageRect.width.toFixed(1)), height: Number(stageRect.height.toFixed(1)) },
+      canvasPixels: canvas ? { width: canvas.width, height: canvas.height } : null,
+    },
+    webgl: webglDiagnosticValues(canvas),
+    lab: {
+      renderer: state?.renderer ?? null,
+      rendererReason: state?.rendererReason ?? null,
+      cards: state?.desired.cards.length ?? 0,
+      selectedCards: selectedCardIds.size,
+      currentFps: fpsStatus.dataset.fps ? Number(fpsStatus.dataset.fps) : null,
+      currentFpsLabel: fpsStatus.textContent,
+      benchmark: lastDiagnosticsBenchmark,
+    },
+  };
+}
+
+async function refreshDiagnostics(message = "Report refreshed.") {
+  diagnosticsStatus.textContent = "Collecting diagnostics…";
+  const report = await collectDiagnostics();
+  diagnosticsReport.textContent = JSON.stringify(report, null, 2);
+  diagnosticsReport.dataset.report = diagnosticsReport.textContent;
+  diagnosticsStatus.textContent = message;
+  return report;
+}
+
+async function runDiagnosticsBenchmark() {
+  if (!scene || runDiagnosticsBenchmarkButton.disabled) return;
+  runDiagnosticsBenchmarkButton.disabled = true;
+  collectDiagnosticsButton.disabled = true;
+  copyDiagnosticsButton.disabled = true;
+  diagnosticsStatus.textContent = "Running 1-, 5-, and 10-card random-motion tests…";
+  const originalCards = structuredClone(scene.snapshot().desired.cards);
+  const originalSelection = [...selectedCardIds];
+  const benchmarkResults = [];
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  try {
+    stopRandomMotion();
+    stopContinuousFlip();
+    const source = structuredClone(originalCards[0] ?? initialCards()[0]);
+    for (const count of [1, 5, 10]) {
+      const cards = [];
+      for (let index = 0; index < count; index += 1) {
+        cards.push({
+          ...structuredClone(source),
+          id: `diagnostics-card-${index + 1}`,
+          positionMode: "absolute",
+          pose: { ...structuredClone(source.pose ?? {}), ...nextCardPosition(cards), scale: 1 },
+        });
+      }
+      selectedCardIds = new Set(cards.map(({ id }) => id));
+      applyLabCards(cards);
+      selectedCardIds = new Set(scene.select([...selectedCardIds]).cardIds);
+      renderCardList();
+      updateStatus();
+      await sleep(1000);
+      toggleRandomMotion();
+      const frameTimes = [];
+      const sampleStart = performance.now();
+      await new Promise((resolve) => {
+        const sample = (now) => {
+          frameTimes.push(now);
+          if (now - sampleStart < 1500) requestAnimationFrame(sample);
+          else resolve();
+        };
+        requestAnimationFrame(sample);
+      });
+      stopRandomMotion();
+      await sleep(900);
+      const intervals = frameTimes.slice(1).map((time, index) => time - frameTimes[index]);
+      const sorted = [...intervals].sort((a, b) => a - b);
+      const percentile = (values, fraction) => values.length
+        ? values[Math.min(values.length - 1, Math.floor(values.length * fraction))]
+        : 0;
+      const elapsedMs = frameTimes.length > 1 ? frameTimes.at(-1) - frameTimes[0] : 0;
+      benchmarkResults.push({
+        cards: count,
+        fps: Number((elapsedMs > 0 ? (frameTimes.length - 1) * 1000 / elapsedMs : 0).toFixed(1)),
+        frames: frameTimes.length,
+        medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
+        p95FrameMs: Number(percentile(sorted, 0.95).toFixed(1)),
+        missedFramesOver20Ms: intervals.filter((interval) => interval > 20).length,
+      });
+    }
+    lastDiagnosticsBenchmark = benchmarkResults;
+    await refreshDiagnostics("Benchmark complete; the lab state was restored.");
+  } catch (error) {
+    diagnosticsStatus.textContent = `Benchmark failed: ${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    stopRandomMotion();
+    stopContinuousFlip();
+    selectedCardIds = new Set(originalSelection);
+    applyLabCards(originalCards);
+    runDiagnosticsBenchmarkButton.disabled = false;
+    collectDiagnosticsButton.disabled = false;
+    copyDiagnosticsButton.disabled = false;
+  }
+}
 
 function sortedPointerElements(content) {
   return (content?.elements ?? [])
@@ -388,7 +582,6 @@ function initialCards() {
     template: shape.value,
     faceUp,
     flipAxis: flipAxis.value,
-    positionMode: "absolute",
     pose: {
       x: Number(moveXSlider.value),
       y: Number(moveYSlider.value),
@@ -404,15 +597,31 @@ function sceneCards() {
   return scene?.snapshot().desired.cards ?? initialCards();
 }
 
+function zoneSnapshot(cards) {
+  const cardIds = new Set(cards.map(({ id }) => id));
+  for (const id of cardZoneIds.keys()) {
+    if (!cardIds.has(id)) cardZoneIds.delete(id);
+  }
+  const memberships = new Map(LAB_ZONE_DEFINITIONS.map(({ id }) => [id, []]));
+  for (const card of cards) {
+    const zoneId = memberships.has(cardZoneIds.get(card.id)) ? cardZoneIds.get(card.id) : "reserve";
+    cardZoneIds.set(card.id, zoneId);
+    memberships.get(zoneId).push(card.id);
+  }
+  return LAB_ZONE_DEFINITIONS.map(({ id, label, anchor, geometry, arrangement }) => ({
+    id,
+    label,
+    ...(anchor ? { anchor } : { geometry }),
+    cardIds: memberships.get(id),
+    arrangement,
+    visible: zoneVisibility.get(id) !== false,
+  }));
+}
+
 function desiredSnapshot(cards = sceneCards()) {
   return {
     cards: cards.map(configuredCard),
-    zones: [{
-      id: "demo-table",
-      cardIds: cards.map(({ id }) => id),
-      geometry: LAB_ZONE_GEOMETRY,
-      arrangement: { type: "grid", gap: 16 },
-    }],
+    zones: zoneSnapshot(cards),
   };
 }
 
@@ -465,6 +674,8 @@ let spinning = false;
 let randomTimer;
 let randomGeneration = 0;
 let randomMotion = false;
+let animationTestGeneration = 0;
+let animationTestRunning = false;
 
 function updateRandomButton() {
   randomButton.textContent = randomMotion ? "Stop random motion" : "Random motion";
@@ -537,6 +748,142 @@ function toggleRandomMotion() {
   runRandomCycle(randomGeneration);
 }
 
+async function runAnimationTest() {
+  if (animationTestRunning || !scene) return;
+  const cardIds = selectedCardIdsArray();
+  if (cardIds.length === 0) {
+    status.textContent = "Animation test needs at least one selected card";
+    return;
+  }
+  stopContinuousFlip();
+  stopRandomMotion();
+  const generation = ++animationTestGeneration;
+  const started = performance.now();
+  animationTestRunning = true;
+  animationTestButton.disabled = true;
+  animationTestButton.textContent = "Animation test…";
+  const liveCards = () => {
+    const state = scene?.snapshot();
+    return cardIds.filter((cardId) => state?.desired.cards.some((card) => card.id === cardId));
+  };
+  const runStep = async (createOperations) => {
+    if (generation !== animationTestGeneration || !scene) return false;
+    const stepStarted = performance.now();
+    const state = scene.snapshot();
+    const ids = liveCards();
+    if (ids.length === 0) return false;
+    const operations = createOperations(ids, state);
+    if (operations.length > 0) await scene.transact(operations).finished;
+    const remainingStepTime = 700 - (performance.now() - stepStarted);
+    if (remainingStepTime > 0 && generation === animationTestGeneration) {
+      await new Promise((resolve) => setTimeout(resolve, remainingStepTime));
+    }
+    return generation === animationTestGeneration;
+  };
+  const target = (preset, state, cardId) => {
+    const card = state.desired.cards.find((item) => item.id === cardId);
+    const visual = state.visual.find((item) => item.cardId === cardId);
+    const pose = visual?.pose ?? card?.pose ?? {};
+    const scale = pose.scale ?? 1;
+    const width = (card?.dimensions?.width ?? 180) * scale;
+    const height = (card?.dimensions?.height ?? 250) * scale;
+    const angle = (pose.angle ?? 0) * Math.PI / 180;
+    const halfWidth = (Math.abs(Math.cos(angle) * width) + Math.abs(Math.sin(angle) * height)) / 2;
+    const halfHeight = (Math.abs(Math.sin(angle) * width) + Math.abs(Math.cos(angle) * height)) / 2;
+    const bounds = visibleWorldBounds();
+    const minX = Math.min(bounds.left + halfWidth, bounds.right - halfWidth);
+    const maxX = Math.max(bounds.left + halfWidth, bounds.right - halfWidth);
+    const minY = Math.min(bounds.top + halfHeight, bounds.bottom - halfHeight);
+    const maxY = Math.max(bounds.top + halfHeight, bounds.bottom - halfHeight);
+    const centerX = Math.min(maxX, Math.max(minX, bounds.centerX));
+    const centerY = Math.min(maxY, Math.max(minY, bounds.centerY));
+    const travelX = Math.min(centerX - minX, maxX - centerX) * 0.35;
+    const travelY = Math.min(centerY - minY, maxY - centerY) * 0.35;
+    return {
+      x: Math.round(preset === "left" ? centerX - travelX : preset === "right" ? centerX + travelX : centerX),
+      y: Math.round(preset === "top" ? centerY - travelY : preset === "bottom" ? centerY + travelY : centerY),
+    };
+  };
+  const steps = [
+    (ids, state) => ids.map((cardId) => ({ type: "move", cardId, position: target("left", state, cardId) })),
+    (ids, state) => ids.map((cardId) => {
+      const pose = state.visual.find((item) => item.cardId === cardId)?.pose;
+      return { type: "rotate", cardId, angle: normalizeAngle((pose?.angle ?? 0) + 45) };
+    }),
+    (ids, state) => ids.map((cardId) => {
+      const pose = state.visual.find((item) => item.cardId === cardId)?.pose;
+      return { type: "scale", cardId, factor: (pose?.scale ?? 1) >= 1.25 ? 1 : 1.25 };
+    }),
+    (ids, state) => ids.map((cardId) => {
+      const card = state.desired.cards.find((item) => item.id === cardId);
+      return { type: "face", cardId, face: card?.faceUp ? "faceDown" : "faceUp", axis: "y" };
+    }),
+    (ids, state) => ids.map((cardId) => ({ type: "move", cardId, position: target("right", state, cardId) })),
+    (ids, state) => ids.flatMap((cardId) => {
+      const pose = state.visual.find((item) => item.cardId === cardId)?.pose;
+      return [
+        { type: "move", cardId, position: target("center", state, cardId) },
+        { type: "rotate", cardId, angle: normalizeAngle((pose?.angle ?? 0) + 90) },
+        { type: "scale", cardId, factor: 1.5 },
+        { type: "face", cardId, face: "faceUp", axis: ["x", "y"], angle: { x: 180, y: 180 } },
+      ];
+    }),
+    (ids, state) => ids.map((cardId) => ({ type: "move", cardId, position: target("bottom", state, cardId) })),
+    (ids, state) => ids.map((cardId) => {
+      const pose = state.visual.find((item) => item.cardId === cardId)?.pose;
+      return { type: "rotate", cardId, angle: normalizeAngle((pose?.angle ?? 0) - 135) };
+    }),
+    (ids, state) => ids.map((cardId) => {
+      const pose = state.visual.find((item) => item.cardId === cardId)?.pose;
+      return { type: "scale", cardId, factor: (pose?.scale ?? 1) >= 1.25 ? 0.75 : 1.25 };
+    }),
+    (ids, state) => ids.map((cardId) => ({ type: "move", cardId, position: target("left", state, cardId) })),
+    (ids, state) => ids.map((cardId) => {
+      const card = state.desired.cards.find((item) => item.id === cardId);
+      return { type: "face", cardId, face: card?.faceUp ? "faceDown" : "faceUp", axis: "x" };
+    }),
+    (ids, state) => ids.map((cardId) => {
+      const pose = state.visual.find((item) => item.cardId === cardId)?.pose;
+      return { type: "rotate", cardId, angle: normalizeAngle((pose?.angle ?? 0) + 45) };
+    }),
+    (ids, state) => ids.flatMap((cardId) => [
+      { type: "move", cardId, position: target("center", state, cardId) },
+      { type: "rotate", cardId, angle: 0 },
+      { type: "scale", cardId, factor: 1 },
+      { type: "face", cardId, face: "faceUp", axis: ["x", "y"], angle: { x: 0, y: 0 } },
+    ]),
+  ];
+  try {
+    let completed = true;
+    for (const step of steps) {
+      if (!await runStep(step)) {
+        completed = false;
+        break;
+      }
+    }
+    if (completed && generation === animationTestGeneration) {
+      const state = scene.snapshot();
+      const cardId = liveCards()[0];
+      const position = cardId ? target("center", state, cardId) : undefined;
+      setControls({ ...position, scale: 1, angle: 0, faceUp: true, flipX: 0, flipY: 0 });
+    }
+    const remaining = 10000 - (performance.now() - started);
+    if (remaining > 0 && generation === animationTestGeneration) {
+      await new Promise((resolve) => setTimeout(resolve, remaining));
+    }
+  } catch (error) {
+    if (generation === animationTestGeneration) {
+      status.textContent = `Animation test failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  } finally {
+    if (generation === animationTestGeneration) {
+      animationTestRunning = false;
+      animationTestButton.disabled = false;
+      animationTestButton.textContent = "Animation test · 10s";
+    }
+  }
+}
+
 function startScene(cards = sceneCards()) {
   scene?.destroy();
   if (spinTimer) clearTimeout(spinTimer);
@@ -558,7 +905,7 @@ function startScene(cards = sceneCards()) {
         unitsPerPixel: LAB_CAMERA_UNITS_PER_PIXEL,
         center: LAB_CAMERA_CENTER,
       },
-      motion: { reducedMotion: reduced.checked, duration: 700 },
+      motion: { reducedMotion: reduced.getAttribute("aria-pressed") === "true", duration: 700 },
     });
     scene.apply(desiredSnapshot(cards));
     scene.on("change", updateStatus);
@@ -588,24 +935,76 @@ function applyLabCards(cards) {
   updateStatus();
 }
 
+function syncZoneMembership(state) {
+  const next = new Map();
+  for (const zone of state.desired.zones) {
+    for (const cardId of zone.cardIds) next.set(cardId, zone.id);
+  }
+  cardZoneIds = next;
+}
+
+function renderZones(state = scene.snapshot()) {
+  syncZoneMembership(state);
+  const zones = state.zones;
+  const selectedSlot = Number.parseInt(zoneSlot.value, 10) || 0;
+  const slotCount = Math.max(1, state.desired.cards.length + 1);
+  zoneSlot.replaceChildren(...Array.from({ length: slotCount }, (_, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = String(index);
+    return option;
+  }));
+  zoneSlot.value = String(Math.min(selectedSlot, slotCount - 1));
+  zoneList.replaceChildren(...zones.map((zone) => {
+    const row = document.createElement("div");
+    row.className = "zone-row";
+    row.dataset.zoneId = zone.id;
+    row.setAttribute("role", "listitem");
+    row.setAttribute("aria-hidden", String(zone.visible === false));
+    const name = document.createElement("span");
+    name.className = "zone-name";
+    name.textContent = `${zone.label ?? zone.id}${zone.visible === false ? " · hidden" : ""}`;
+    const count = document.createElement("span");
+    count.className = "zone-count";
+    count.textContent = `${zone.cardIds.length} card${zone.cardIds.length === 1 ? "" : "s"}`;
+    const visibility = document.createElement("button");
+    visibility.type = "button";
+    visibility.textContent = zone.visible === false ? "Show" : "Hide";
+    visibility.addEventListener("click", () => toggleZone(zone.id));
+    row.append(name, count, visibility);
+    return row;
+  }));
+  const zoneById = new Map(zones.map((zone) => [zone.id, zone]));
+  for (const button of transferZoneButtons) {
+    const target = zoneById.get(button.dataset.transferZone);
+    button.disabled = selectedCardIds.size === 0 || target?.visible === false;
+  }
+}
+
 function renderCardList() {
   const state = scene.snapshot();
+  syncZoneMembership(state);
+  const zoneNames = new Map(state.zones.map((zone) => [zone.id, zone.label ?? zone.id]));
   const items = state.desired.cards.map((card, index) => {
     const label = document.createElement("label");
     const input = document.createElement("input");
     const depth = document.createElement("output");
+    const zone = document.createElement("span");
     input.type = "checkbox";
     input.checked = selectedCardIds.has(card.id);
     input.setAttribute("aria-label", `Select card ${index + 1}`);
     depth.className = "card-z";
     depth.dataset.cardId = card.id;
+    zone.className = "card-zone";
+    zone.dataset.zoneId = cardZoneIds.get(card.id) ?? "";
+    zone.textContent = zoneNames.get(cardZoneIds.get(card.id)) ?? "zone —";
     input.addEventListener("change", () => {
       selectedCardIds = new Set(scene.select([card.id], { mode: "toggle" }).cardIds);
       syncControlsFromSelection();
       updateStatus();
       renderCardList();
     });
-    label.append(input, document.createTextNode(`Card ${index + 1}`), depth);
+    label.append(input, document.createTextNode(`Card ${index + 1}`), depth, zone);
     return label;
   });
   cardList.replaceChildren(...items);
@@ -798,7 +1197,9 @@ function updateStatus() {
   const state = scene.snapshot();
   syncSpinState(state);
   updateMoveControlBounds(state);
+  renderCardList();
   updateCardListDepth(state);
+  renderZones(state);
   renderElementList(state);
   const card = currentCard(state);
   const visual = card && state.visual.find(({ cardId }) => cardId === card.id);
@@ -1049,6 +1450,7 @@ spinButton.addEventListener("click", () => {
 });
 
 randomButton.addEventListener("click", toggleRandomMotion);
+animationTestButton.addEventListener("click", runAnimationTest);
 
 [moveXSlider, moveYSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("move")));
 [cardWidthSlider, cardHeightSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("resize")));
@@ -1070,16 +1472,11 @@ addCardButton.addEventListener("click", () => {
   const cards = sceneCards();
   const id = `cardinal-demo-${nextCardNumber}`;
   nextCardNumber += 1;
-  const position = nextCardPosition(cards);
+  cardZoneIds.set(id, spawnZone.value);
   cards.push({
     ...baseCard,
     id,
     template: shape.value,
-    positionMode: "absolute",
-    pose: {
-      ...position,
-      scale: Number(scaleSlider.value),
-    },
   });
   selectedCardIds = new Set([id]);
   applyLabCards(cards);
@@ -1091,8 +1488,53 @@ removeCardsButton.addEventListener("click", () => {
   applyLabCards(cards);
 });
 
+function transferCardsTo(destination) {
+  const selected = selectedCardIdsArray();
+  const target = scene.snapshot().zones.find(({ id }) => id === destination);
+  if (selected.length === 0 || target?.visible === false) return;
+  const start = Math.max(0, Number.parseInt(zoneSlot.value, 10) || 0);
+  try {
+    run(selected.map((cardId, index) => ({
+      type: "move",
+      cardId,
+      to: destination,
+      index: start + index,
+    })));
+  } catch (error) {
+    status.textContent = `Zone transfer failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+function toggleZone(zoneId) {
+  const definition = LAB_ZONE_DEFINITIONS.find(({ id }) => id === zoneId);
+  const current = scene.snapshot().zones.find(({ id }) => id === zoneId);
+  if (!definition || !current) return;
+  const visible = current.visible === false;
+  zoneVisibility.set(zoneId, visible);
+  const anchor = definition.anchor ? document.querySelector(definition.anchor) : null;
+  if (anchor) anchor.hidden = !visible;
+  try {
+    run([{ type: "zone", zoneId, changes: { visible } }]);
+  } catch (error) {
+    zoneVisibility.set(zoneId, !visible);
+    if (anchor) anchor.hidden = visible;
+    status.textContent = `Zone update failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+for (const button of transferZoneButtons) {
+  button.addEventListener("click", () => transferCardsTo(button.dataset.transferZone));
+}
+
 selectAllButton.addEventListener("click", () => {
   selectedCardIds = new Set(scene.select(scene.snapshot().desired.cards.map(({ id }) => id)).cardIds);
+  renderCardList();
+  syncControlsFromSelection();
+  updateStatus();
+});
+
+deselectAllButton.addEventListener("click", () => {
+  selectedCardIds = new Set(scene.select([]).cardIds);
   renderCardList();
   syncControlsFromSelection();
   updateStatus();
@@ -1148,12 +1590,27 @@ document.querySelector("#combined").addEventListener("click", () => {
   startFullSpin();
 });
 
-reduced.addEventListener("change", () => {
+reduced.addEventListener("click", () => {
+  const enabled = reduced.getAttribute("aria-pressed") !== "true";
+  reduced.setAttribute("aria-pressed", String(enabled));
   if (controlsFrame) cancelAnimationFrame(controlsFrame);
   controlsFrame = undefined;
   pendingChannels = new Set();
   pendingModes = new Map();
   startScene();
 });
+
+collectDiagnosticsButton.addEventListener("click", () => { void refreshDiagnostics(); });
+runDiagnosticsBenchmarkButton.addEventListener("click", () => { void runDiagnosticsBenchmark(); });
+copyDiagnosticsButton.addEventListener("click", async () => {
+  if (!diagnosticsReport.dataset.report) await refreshDiagnostics();
+  try {
+    await navigator.clipboard.writeText(diagnosticsReport.textContent);
+    diagnosticsStatus.textContent = "Report copied to the clipboard.";
+  } catch {
+    diagnosticsStatus.textContent = "Clipboard access is unavailable; select and copy the report manually.";
+  }
+});
 updateControlLabels();
 startScene();
+void refreshDiagnostics("Initial report ready.");

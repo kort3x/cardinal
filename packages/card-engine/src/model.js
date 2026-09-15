@@ -159,14 +159,24 @@ export function normalizeSnapshot(snapshot) {
       throw new TypeError("Every zone requires a non-empty string id");
     }
     const geometry = zone.geometry;
-    if (!geometry || !["x", "y", "width", "height", "depth"].every((key) => Number.isFinite(geometry[key]))) {
+    if (zone.anchor !== undefined && (typeof zone.anchor !== "string" || !zone.anchor.trim())) {
+      throw new TypeError(`Zone ${zone.id} anchor requires a CSS selector`);
+    }
+    if (zone.anchor !== undefined && zone.geometry !== undefined) throw new TypeError(`Zone ${zone.id} requires either anchor or geometry`);
+    if (zone.anchor === undefined && (!geometry || !["x", "y", "width", "height", "depth"].every((key) => Number.isFinite(geometry[key])))) {
       throw new TypeError(`Zone ${zone.id} requires finite x, y, width, height, and depth`);
     }
-    if (geometry.width <= 0 || geometry.height <= 0) {
+    if (geometry && (geometry.width <= 0 || geometry.height <= 0)) {
       throw new RangeError(`Zone ${zone.id} must have positive dimensions`);
     }
     if (!Array.isArray(zone.cardIds)) throw new TypeError(`Zone ${zone.id} requires cardIds`);
+    if (zone.depth !== undefined && !Number.isFinite(zone.depth)) throw new TypeError(`Zone ${zone.id} depth must be finite`);
+    if (zone.capacity !== undefined && (!Number.isInteger(zone.capacity) || zone.capacity < 0)) throw new RangeError(`Zone ${zone.id} capacity must be a non-negative integer`);
+    if (zone.cardIds.length > (zone.capacity ?? Infinity)) throw new RangeError(`Zone ${zone.id} exceeds capacity`);
+    if (zone.visible !== undefined && typeof zone.visible !== "boolean") throw new TypeError(`Zone ${zone.id} visible must be boolean`);
     const arrangement = zone.arrangement ?? { type: "grid", gap: 16 };
+    if (arrangement.type !== "grid") throw new TypeError(`Unknown arrangement: ${arrangement.type}`);
+    if (arrangement.gap !== undefined && (!Number.isFinite(arrangement.gap) || arrangement.gap < 0)) throw new RangeError(`Zone ${zone.id} gap must be non-negative`);
     if (arrangement.depthStep !== undefined && (!Number.isFinite(arrangement.depthStep) || arrangement.depthStep < 0)) {
       throw new RangeError(`Zone ${zone.id} arrangement.depthStep must be finite and non-negative`);
     }

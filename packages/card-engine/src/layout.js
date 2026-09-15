@@ -91,22 +91,39 @@ export function cardThickness(card, templates = {}) {
   return card.thickness ?? template.thickness ?? DEFAULT_CARD_THICKNESS;
 }
 
+function containedCenter(center, start, size, footprint) {
+  if (footprint >= size) return start + size / 2;
+  return Math.min(start + size - footprint / 2, Math.max(start + footprint / 2, center));
+}
+
 export function depthScale(camera, depth) {
   if (camera?.projection === "orthographic") return 1;
   if (camera?.depthScale) return camera.depthScale(depth);
   return 1 / (1 + Math.max(0, depth) / 1000);
 }
 
-export function solveCardPose(card, zone, index = 0, camera, templates, layerOffset = 0, elementRenderers = {}) {
+export function solveCardPose(card, zone, index = 0, camera, templates, layerOffset = 0, elementRenderers = {}, tracks) {
   const dimensions = cardDimensions(card, templates, elementRenderers);
+  const scale = card.pose?.scale ?? 1;
+  const renderedWidth = dimensions.width * scale;
+  const renderedHeight = dimensions.height * scale;
   const gap = zone.arrangement?.gap ?? 16;
-  const columns = Math.max(1, Math.floor((zone.geometry.width + gap) / (dimensions.width + gap)));
+  const trackWidth = tracks?.width ?? renderedWidth;
+  const trackHeight = tracks?.height ?? renderedHeight;
+  const columns = Math.max(1, Math.floor((zone.geometry.width + gap) / (trackWidth + gap)));
   const column = index % columns;
   const row = Math.floor(index / columns);
-  const layoutX = zone.geometry.x + dimensions.width / 2 + column * (dimensions.width + gap);
-  const layoutY = zone.geometry.y + dimensions.height / 2 + row * (dimensions.height + gap);
-  const x = card.positionMode === "absolute" ? card.pose.x : layoutX;
-  const y = card.positionMode === "absolute" ? card.pose.y : layoutY;
+  const layoutX = zone.geometry.x + renderedWidth / 2 + column * (trackWidth + gap);
+  const layoutY = zone.geometry.y + renderedHeight / 2 + row * (trackHeight + gap);
+  const angle = Math.abs((card.pose?.angle ?? 0) * Math.PI / 180);
+  const footprintWidth = Math.abs(renderedWidth * Math.cos(angle)) + Math.abs(renderedHeight * Math.sin(angle));
+  const footprintHeight = Math.abs(renderedWidth * Math.sin(angle)) + Math.abs(renderedHeight * Math.cos(angle));
+  const x = card.positionMode === "absolute"
+    ? card.pose.x
+    : containedCenter(layoutX, zone.geometry.x, zone.geometry.width, footprintWidth);
+  const y = card.positionMode === "absolute"
+    ? card.pose.y
+    : containedCenter(layoutY, zone.geometry.y, zone.geometry.height, footprintHeight);
 
   return {
     ...DEFAULT_POSE,
@@ -118,6 +135,7 @@ export function solveCardPose(card, zone, index = 0, camera, templates, layerOff
     y,
     z: zone.geometry.depth + layerOffset,
     scale: card.pose?.scale ?? 1,
+    visible: zone.visible !== false,
     depthScale: depthScale(camera, zone.geometry.depth),
   };
 }
@@ -128,6 +146,13 @@ export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}
   const placedCards = [];
   let drawOrder = 0;
   for (const zone of snapshot.zones) {
+    const sizes = zone.cardIds.map((id) => {
+      const card = cards.get(id);
+      const dimensions = cardDimensions(card, templates, elementRenderers);
+      const scale = card.pose?.scale ?? 1;
+      return { width: dimensions.width * scale, height: dimensions.height * scale };
+    });
+    const tracks = { width: Math.max(1, ...sizes.map(({ width }) => width)), height: Math.max(1, ...sizes.map(({ height }) => height)) };
     let layerOffset = 0;
     let previousDepth = null;
     zone.cardIds.forEach((cardId, index) => {
@@ -138,7 +163,7 @@ export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}
         const physicalStep = (previousDepth + currentDepth) / 2 + CARD_LAYER_GAP;
         layerOffset += Math.max(configuredStep, physicalStep);
       }
-      const pose = { ...solveCardPose(card, zone, index, camera, templates, layerOffset, elementRenderers), drawOrder };
+      const pose = { ...solveCardPose(card, zone, index, camera, templates, layerOffset, elementRenderers, tracks), drawOrder };
       const dimensions = cardDimensions(card, templates, elementRenderers);
       const angle = Math.abs((pose.angle * Math.PI) / 180);
       const unrotatedWidth = dimensions.width * pose.scale;

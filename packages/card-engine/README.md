@@ -21,6 +21,58 @@ scene.transact([
 ]);
 ```
 
+## Responsive zones
+
+Zones own the sole ordered membership list. Supply either spatial `geometry` or
+an `anchor` CSS selector; selectors are resolved in the stage document. Card shells
+remain in the same renderer layer when their membership changes.
+
+```js
+scene.apply({
+  cards,
+  zones: [
+    { id: "archive", anchor: "#archive-area", depth: 0, cardIds: ["card-7"], capacity: 6 },
+    { id: "reserve", geometry: { x: 40, y: 400, width: 600, height: 350, depth: 0 }, cardIds: [] },
+  ],
+});
+await scene.transact([
+  { type: "move", cardId: "card-7", to: "reserve", index: 0 },
+  { type: "zone", zoneId: "reserve", changes: { capacity: 8 } },
+]).finished;
+```
+
+`zone` changes may set geometry, anchored depth, visibility, capacity, or the
+arrangement. A complete `apply()` snapshot can add/remove zones or replace an
+anchor selector. Deleting an occupied zone requires assigning its cards to other
+zones or explicitly omitting those cards from the same snapshot. Validation runs
+before commit, including final batch capacity (so full zones can exchange cards).
+Insertion indices apply in operation order; omitted indices append to the zone.
+
+Grid layout uses the largest unscaled width and height in the zone as track sizes
+and compacts its ordered IDs after a transfer. `arrangement.gap` defaults to 16.
+Displaced neighbors animate together and participate in transaction completion.
+Independent rotation, scale, and spin channels survive geometry retargeting.
+
+Anchors are measured through the actual camera, including page scroll and CSS
+position changes. An engine-owned frame check runs while anchored zones exist;
+it only retargets when measurements change. `scene.refreshGeometry()` also permits
+an immediate measurement after a project changes page layout. Hidden, missing,
+or zero-sized anchors retain their last valid geometry and membership; their cards
+are hidden from rendering, focus and hit testing. Reappearance uses fresh bounds.
+An explicit `visible: false` has the same visibility effect for spatial zones.
+Programmatic moves remain authoritative project commands, including into hidden zones.
+
+`snapshot().desired.zones` contains the authored model. `snapshot().zones` adds
+resolved geometry and visibility for diagnostics and zone outlines. Orthographic
+projection is the default. With perspective, anchor world dimensions change to
+preserve their CSS footprint; spatial dimensions remain fixed. Depth is signed
+world Z: the camera sits on positive Z, so a more negative depth is farther away.
+WebGL performs depth projection once, without another artificial card scale.
+
+Open `/examples/card-engine-lab/zones.html` for the six-card, three-zone lab.
+Advanced overflow policies, drag insertion previews and other arrangements belong
+to later slices; this grid implementation does not silently scale cards to fit.
+
 Faces use one canonical `elements` array. Element IDs are unique within a face,
 and the array may contain repeated element types or project-defined types:
 

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cardinal · Responsive Zones</title>
+  <link rel="stylesheet" href="/packages/card-engine/src/styles.css">
+  <style>
+    :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #282c34; color: #abb2bf; }
+    body { margin: 20px; }
+    a { color: #61afef; }
+    h1 { margin-bottom: 8px; }
+    button, select, label { font: inherit; color: inherit; background: #2c313a; border: 1px solid #5c6370; border-radius: 3px; padding: 7px; }
+    button { cursor: pointer; }
+    button[aria-pressed="true"] { color: #e5c07b; border-color: #e5c07b; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+    #stage { position: relative; width: 100%; height: 940px; background: #21252b; overflow: hidden; }
+    .anchors { position: absolute; inset: 45px 30px auto; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .anchor { height: 390px; border: 1px dashed #61afef; background: #61afef0a; }
+    .anchor span, #spatial-outline span { position: absolute; transform: translateY(-28px); color: #e5c07b; }
+    #stage.narrow .anchors { grid-template-columns: 1fr 2fr; }
+    #spatial-outline { position: absolute; box-sizing: border-box; border: 1px dashed #c678dd; pointer-events: none; }
+    #state { white-space: pre-wrap; overflow-wrap: anywhere; }
+    #stage canvas { pointer-events: none; }
+    footer { padding: 30px 0 200px; }
+  </style>
+</head>
+<body>
+  <a href="/">← Card lab</a>
+  <h1>Responsive zones</h1>
+  <p>Six persistent cards · two CSS anchors and one spatial zone · one engine-owned membership model</p>
+  <div id="selection" class="controls" aria-label="Select cards"></div>
+  <div class="controls">
+    <button data-to="archive">Move to Archive</button>
+    <button data-to="workbench">Move to Workbench</button>
+    <button data-to="reserve">Move to Reserve</button>
+    <label>Insert at <input id="slot" type="number" min="0" max="6" value="0" style="width:3em" aria-label="Destination slot"></label>
+    <button id="route">Run transfer route</button>
+    <button id="reflow" aria-pressed="false">Resize anchors</button>
+    <button id="hide-zone" aria-pressed="false">Hide Workbench</button>
+    <button id="depth" aria-pressed="false">Change depth</button>
+    <button id="scroll">Scroll page</button>
+    <label><input id="reduced" type="checkbox">Reduced motion</label>
+  </div>
+  <p id="message" role="status">Select cards and a destination.</p>
+  <div id="stage">
+    <div class="anchors">
+      <div id="archive" class="anchor"><span>Archive · CSS anchor</span></div>
+      <div id="workbench" class="anchor"><span>Workbench · CSS anchor</span></div>
+    </div>
+    <div id="spatial-outline"><span>Reserve · spatial geometry</span></div>
+  </div>
+  <pre id="state" aria-label="Zone membership and scene status"></pre>
+  <footer>Resize the window or scroll during movement. Hiding an anchor preserves its cards and membership.</footer>
+  <script type="importmap">{"imports":{"three":"/packages/card-engine/node_modules/three/build/three.module.js"}}</script>
+  <script type="module" src="/examples/card-engine-lab/zones.js"></script>
+</body>
+</html>

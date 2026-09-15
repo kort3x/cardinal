@@ -82,7 +82,7 @@ async function acceptance(name, evaluate, navigate) {
   await evaluate(clickExpression("#scale"));
   await delay(850);
   state = await evaluate(stateExpression);
-  record("scale settles", state, (value) => value.status.includes("scale 1.00") && value.status.includes("stable"));
+  record("scale settles", state, (value) => value.status.includes("scale 1.25") && value.status.includes("stable"));
 
   await evaluate(setExpression("#scale-slider", 2));
   await delay(850);
@@ -196,7 +196,7 @@ async function runFirefox() {
     });
     await command("session.new", { capabilities: { alwaysMatch: {} } });
     const context = (await command("browsingContext.getTree")).result.contexts[0].context;
-    await command("browsingContext.setViewport", { context, viewport: { width: 1280, height: 815 }, devicePixelRatio: 1 });
+    await command("browsingContext.setViewport", { context, viewport: { width: 2500, height: 1300 }, devicePixelRatio: 1 });
     const evaluate = async (expression) => {
       const response = await command("script.evaluate", { expression, target: { context }, awaitPromise: true, resultOwnership: "none" });
       const value = response.result.result.value;
@@ -227,7 +227,7 @@ async function runSafari() {
     };
     session = (await request("/session", { method: "POST", body: '{"capabilities":{"alwaysMatch":{"browserName":"safari"}}}' })).value.sessionId;
     const command = async (path, options = {}) => (await request(`/session/${session}${path}`, options)).value;
-    await command("/window/rect", { method: "POST", body: JSON.stringify({ width: 1600, height: 1000 }) });
+    await command("/window/rect", { method: "POST", body: JSON.stringify({ x: 100, y: 0, width: 2500, height: 1300 }) });
     const evaluate = async (expression) => {
       const value = await command("/execute/sync", { method: "POST", body: JSON.stringify({ script: `return ${expression}`, args: [] }) });
       return typeof value === "string" && value.startsWith("{") ? JSON.parse(value) : value;

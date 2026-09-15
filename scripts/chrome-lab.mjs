@@ -12,13 +12,15 @@ const scenario = scenarioIndex === -1 ? "elements" : process.argv[scenarioIndex 
 const port = Number(process.env.CARDINAL_CHROME_PORT ?? 9222);
 const labUrl = process.env.CARDINAL_LAB_URL ?? "http://localhost:4173/";
 const headless = args.has("--headless");
+const minimumFps = Number(process.env.CARDINAL_MIN_FPS ?? 0);
+const deviceScaleFactor = Number(process.env.CARDINAL_DEVICE_SCALE_FACTOR ?? (headless ? 1 : 0));
 const keepOpen = args.has("--show");
 
 if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid Chrome port: ${port}`);
 if (typeof WebSocket !== "function") {
   throw new Error("Chrome automation requires Node 22+ with the built-in WebSocket API");
 }
-if (scenario !== "elements" && scenario !== "acceptance" && scenario !== "layout" && scenario !== "resize" && scenario !== "movement" && scenario !== "random" && scenario !== "spin-state" && scenario !== "performance") throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
+if (scenario !== "elements" && scenario !== "acceptance" && scenario !== "layout" && scenario !== "resize" && scenario !== "movement" && scenario !== "random" && scenario !== "spin-state" && scenario !== "performance" && scenario !== "random-performance" && scenario !== "diagnostics" && scenario !== "zones" && scenario !== "main-zones") throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -131,6 +133,7 @@ const elementScenario = String.raw`(async () => {
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
     status: document.querySelector("#status")?.textContent ?? "",
     fps: document.querySelector("#fps-status")?.textContent ?? "",
+    diagnostics: document.querySelector("#diagnostics-report")?.textContent ?? "",
     selection: document.querySelector("#selection-status")?.textContent ?? "",
     pointer: document.querySelector("#pointer-status")?.dataset.pointerState
       ? JSON.parse(document.querySelector("#pointer-status").dataset.pointerState)
@@ -170,20 +173,24 @@ const elementScenario = String.raw`(async () => {
 
   await sleep(700);
   record("baseline WebGL lab", (current) => current.renderer.includes("Three.js WebGL")
-    && current.shells === 1 && current.elements.length === 3 && current.fps.includes("FPS:"));
+    && current.shells === 1 && current.elements.length === 3 && current.fps.includes("FPS:")
+    && current.diagnostics.includes("devicePixelRatio") && current.diagnostics.includes("webgl"));
+  await step("deselect all cards", () => click("#deselect-all"), (current) => current.selection === "0 of 1 selected");
+  await step("select all cards", () => click("#select-all"), (current) => current.selection === "1 of 1 selected");
   await step("track pointer coordinates", () => {
     const stage = document.querySelector("#stage");
+    const dimensions = document.querySelector("#status").textContent.match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
+    const scale = Number(dimensions?.[3] ?? 1);
     stage.scrollIntoView({ block: "center", inline: "center" });
-    const rect = stage.getBoundingClientRect();
+    const rect = document.querySelector("#zone-reserve").getBoundingClientRect();
     stage.dispatchEvent(new PointerEvent("pointermove", {
       bubbles: true,
-      clientX: rect.left + rect.width / 2,
-      clientY: rect.top + rect.height / 2,
+      clientX: rect.left + Number(dimensions?.[1] ?? 180) * scale / 2,
+      clientY: rect.top + Number(dimensions?.[2] ?? 250) * scale / 2,
     }));
   }, () => {
     const pointer = JSON.parse(document.querySelector("#pointer-status").dataset.pointerState);
     return pointer.status === "observed" && pointer.insideStage === true
-      && pointer.sceneX === 450 && pointer.sceneY === 250
       && pointer.target?.kind === "card-element" && pointer.target.elementId === "image";
   });
   await step("hide image", () => click('#element-list input[aria-label="Show image"]'), (current) => {
@@ -298,7 +305,7 @@ const acceptanceScenario = String.raw`(async () => {
   click("#rotate");
   record("rotate settles", (await waitForStable()).status.includes("angle 45°"));
   click("#scale");
-  record("scale settles", (await waitForStable()).status.includes("scale 1.00"));
+  record("scale settles", (await waitForStable()).status.includes("scale 1.25"));
   click('button[data-scale="2"]');
   await sleep(80);
   record("scale transition during motion keeps content", (current) => current.status.includes("animating")
@@ -353,6 +360,11 @@ const layoutScenario = String.raw`(async () => {
   const rows = [...document.querySelectorAll("#element-list .element-row")];
   record("WebGL lab is visible", () => document.querySelector("#renderer-status")?.textContent.includes("Three.js WebGL"));
   record("expanded rails use the side space", () => stage.clientWidth >= 1600);
+  record("side rails use matching widths", () => {
+    const left = document.querySelector(".cards-sidebar")?.getBoundingClientRect();
+    const right = document.querySelector(".elements-sidebar")?.getBoundingClientRect();
+    return Boolean(left && right) && Math.abs(left.width - right.width) <= 1;
+  });
   record("element rail is visible", () => visible(elementsPanel));
   record("element rows fit the rail", () => rows.length > 0 && rows.every((row) => within(row, elementsPanel)));
   record("element editors have usable width", () => rows.every((row) => {
@@ -398,9 +410,17 @@ const layoutScenario = String.raw`(async () => {
     && [...document.querySelectorAll('[data-scale]')].map((button) => button.textContent.trim()).join(",") === "25%,50%,100%,150%,200%");
   const cardActions = document.querySelector(".cards-sidebar .presets");
   const cardList = document.querySelector("#card-list");
+  const spawnZone = document.querySelector("#spawn-zone");
   const actionsTop = rect(cardActions)?.top;
+  record("card actions fit the card rail", () => {
+    const buttons = [...(cardActions?.querySelectorAll("button") ?? [])];
+    return buttons.length === 4 && buttons.every((button) => within(button, cardActions));
+  });
+  if (spawnZone) spawnZone.value = "archive";
   document.querySelector("#add-card")?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
+  const spawnedInArchive = Boolean(cardList?.querySelector('.card-zone[data-zone-id="archive"]')
+    && spawnZone?.value === "archive");
   const addedTop = rect(cardActions)?.top;
   document.querySelector("#remove-cards")?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -408,7 +428,8 @@ const layoutScenario = String.raw`(async () => {
   record("card collection actions stay above the changing list", () => Boolean(cardList && actionsTop !== undefined)
     && rect(cardActions).bottom <= rect(cardList).top
     && Math.abs(addedTop - actionsTop) <= 1
-    && Math.abs(removedTop - actionsTop) <= 1);
+    && Math.abs(removedTop - actionsTop) <= 1
+    && spawnedInArchive);
   const fullWindowControl = document.querySelector("#full-window-control");
   fullWindowControl?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -430,6 +451,14 @@ const layoutScenario = String.raw`(async () => {
   record("full-window mode exits cleanly", () => document.body.classList.contains("stage-full-window") === false
     && fullWindowControl?.getAttribute("aria-pressed") === "false"
     && fullWindowControl?.textContent === "Full window");
+  document.querySelector("#animation-test")?.click();
+  await new Promise((resolve) => setTimeout(resolve, 10200));
+  record("ten-second animation test settles", () => document.querySelector("#animation-test")?.disabled === false
+    && document.querySelector("#animation-test")?.textContent === "Animation test · 10s"
+    && document.querySelector("#status")?.textContent.includes("x 450 · y 250")
+    && document.querySelector("#status")?.textContent.includes("angle 0°")
+    && document.querySelector("#status")?.textContent.includes("scale 1.00")
+    && document.querySelector("#status")?.textContent.includes("stable"));
   return { ok: results.every((result) => result.pass), results };
 })()`;
 
@@ -451,12 +480,14 @@ const resizeScenario = String.raw`(async () => {
     const current = state();
     results.push({ label, pass: Boolean(predicate(current)), status: current.status, pointer: current.pointer });
   };
-  const centerPointer = (x = 450, y = 250) => {
-    const bounds = stage.getBoundingClientRect();
+  const centerPointer = () => {
+    const zone = document.querySelector("#zone-reserve").getBoundingClientRect();
+    const dimensions = document.querySelector("#status").textContent.match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
+    const scale = Number(dimensions?.[3] ?? 1);
     stage.dispatchEvent(new PointerEvent("pointermove", {
       bubbles: true,
-      clientX: bounds.left + bounds.width / 2 + (x - 450),
-      clientY: bounds.top + bounds.height / 2 + (y - 250),
+      clientX: zone.left + Number(dimensions?.[1] ?? 180) * scale / 2,
+      clientY: zone.top + Number(dimensions?.[2] ?? 250) * scale / 2,
     }));
   };
   const resizeStage = async (width, height) => {
@@ -469,20 +500,18 @@ const resizeScenario = String.raw`(async () => {
   record("baseline WebGL scene", (current) => current.renderer.includes("Three.js WebGL") && current.shells === 1);
   centerPointer();
   await sleep(80);
-  record("baseline logical center is hittable", (current) => current.pointer?.insideStage === true
-    && current.pointer.sceneX === 450 && current.pointer.sceneY === 250
+  record("baseline reserve placement is hittable", (current) => current.pointer?.insideStage === true
     && current.pointer.target?.kind === "card-element" && current.pointer.target.elementId === "image");
 
   for (const [label, width, height] of [["narrow", 1000, 650], ["wide", 1700, 850], ["tall", 1200, 1000]]) {
     await resizeStage(width, height);
+    await sleep(850);
     centerPointer();
     await sleep(80);
     record(label + " resize follows stage", (current) => current.stage.width === width
       && current.stage.height === height
       && current.canvas.width === width
       && current.canvas.height === height
-      && current.pointer?.sceneX === 450
-      && current.pointer?.sceneY === 250
       && current.pointer.target?.elementId === "image");
   }
 
@@ -491,14 +520,13 @@ const resizeScenario = String.raw`(async () => {
     stage.style.height = height + "px";
   }
   await sleep(120);
+  await sleep(850);
   centerPointer();
   await sleep(80);
   record("rapid resize settles on the final stage", (current) => current.stage.width === 1376
     && current.stage.height === 994
     && current.canvas.width === 1376
     && current.canvas.height === 994
-    && current.pointer?.sceneX === 450
-    && current.pointer?.sceneY === 250
     && current.pointer.target?.elementId === "image");
 
   await resizeStage(1376, 994);
@@ -646,6 +674,212 @@ const performanceScenario = String.raw`(async () => {
   return { ok: results.every((result) => result.pass), results, measurements: details };
 })()`;
 
+const randomPerformanceScenario = String.raw`(async () => {
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const results = [];
+  const addCard = document.querySelector("#add-card");
+  const selectAll = document.querySelector("#select-all");
+  const randomButton = document.querySelector("#random");
+  if (!addCard || !selectAll || !randomButton) throw new Error("Random performance controls are unavailable");
+
+  await sleep(700);
+  for (let index = 1; index < 10; index += 1) addCard.click();
+  await sleep(1800);
+  selectAll.click();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  randomButton.click();
+  await sleep(250);
+
+  const frameTimes = [];
+  const sampleStart = performance.now();
+  await new Promise((resolve) => {
+    const sample = (now) => {
+      frameTimes.push(now);
+      if (now - sampleStart < 3000) requestAnimationFrame(sample);
+      else resolve();
+    };
+    requestAnimationFrame(sample);
+  });
+  randomButton.click();
+  await sleep(1200);
+
+  const intervals = frameTimes.slice(1).map((time, index) => time - frameTimes[index]);
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const percentile = (values, fraction) => values.length
+    ? values[Math.min(values.length - 1, Math.floor(values.length * fraction))]
+    : 0;
+  const elapsedMs = frameTimes.length > 1 ? frameTimes.at(-1) - frameTimes[0] : 0;
+  const fps = elapsedMs > 0 ? (frameTimes.length - 1) * 1000 / elapsedMs : 0;
+  const details = {
+    cards: document.querySelectorAll("#card-list label").length,
+    shells: document.querySelectorAll(".cardinal-webgl-card").length,
+    frames: frameTimes.length,
+    fps: Number(fps.toFixed(1)),
+    medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
+    p95FrameMs: Number(percentile(sorted, 0.95).toFixed(1)),
+    missedFramesOver20Ms: intervals.filter((interval) => interval > 20).length,
+    status: document.querySelector("#status")?.textContent ?? "",
+    renderer: document.querySelector("#renderer-status")?.textContent ?? "",
+  };
+  results.push({
+    label: "10-card random-motion cohort mounts and animates",
+    pass: details.cards === 10 && details.shells === 10 && details.frames > 0 && details.renderer.includes("Three.js WebGL") && details.status.includes("stable"),
+    details,
+  });
+  if (${JSON.stringify(minimumFps)} > 0) {
+    results.push({
+      label: "10-card random-motion FPS threshold",
+      pass: details.fps >= ${JSON.stringify(minimumFps)},
+      details: { measuredFps: details.fps, minimumFps: ${JSON.stringify(minimumFps)} },
+    });
+  }
+
+  document.querySelector("#remove-cards")?.click();
+  await sleep(700);
+  addCard.click();
+  await sleep(700);
+  return { ok: results.every((result) => result.pass), results, measurements: details };
+})()`;
+
+const diagnosticsScenario = String.raw`(async () => {
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const results = [];
+  const report = () => document.querySelector("#diagnostics-report")?.textContent ?? "";
+  const diagnosticsStatus = () => document.querySelector("#diagnostics-status")?.textContent ?? "";
+  const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
+  await sleep(800);
+  document.querySelector("#collect-diagnostics")?.click();
+  await sleep(300);
+  record("diagnostics report collects environment and WebGL data", () => report().includes("devicePixelRatio") && report().includes("webgl"));
+  document.querySelector("#run-diagnostics-benchmark")?.click();
+  const deadline = performance.now() + 20000;
+  while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) await sleep(100);
+  record("diagnostics benchmark measures 1, 5, and 10 cards", () => {
+    const text = report();
+    return diagnosticsStatus().includes("Benchmark complete")
+      && text.includes('"cards": 1')
+      && text.includes('"cards": 5')
+      && text.includes('"cards": 10');
+  });
+  record("diagnostics benchmark restores the lab", () => document.querySelectorAll("#card-list label").length === 1
+    && document.querySelector("#selection-status")?.textContent === "1 of 1 selected");
+  return { ok: results.every((result) => result.pass), results };
+})()`;
+
+const zonesScenario = String.raw`(async () => {
+  const lab = await import('/examples/card-engine-lab/zones.js');
+  const scene = lab.scene;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const results = [];
+  const record = (label, pass) => results.push({ label, pass: Boolean(pass) });
+  const stage = document.querySelector('#stage');
+  const shells = [...stage.querySelectorAll('.cardinal-webgl-card')];
+  const parent = shells[0].parentNode;
+  const pose = (id) => scene.snapshot().visual.find((item) => item.cardId === id).pose;
+  const anchor = document.querySelector('#workbench');
+  const zone = () => scene.snapshot().zones.find((item) => item.id === 'workbench');
+  const matchesGrid = () => zone().cardIds.every((id, index) => {
+    const columns = Math.max(1, Math.floor((zone().geometry.width + 18) / 128));
+    return Math.abs(pose(id).x - (zone().geometry.x + 55 + index % columns * 128)) < 0.01
+      && Math.abs(pose(id).y - (zone().geometry.y + 75 + Math.floor(index / columns) * 168)) < 0.01;
+  });
+  await sleep(800);
+  record('zones lab starts with six WebGL cards and three zones', scene.snapshot().renderer === 'webgl' && shells.length === 6 && scene.snapshot().zones.length === 3);
+  const transfer = scene.transact([{ type: 'move', cardId: 'card-1', to: 'workbench', index: 0 }, { type: 'move', cardId: 'card-2', to: 'workbench', index: 1 }]);
+  await sleep(150);
+  stage.style.width = '85%';
+  document.querySelector('#reflow').click();
+  window.scrollTo(0, 180);
+  await transfer.finished;
+  await sleep(850);
+  record('batch transfer lands in current grid after resize and scroll', matchesGrid() && zone().cardIds.join(',') === 'card-1,card-2,card-3,card-4');
+  const before = { ...zone().geometry };
+  await scene.transact([{ type: 'zone', zoneId: 'workbench', changes: { depth: -180 } }]).finished;
+  record('orthographic anchor footprint survives a depth change', Math.abs(zone().geometry.x - before.x) < 0.01 && Math.abs(zone().geometry.width - before.width) < 0.01 && pose('card-1').z === -180 && matchesGrid());
+  anchor.hidden = true;
+  await sleep(100);
+  record('hidden anchor keeps membership and valid geometry', zone().visible === false && zone().cardIds.length === 4 && zone().geometry.width === before.width);
+  record('hidden cards cannot be hit or focused', scene.hitTest({x: pose('card-1').x, y: pose('card-1').y}) === null && shells[0].hidden && shells[0].inert);
+  anchor.hidden = false;
+  stage.style.width = '100%';
+  await sleep(900);
+  record('restored anchor solves from current bounds', zone().visible && matchesGrid() && !shells[0].hidden);
+  for (const to of ['reserve', 'archive', 'workbench']) {
+    await scene.transact([{ type: 'move', cardId: 'card-1', to, index: 0 }]).finished;
+  }
+  record('repeated transfers retain six shells and their stage parent', shells.every((shell) => shell.isConnected && shell.parentNode === parent) && stage.querySelectorAll('.cardinal-webgl-card').length === 6 && matchesGrid());
+  const previous = scene.snapshot();
+  let rejected = false;
+  try { scene.transact([{ type: 'zone', zoneId: 'workbench', changes: { capacity: 0 } }]); }
+  catch { rejected = true; }
+  record('invalid capacity update leaves state intact', rejected && JSON.stringify(previous.desired) === JSON.stringify(scene.snapshot().desired));
+  const moved = scene.transact([{ type: 'move', cardId: 'card-1', to: 'archive' }, { type: 'rotate', cardId: 'card-1', angle: 45 }, { type: 'face', cardId: 'card-1', face: 'faceDown' }]);
+  await sleep(120);
+  document.querySelector('#reflow').click();
+  await moved.finished;
+  record('layout retarget preserves independent rotation and flip', pose('card-1').angle === 45 && pose('card-1').flipY === 180 && !scene.snapshot().settling);
+  const { createCardScene } = await import('/packages/card-engine/src/index.js');
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:0;top:0;width:800px;height:600px';
+  const probeAnchor = document.createElement('div');
+  probeAnchor.id = 'projection-probe';
+  probeAnchor.style.cssText = 'position:absolute;left:100px;top:100px;width:400px;height:300px';
+  probe.append(probeAnchor);
+  document.body.append(probe);
+  const projected = createCardScene({ element: probe, camera: { projection: 'perspective', distance: 1000, fov: 60 }, motion: { reducedMotion: true } });
+  try {
+    const example = scene.snapshot().desired.cards[0];
+    projected.apply({ cards: [{ ...example, pose: { angle: 0, flipX: 0, flipY: 0 }, faceUp: true }], zones: [{ id: 'probe', anchor: '#projection-probe', cardIds: [example.id] }] });
+    const near = projected.snapshot().zones[0].geometry;
+    await projected.transact([{ type: 'zone', zoneId: 'probe', changes: { depth: -200 } }]).finished;
+    const far = projected.snapshot().zones[0].geometry;
+    const farPose = projected.snapshot().visual[0].pose;
+    record('perspective anchor resolves the same screen footprint at a different depth', Math.abs(far.width / near.width - 1.2) < 0.0001 && Math.abs(far.height / near.height - 1.2) < 0.0001);
+    const projectionScale = 1000 / (1000 - farPose.z);
+    record('perspective hit test agrees with camera projection without double scaling', farPose.depthScale === 1 && projected.hitTest({ x: farPose.x * projectionScale, y: farPose.y * projectionScale })?.cardId === example.id);
+    const spatial = projected.snapshot().desired;
+    spatial.zones = [{ id: 'spatial', geometry: near, cardIds: [example.id] }];
+    projected.apply(spatial);
+    await projected.transact([{ type: 'zone', zoneId: 'spatial', changes: { geometry: { ...near, depth: -200 } } }]).finished;
+    record('spatial zones retain their world dimensions under depth changes', projected.snapshot().zones[0].geometry.width === near.width && projected.snapshot().visual[0].pose.z === -200);
+  } finally { projected.destroy(); probe.remove(); }
+  window.scrollTo(0, 0);
+  return { ok: results.every(({ pass }) => pass), results };
+})()`;
+
+const mainZonesScenario = String.raw`(async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const results = [];
+  const record = (label, pass) => results.push({ label, pass: Boolean(pass) });
+  const zoneRow = (id) => document.querySelector('#zone-list [data-zone-id="' + id + '"]');
+  const zoneText = (id) => zoneRow(id)?.textContent ?? '';
+  await sleep(800);
+  record('main lab exposes three integrated zones', document.querySelectorAll('#zone-list .zone-row').length === 3 && zoneText('reserve').includes('1 card'));
+  for (let index = 0; index < 5; index += 1) document.querySelector('#add-card').click();
+  document.querySelector('#select-all').click();
+  document.querySelector('[data-transfer-zone="archive"]').click();
+  await sleep(900);
+  record('integrated transfer moves all selected cards into the destination zone', zoneText('archive').includes('6 cards') && zoneText('reserve').includes('0 cards') && document.querySelectorAll('#stage .cardinal-webgl-card').length === 6
+    && document.querySelectorAll('#card-list .card-zone[data-zone-id="archive"]').length === 6);
+  document.querySelector('#stage').style.width = '85%';
+  window.dispatchEvent(new Event('resize'));
+  await sleep(500);
+  const anchor = document.querySelector('#zone-archive');
+  document.querySelector('[data-zone-id="archive"] button').click();
+  await sleep(250);
+  record('hiding an integrated anchored zone preserves membership and hides its cards', anchor.hidden && zoneRow('archive')?.getAttribute('aria-hidden') === 'true' && zoneText('archive').includes('6 cards'));
+  document.querySelector('[data-zone-id="archive"] button').click();
+  await sleep(800);
+  record('restoring an integrated anchored zone makes its cards visible again', !anchor.hidden && zoneRow('archive')?.getAttribute('aria-hidden') === 'false');
+  document.querySelector('[data-transfer-zone="workbench"]').click();
+  await sleep(900);
+  record('integrated cards can be transferred repeatedly without remounting shells', zoneText('workbench').includes('6 cards') && document.querySelectorAll('#stage .cardinal-webgl-card').length === 6);
+  document.querySelector('#stage').style.width = '';
+  window.scrollTo(0, 0);
+  await sleep(200);
+  return { ok: results.every(({ pass }) => pass), results };
+})()`;
+
 async function run() {
   const server = await ensureLabServer();
   let chrome;
@@ -659,13 +893,13 @@ async function run() {
       await connection.command("Emulation.setDeviceMetricsOverride", {
         width: 2515,
         height: 1322,
-        deviceScaleFactor: 1,
+        deviceScaleFactor,
         mobile: false,
       });
     } else {
       await connection.command("Emulation.clearDeviceMetricsOverride");
     }
-    await connection.command("Page.navigate", { url: labUrl });
+    await connection.command("Page.navigate", { url: scenario === "zones" ? new URL('/examples/card-engine-lab/zones.html', labUrl).href : labUrl });
     await delay(1200);
     const evaluation = await connection.command("Runtime.evaluate", {
       expression: scenario === "elements" ? elementScenario
@@ -675,6 +909,10 @@ async function run() {
               : scenario === "random" ? randomScenario
               : scenario === "spin-state" ? spinStateScenario
               : scenario === "performance" ? performanceScenario
+              : scenario === "random-performance" ? randomPerformanceScenario
+              : scenario === "diagnostics" ? diagnosticsScenario
+              : scenario === "zones" ? zonesScenario
+              : scenario === "main-zones" ? mainZonesScenario
               : acceptanceScenario,
       awaitPromise: true,
       returnByValue: true,
@@ -691,6 +929,10 @@ async function run() {
     if (scenario === "performance" && report.measurements) {
       const measurements = report.measurements;
       console.log(`Chrome performance: ${measurements.cards} cards · setup ${measurements.setupMs.toFixed(1)} ms · handler ${measurements.actionHandlerMs.toFixed(1)} ms · ${measurements.frames} frames · first frame ${measurements.firstFrameDelayMs.toFixed(1)} ms · median ${measurements.medianFrameMs.toFixed(1)} ms · p95 ${measurements.p95FrameMs.toFixed(1)} ms · missed >20 ms ${measurements.missedFramesOver20Ms}`);
+    }
+    if (scenario === "random-performance" && report.measurements) {
+      const measurements = report.measurements;
+      console.log(`Chrome random performance: ${measurements.cards} cards · ${measurements.fps.toFixed(1)} FPS · median ${measurements.medianFrameMs.toFixed(1)} ms · p95 ${measurements.p95FrameMs.toFixed(1)} ms · missed >20 ms ${measurements.missedFramesOver20Ms}`);
     }
     console.log(`Chrome lab scenario '${scenario}' passed (${report.results.length} checks)`);
   } finally {

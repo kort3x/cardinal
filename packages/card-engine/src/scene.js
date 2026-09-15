@@ -3,6 +3,7 @@ import { cardDimensions, solveAllPoses } from "./layout.js";
 import { createClock, interpolate, shortestAngleTarget } from "./motion.js";
 import { createHeadlessRenderer, createRenderer } from "./renderer.js";
 import { createWebGLRenderer } from "./renderers/webgl.js";
+import { resolveZones } from "./zones.js";
 
 const copy = (value) => structuredClone(value);
 
@@ -23,7 +24,8 @@ function spinChannel(axis) {
 }
 
 const operationResultChannels = {
-  move: () => 2,
+  move: () => 3,
+  zone: () => 0,
   rotate: () => 1,
   scale: () => 1,
   resize: () => 2,
@@ -121,6 +123,51 @@ export function createCardScene(config = {}) {
   let visual = new Map();
   let frameId = null;
   let destroyed = false;
+  let resolvedZones = new Map();
+  let geometryFrame = null;
+
+  function solve(snapshot, zones) {
+    // The actual WebGL camera owns projection, including perspective scaling.
+    const layoutCamera = renderer.type === "webgl" ? { ...camera, depthScale: () => 1 } : camera;
+    return solveAllPoses({ ...snapshot, zones: [...zones.values()] }, layoutCamera, config.templates, config.elementRenderers);
+  }
+
+  function trackGeometry() {
+    if (destroyed || !desired?.zones.some((zone) => zone.anchor) || geometryFrame !== null) return;
+    geometryFrame = clock.requestFrame(() => {
+      geometryFrame = null;
+      refreshGeometry();
+      trackGeometry();
+    });
+  }
+
+  function refreshGeometry() {
+    if (destroyed || !desired) return;
+    const nextZones = resolveZones(desired, renderer, resolvedZones);
+    if (JSON.stringify([...nextZones]) === JSON.stringify([...resolvedZones])) return;
+    const targets = solve(desired, nextZones);
+    sample(clock.now());
+    resolvedZones = nextZones;
+    for (const [cardId, targetPose] of targets) {
+      const current = cardPose(cardId);
+      if (!targetPose.visible) { current.visible = false; continue; }
+      current.visible = true;
+      for (const name of ["x", "y", "z"]) {
+        const channel = channels.get(cardId)?.[name];
+        if (channel) {
+          if (Math.abs(channel.to - targetPose[name]) < 0.0001) continue;
+          // Keep the operation's completion ticket when its destination moves.
+          channel.from = current[name];
+          channel.to = targetPose[name];
+          channel.startedAt = clock.now();
+        } else scheduleChannel(cardId, name, targetPose[name]);
+      }
+    }
+    renderAll({ render: false });
+    renderer.render?.();
+    ensureFrame();
+    emit("change", snapshot());
+  }
 
   function emit(event, detail) {
     for (const listener of listeners.get(event) ?? []) listener(detail);
@@ -144,6 +191,7 @@ export function createCardScene(config = {}) {
     const knownIds = new Set(desired?.cards.map((card) => card.id) ?? []);
     return cardIds.filter((cardId, index) => typeof cardId === "string"
       && knownIds.has(cardId)
+      && visual.get(cardId)?.visible !== false
       && cardIds.indexOf(cardId) === index);
   }
 
@@ -186,7 +234,8 @@ export function createCardScene(config = {}) {
     if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
       throw new TypeError("scene.hitTest requires finite x and y coordinates");
     }
-    return renderer.hitTest?.(point) ?? null;
+    const hit = renderer.hitTest?.(point) ?? null;
+    return hit && visual.get(hit.cardId)?.visible !== false ? hit : null;
   }
 
   function target(request = {}) {
@@ -200,9 +249,7 @@ export function createCardScene(config = {}) {
     if (request.point !== undefined && (!request.point || !Number.isFinite(request.point.x) || !Number.isFinite(request.point.y))) {
       throw new TypeError("Target point requires finite x and y coordinates");
     }
-    const eligibleCardIds = request.eligibleCardIds === undefined
-      ? desired.cards.map(({ id }) => id)
-      : validCardIds(request.eligibleCardIds);
+    const eligibleCardIds = validCardIds(request.eligibleCardIds ?? desired.cards.map(({ id }) => id));
     const eligible = new Set(eligibleCardIds);
     const intent = {
       id: `target-${++targetSequence}`,
@@ -232,6 +279,7 @@ export function createCardScene(config = {}) {
       },
       finish() {
         if (intent.status !== "active") return copy(intent);
+        intent.cardIds = validCardIds(intent.cardIds);
         intent.status = "committed";
         targetSessions.delete(session);
         publish("target");
@@ -262,20 +310,26 @@ export function createCardScene(config = {}) {
         ticket.transition.rollbacks.delete(ticket.operationIndex);
         rollback();
       }
-    } else if (result.status === "pending") {
-      result.remaining -= 1;
-      if (result.remaining === 0) {
-        result.status = status === "settled" ? "settled" : "skipped";
-        if (result.status === "settled") {
-          const commit = ticket.transition.commits.get(ticket.operationIndex);
-          ticket.transition.commits.delete(ticket.operationIndex);
-          commit?.();
-        }
-      }
     }
-    if (ticket.transition.pending === 0) {
-      transitions.delete(ticket.transition);
-      ticket.transition.resolve(copy(ticket.transition.results.map(({ remaining, ...result }) => result)));
+    result.remaining -= 1;
+    if (status === "settled") ticket.transition.moved.add(ticket.operationIndex);
+    finishTransition(ticket.transition);
+  }
+
+  function finishTransition(transition) {
+    if (transition.scheduling) return;
+    transition.results.forEach((result, index) => {
+      if (result.status !== "pending" || result.remaining > 0) return;
+      result.status = transition.moved.has(index) ? "settled" : "skipped";
+      if (result.status === "settled") {
+        const commit = transition.commits.get(index);
+        transition.commits.delete(index);
+        commit?.();
+      }
+    });
+    if (transition.pending === 0) {
+      transitions.delete(transition);
+      transition.resolve(copy(transition.results.map(({ remaining, ...result }) => result)));
     }
   }
 
@@ -402,15 +456,18 @@ export function createCardScene(config = {}) {
     const targetValue = channelName === "angle" || isFlip
       ? shortestAngleTarget(current, target)
       : target;
+    cancelChannel(cardId, channelName);
     const ticket = transition ? { transition, operationIndex, status: null } : null;
-    if (ticket) transition.pending += 1;
+    if (ticket) {
+      transition.pending += 1;
+      transition.results[operationIndex].remaining += 1;
+    }
     if (Math.abs(current - targetValue) < 0.0001) {
       if (isFlip) setFlipValue(pose, axis, target);
       else pose[channelName] = targetValue;
       if (ticket) settleTicket(ticket, "skipped");
       return;
     }
-    cancelChannel(cardId, channelName);
     if (reducedMotion || immediate || transition?.immediate) {
       if (isFlip) setFlipValue(pose, axis, target);
       else pose[channelName] = targetValue;
@@ -453,15 +510,22 @@ export function createCardScene(config = {}) {
 
   function apply(inputSnapshot) {
     const next = normalizeSnapshot(inputSnapshot);
+    const nextZones = resolveZones(next, renderer, resolvedZones);
+    const poses = solve(next, nextZones);
+    const previousTargets = desired ? solve(desired, resolvedZones) : new Map();
     if (desired) sample(clock.now());
     const previousDesired = desired;
     const previousVisual = new Map(visual);
-    cancelAllChannels("superseded");
     if (previousDesired) {
       const nextIds = new Set(next.cards.map((card) => card.id));
-      for (const card of previousDesired.cards) if (!nextIds.has(card.id)) renderer.remove(card.id);
+      for (const card of previousDesired.cards) {
+        if (nextIds.has(card.id)) continue;
+        for (const name of Object.keys(channels.get(card.id) ?? {})) cancelChannel(card.id, name);
+        renderer.remove(card.id);
+      }
     }
     desired = next;
+    resolvedZones = nextZones;
     const availableIds = new Set(next.cards.map((card) => card.id));
     const remainingSelection = selection.cardIds.filter((cardId) => availableIds.has(cardId));
     if (remainingSelection.length !== selection.cardIds.length) {
@@ -472,7 +536,6 @@ export function createCardScene(config = {}) {
       };
       emit("selection-change", copy(selection));
     }
-    const poses = solveAllPoses(desired, camera, config.templates, config.elementRenderers);
     visual = new Map([...poses].map(([cardId, pose]) => {
       const card = desired.cards.find((candidate) => candidate.id === cardId);
       const previousPose = previousVisual.get(cardId);
@@ -482,6 +545,7 @@ export function createCardScene(config = {}) {
         ...target,
         x: previousPose.x,
         y: previousPose.y,
+        z: previousPose.z,
         angle: previousPose.angle,
         scale: previousPose.scale,
         width: previousPose.width,
@@ -495,17 +559,13 @@ export function createCardScene(config = {}) {
       for (const [cardId, targetPose] of poses) {
         if (!previousVisual.has(cardId)) continue;
         const target = visualPose(desired.cards.find((card) => card.id === cardId), targetPose);
-        scheduleChannel(cardId, "x", target.x);
-        scheduleChannel(cardId, "y", target.y);
-        scheduleChannel(cardId, "angle", target.angle);
-        scheduleChannel(cardId, "scale", target.scale);
-        scheduleChannel(cardId, "width", target.width);
-        scheduleChannel(cardId, "height", target.height);
-        scheduleChannel(cardId, "thickness", target.thickness);
-        scheduleChannel(cardId, "flipX", target.flipX);
-        scheduleChannel(cardId, "flipY", target.flipY);
+        const oldTarget = visualPose(previousDesired.cards.find((card) => card.id === cardId), previousTargets.get(cardId));
+        for (const name of ["x", "y", "z", "angle", "scale", "width", "height", "thickness", "flipX", "flipY"]) {
+          if (oldTarget[name] === target[name]) continue;
+          if (name === "flipX" || name === "flipY") cancelChannel(cardId, name === "flipX" ? "spinX" : "spinY");
+          scheduleChannel(cardId, name, target[name]);
+        }
         const current = cardPose(cardId);
-        current.z = target.z;
         current.depthScale = target.depthScale;
         current.tiltX = target.tiltX;
         current.tiltY = target.tiltY;
@@ -516,6 +576,7 @@ export function createCardScene(config = {}) {
     renderAll({ render: false });
     renderer.render?.();
     ensureFrame();
+    trackGeometry();
     emit("change", snapshot());
   }
 
@@ -527,6 +588,8 @@ export function createCardScene(config = {}) {
     const zones = zoneById(next.zones);
     const transition = {
       pending: 0,
+      scheduling: true,
+      moved: new Set(),
       immediate: Boolean(options.immediate),
       results: operations.map((operation) => ({ type: operation.type, cardId: operation.cardId, status: "pending" })),
       commits: new Map(),
@@ -537,7 +600,8 @@ export function createCardScene(config = {}) {
       const operation = operations[index];
       const channelCount = operationResultChannels[operation.type];
       if (!channelCount) throw new TypeError(`Unknown operation: ${operation.type}`);
-      result.remaining = channelCount(operation);
+      channelCount(operation); // Validate axes before modifying the cloned model.
+      result.remaining = 0;
     });
     transition.finished = new Promise((resolve) => { transition.resolve = resolve; });
 
@@ -550,6 +614,7 @@ export function createCardScene(config = {}) {
         } else if (operation.to) {
           const destination = zones.get(operation.to);
           if (!destination) throw new Error(`Unknown zone: ${operation.to}`);
+          if (operation.index !== undefined && (!Number.isInteger(operation.index) || operation.index < 0)) throw new RangeError("Move index must be a non-negative integer");
           for (const zone of next.zones) zone.cardIds = zone.cardIds.filter((id) => id !== card.id);
           const index = Math.max(0, Math.min(operation.index ?? destination.cardIds.length, destination.cardIds.length));
           destination.cardIds.splice(index, 0, card.id);
@@ -650,6 +715,17 @@ export function createCardScene(config = {}) {
     };
 
     for (const [operationIndex, operation] of operations.entries()) {
+      if (operation.type === "zone") {
+        const zone = zones.get(operation.zoneId);
+        if (!zone) throw new Error(`Unknown zone: ${operation.zoneId}`);
+        if (!operation.changes || typeof operation.changes !== "object") throw new TypeError("Zone operation requires changes");
+        for (const key of Object.keys(operation.changes)) {
+          if (!["geometry", "depth", "visible", "capacity", "arrangement"].includes(key)) throw new TypeError(`Unsupported zone change: ${key}`);
+        }
+        Object.assign(zone, copy(operation.changes));
+        transition.moved.add(operationIndex);
+        continue;
+      }
       const card = cards.get(operation.cardId);
       if (!card) throw new Error(`Unknown card: ${operation.cardId}`);
       const handler = applyOperations[operation.type];
@@ -657,16 +733,19 @@ export function createCardScene(config = {}) {
       handler(operation, card, operationIndex);
     }
 
+    normalizeSnapshot(next); // Validate the complete batch before any state or motion mutation.
+    const nextZones = resolveZones(next, renderer, resolvedZones);
+    const targets = solve(next, nextZones);
+    sample(clock.now());
     transitions.add(transition);
-
     const previous = desired;
     desired = next;
-    const targets = solveAllPoses(next, camera, config.templates, config.elementRenderers);
-    const affected = new Set(operations.map((operation) => operation.cardId));
-    if (operations.some((operation) => ["resize", "thickness", "element"].includes(operation.type))) {
+    resolvedZones = nextZones;
+    const affected = new Set(operations.map((operation) => operation.cardId).filter(Boolean));
+    if (operations.some((operation) => ["move", "zone", "resize", "thickness", "element"].includes(operation.type))) {
       for (const [cardId, targetPose] of targets) {
         const current = cardPose(cardId);
-        if (current && (Math.abs(current.x - targetPose.x) > 0.0001 || Math.abs(current.y - targetPose.y) > 0.0001 || Math.abs(current.z - targetPose.z) > 0.0001)) affected.add(cardId);
+        if (current) affected.add(cardId);
       }
     }
     for (const cardId of affected) {
@@ -680,6 +759,7 @@ export function createCardScene(config = {}) {
         move: (operationIndex) => {
           schedule(cardId, "x", targetPose.x, transition, operationIndex);
           schedule(cardId, "y", targetPose.y, transition, operationIndex);
+          schedule(cardId, "z", targetPose.z, transition, operationIndex);
         },
         rotate: (operationIndex) => schedule(cardId, "angle", targetPose.angle, transition, operationIndex),
         scale: (operationIndex) => schedule(cardId, "scale", targetPose.scale, transition, operationIndex),
@@ -708,14 +788,18 @@ export function createCardScene(config = {}) {
         const operation = operations[operationIndex];
         scheduleOperations[operation.type](operationIndex);
       }
-      if (operationIndexes.length === 0) {
-        scheduleChannel(cardId, "x", targetPose.x);
-        scheduleChannel(cardId, "y", targetPose.y);
+      if (!operationIndexes.some((index) => operations[index].type === "move") && operations.some((op) => ["move", "zone", "resize", "element", "thickness"].includes(op.type))) {
+        for (const name of ["x", "y", "z"]) {
+          const active = channels.get(cardId)?.[name];
+          if (active && Math.abs(active.to - targetPose[name]) < 0.0001) continue;
+          const owner = operationIndexes[0] ?? operations.findIndex((op) => ["move", "zone", "resize", "element", "thickness"].includes(op.type));
+          schedule(cardId, name, targetPose[name], transition, owner);
+        }
       }
       if (oldCard && oldCard.faceUp !== card.faceUp && !operations.some((operation) => operation.cardId === cardId && operation.type === "face")) {
         schedule(cardId, "flipY", card.faceUp ? 0 : 180, transition, operationIndexes[0] ?? 0);
       }
-      current.z = targetPose.z;
+      current.visible = targetPose.visible;
       if (operationIndexes.length === 0) current.thickness = targetPose.thickness;
       current.depthScale = targetPose.depthScale;
       current.drawOrder = targetPose.drawOrder;
@@ -724,13 +808,10 @@ export function createCardScene(config = {}) {
       current.pivotX = targetPose.pivotX;
       current.pivotY = targetPose.pivotY;
     }
-    if (transition.pending === 0) {
-      transitions.delete(transition);
-      for (const result of transition.results) if (result.status === "pending") result.status = "skipped";
-      transition.resolve(copy(transition.results.map(({ remaining, ...result }) => result)));
-    } else {
-      ensureFrame();
-    }
+    transition.scheduling = false;
+    trackGeometry();
+    finishTransition(transition);
+    if (transition.pending > 0) ensureFrame();
     renderAll({ render: false });
     renderer.render?.();
     emit("change", snapshot());
@@ -742,6 +823,7 @@ export function createCardScene(config = {}) {
       .some((channelName) => channelName === "spinX" || channelName === "spinY"));
     return {
       desired: copy(desired ?? { cards: [], zones: [] }),
+      zones: copy([...resolvedZones.values()]),
       visual: [...visual.entries()].map(([cardId, pose]) => ({ cardId, pose: copy(pose), physicalSide: physicalSide(pose) })),
       selection: copy(selection),
       settling: channels.size > 0,
@@ -766,6 +848,7 @@ export function createCardScene(config = {}) {
   function destroy() {
     if (destroyed) return;
     destroyed = true;
+    if (geometryFrame !== null) clock.cancelFrame(geometryFrame);
     if (frameId) clock.cancelFrame(frameId);
     frameId = null;
     cancelAllChannels("destroyed");
@@ -782,5 +865,5 @@ export function createCardScene(config = {}) {
     listeners.clear();
   }
 
-  return { apply, transact, spin, stopSpin, select, hitTest, target, snapshot, viewport, on, destroy };
+  return { apply, transact, spin, stopSpin, select, hitTest, target, snapshot, viewport, refreshGeometry, on, destroy };
 }

@@ -860,6 +860,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const textureDimensions = textureDimensionsForPose(card, pose, templates);
     const thickness = pose.thickness ?? cardThickness(card, templates);
     const mounted = mount(card, textureDimensions, thickness);
+    mounted.cardGroup.visible = pose.visible !== false;
+    mounted.accessibilityShell.hidden = pose.visible === false;
+    mounted.accessibilityShell.inert = pose.visible === false;
     mounted.lastCard = card;
     mounted.lastPose = pose;
     updateGeometry(mounted, card, dimensions, thickness);
@@ -889,13 +892,17 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const projectedPoint = worldPoint.project(camera);
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera({ x: projectedPoint.x, y: projectedPoint.y }, camera);
-    const intersections = raycaster.intersectObjects([...cards.values()].map(({ cardGroup }) => cardGroup), true);
-    const hit = intersections.find(({ object }) => object.userData.cardId || object.parent?.userData.cardId);
+    const intersections = raycaster.intersectObjects([...cards.values()].filter(({ cardGroup }) => cardGroup.visible).map(({ cardGroup }) => cardGroup), true);
+    const cardRoot = (object) => {
+      while (object && !object.userData.cardId) object = object.parent;
+      return object;
+    };
+    const hit = intersections.find(({ object }) => cardRoot(object));
     if (!hit) {
       const candidates = [...cards.entries()]
         .map(([cardId, mounted]) => {
           const pose = mounted.lastPose;
-          if (!pose) return null;
+          if (!pose || pose.visible === false) return null;
           const scale = pose.scale * (pose.depthScale ?? 1);
           const dx = (point.x - (pose.x ?? 0)) / scale;
           const dy = (point.y - (pose.y ?? 0)) / scale;
@@ -911,8 +918,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       if (!candidate) return null;
       return { cardId: candidate.cardId, side: physicalSide(candidate.pose), distance: 0 };
     }
-    let object = hit.object;
-    while (object && !object.userData.cardId) object = object.parent;
+    const object = cardRoot(hit.object);
     const mounted = cards.get(object?.userData.cardId);
     if (!mounted) return null;
     const side = hit.object === mounted.back || hit.object === mounted.backBase ? "back"
@@ -947,6 +953,27 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   return {
     type: "webgl",
     projection,
+    measureZone(zone) {
+      const anchor = document.querySelector(zone.anchor);
+      if (!anchor || !anchor.isConnected || anchor.getClientRects().length === 0) return { visible: false };
+      const style = getComputedStyle(anchor);
+      if (style.visibility === "hidden" || style.visibility === "collapse") return { visible: false };
+      const bounds = anchor.getBoundingClientRect();
+      const stageBounds = canvas.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0 || stageBounds.width <= 0 || stageBounds.height <= 0) return { visible: false };
+      const depth = zone.depth ?? 0;
+      camera.updateMatrixWorld(true);
+      const unproject = (x, y) => {
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera({ x: (x - stageBounds.left) / stageBounds.width * 2 - 1, y: 1 - (y - stageBounds.top) / stageBounds.height * 2 }, camera);
+        const point = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -depth), new THREE.Vector3());
+        if (!point) throw new RangeError(`Zone ${zone.id} is outside the camera`);
+        return { x: point.x + center.x, y: center.y - point.y };
+      };
+      const topLeft = unproject(bounds.left, bounds.top);
+      const bottomRight = unproject(bounds.right, bounds.bottom);
+      return { visible: true, geometry: { ...topLeft, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y, depth } };
+    },
     mount(card) {
       return mount(card, cardDimensions(card, templates, elementRenderers), cardThickness(card, templates));
     },

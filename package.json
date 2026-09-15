@@ -12,6 +12,10 @@
     "test:chrome:random": "node scripts/chrome-lab.mjs --headless --scenario random",
     "test:chrome:spin-state": "node scripts/chrome-lab.mjs --headless --scenario spin-state",
     "test:chrome:performance": "node scripts/chrome-lab.mjs --headless --scenario performance",
+    "test:chrome:random-performance": "node scripts/chrome-lab.mjs --headless --scenario random-performance",
+    "test:chrome:diagnostics": "node scripts/chrome-lab.mjs --headless --scenario diagnostics",
+    "test:chrome:zones": "node scripts/chrome-lab.mjs --headless --scenario zones",
+    "test:chrome:main-zones": "node scripts/chrome-lab.mjs --headless --scenario main-zones",
     "test:cross-browser": "node scripts/cross-browser-lab.mjs",
     "show:chrome": "node scripts/chrome-lab.mjs --show"
   }
