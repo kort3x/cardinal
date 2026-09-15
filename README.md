@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.png" alt="Cardinal Card Engine logo" width="220">
+  <img src="logo-github.png" alt="Cardinal Card Engine logo" width="220">
 
   <h1>Cardinal Card Engine</h1>
 

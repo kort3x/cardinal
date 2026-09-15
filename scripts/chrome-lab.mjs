@@ -368,6 +368,8 @@ const layoutScenario = String.raw`(async () => {
   const stage = document.querySelector("#stage");
   const rows = [...document.querySelectorAll("#element-list .element-row")];
   record("WebGL lab is visible", () => document.querySelector("#renderer-status")?.textContent.includes("Three.js WebGL"));
+  record("cards render above zone guides", () => getComputedStyle(document.querySelector("#stage > .cardinal-webgl-canvas"))?.zIndex === "2"
+    && getComputedStyle(document.querySelector("#zone-archive"))?.zIndex === "1");
   record("expanded rails use the side space", () => stage.clientWidth >= 1600);
   record("side rails use matching widths", () => {
     const left = document.querySelector(".cards-sidebar")?.getBoundingClientRect();
@@ -607,6 +609,9 @@ const movementScenario = String.raw`(async () => {
   const moveX = document.querySelector("#move-x");
   const moveY = document.querySelector("#move-y");
   const motionSpeed = document.querySelector("#motion-speed");
+  const labModule = await import([...document.querySelectorAll('script[type="module"]')].at(-1).src);
+  const liveScene = () => labModule.getScene()?.snapshot();
+  let fastSnapshot;
   const cameraCenter = { x: 450, y: 250 };
   const visibleWorld = () => ({
     left: cameraCenter.x - stage.clientWidth / 2,
@@ -637,12 +642,16 @@ const movementScenario = String.raw`(async () => {
   setRange(motionSpeed, 2);
   document.querySelector('button[data-move-preset="right"]')?.click();
   await new Promise((resolve) => setTimeout(resolve, 450));
-  record("fast target movement settles sooner", () => document.querySelector("#status")?.textContent.includes("stable"));
+  fastSnapshot = liveScene();
+  record("fast target movement reaches its target", () => document.querySelector("#status")?.textContent.includes("stable")
+    && Math.abs((fastSnapshot?.visual?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) < 1);
   setRange(motionSpeed, 0.25);
   document.querySelector('button[data-move-preset="left"]')?.click();
   await new Promise((resolve) => setTimeout(resolve, 450));
+  const slowSnapshot = liveScene();
   record("slow target movement remains animated longer", () => document.querySelector("#status")?.textContent.includes("animating")
-    && document.querySelector("#status")?.textContent.includes("x "));
+    && Math.abs((slowSnapshot?.desired?.cards?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) < 1
+    && Math.abs((slowSnapshot?.visual?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) > 1);
   return { ok: results.every((result) => result.pass), results };
 })()`;
 

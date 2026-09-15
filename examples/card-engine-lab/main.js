@@ -70,7 +70,9 @@ const backgroundPresets = Object.freeze({
 });
 const LAB_CAMERA_CENTER = Object.freeze({ x: 450, y: 250 });
 const LAB_CAMERA_UNITS_PER_PIXEL = 1;
-const LAB_MOTION_DURATION = 500;
+// Keep 1× at the lab's original 1.5× timing; the factor still scales
+// proportionally from that baseline (higher is faster, lower is slower).
+const LAB_MOTION_DURATION = 500 / 1.5;
 // Match the lab's single-column mobile layout. This is a spawn default,
 // not a resize rule: existing cards retain their user-selected scale.
 function isMobileViewport() {
@@ -1672,6 +1674,17 @@ function queueControl(channel, { immediate = true } = {}) {
   });
 }
 
+function applyPresetControl(channel) {
+  // Presets are discrete commands. Apply them immediately after reading the
+  // current controls so a queued slider frame cannot swallow the command.
+  if (controlsFrame) cancelAnimationFrame(controlsFrame);
+  controlsFrame = undefined;
+  pendingChannels = new Set();
+  pendingModes = new Map();
+  const operations = controlOperations(new Set([channel]));
+  if (operations.length > 0) run(operations);
+}
+
 document.querySelector("#move").addEventListener("click", () => {
   const state = scene.snapshot();
   const visual = currentVisual(state);
@@ -1841,20 +1854,20 @@ deselectAllButton.addEventListener("click", () => {
 document.querySelectorAll("[data-move-preset]").forEach((button) => {
   button.addEventListener("click", () => {
     setControls(movePresetPosition(button.dataset.movePreset));
-    queueControl("move", { immediate: false });
+    applyPresetControl("move");
   });
 });
 document.querySelectorAll("[data-rotate]").forEach((button) => {
   button.addEventListener("click", () => {
     setControls({ angle: Number(button.dataset.rotate) });
-    queueControl("rotate", { immediate: false });
+    applyPresetControl("rotate");
   });
 });
 document.querySelectorAll("[data-flip]").forEach((button) => {
   button.addEventListener("click", () => {
     stopContinuousFlip();
     setControls({ faceUp: button.dataset.flip === "0" });
-    queueControl("flip", { immediate: false });
+    applyPresetControl("flip");
   });
 });
 
