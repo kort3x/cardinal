@@ -1,47 +1,104 @@
-# Cardinal
+<div align="center">
+  <img src="logo.png" alt="Cardinal Card Engine logo" width="220">
 
-A reusable browser card engine for spatial card layouts, composable motion, and
-project-defined interaction rules.
+  <h1>Cardinal Card Engine</h1>
 
-Status: Slice 01 core prototype and true 3D WebGL renderer are implemented.
-The browser runtime matrix and Chrome/Firefox/Safari acceptance measurements
-are recorded; final issue review remains.
+  <p>A browser card engine for spatial layouts, physical-feeling motion, and project-defined interaction.</p>
+
+  <p>
+    <a href="https://kort3x.github.io/cardinal/"><strong>Try the live Card Lab →</strong></a>
+    · <a href="docs/specs/cardinal.md">Read the design</a>
+    · <a href="docs/slices/README.md">See the roadmap</a>
+  </p>
+</div>
+
+Cardinal is an independent, browser-native engine for building interactive card
+experiences. It gives consuming projects control over their data and rules while
+the engine handles visual state, layout, rendering, and motion.
+
+The [live Card Lab](https://kort3x.github.io/cardinal/) is the fastest way to see
+it in action. Try moving, rotating, scaling, flipping, resizing, and dragging
+cards through responsive zones. The lab also exposes dynamic card elements,
+multiple logical faces, 3D depth, motion controls, and performance diagnostics.
+
+> Cardinal is experimental and actively evolving. The public lab is a demo and
+> test surface, not a production application.
+
+## Why try Cardinal?
+
+- **True 3D cards** — WebGL rounded cuboids with front, back, edge, thickness,
+  depth, and smooth orientation changes.
+- **Composable motion** — move, rotate, scale, and flip together without one
+  animation channel cancelling another.
+- **Dynamic card content** — explicit elements support text, images, repeated
+  types, visibility, ordering, custom renderers, and content-sized cards.
+- **Responsive zones** — ordered membership, grid placement, spatial geometry,
+  responsive anchors, and animated reflow.
+- **Project-owned rules** — consuming applications decide permissions,
+  persistence, networking, and business logic; Cardinal provides the interaction
+  mechanics and intent seam.
+- **Built to inspect** — a standalone lab, deterministic engine tests, browser
+  acceptance scenarios, FPS reporting, and diagnostics make behavior visible.
 
 ## Start here
 
-- [Design](docs/specs/cardinal.md)
-- [Vertical slices](docs/slices/README.md)
-- [Browser testing: run, extend, diagnose and report](docs/verification/browser-testing.md)
-- [Live lab demo](https://kort3x.github.io/cardinal/)
-- [Kanban project](https://github.com/users/kort3x/projects/3)
-- [First slice: basic card actions](https://github.com/kort3x/cardinal/issues/2)
+| Resource | Purpose |
+| --- | --- |
+| [Live Card Lab](https://kort3x.github.io/cardinal/) | Explore the engine in your browser |
+| [Engine design](docs/specs/cardinal.md) | Read the authoritative model and API decisions |
+| [Delivery roadmap](docs/slices/README.md) | Follow the vertical slices and next capabilities |
+| [Browser testing guide](docs/verification/browser-testing.md) | Run and extend Chrome, Firefox, and Safari checks |
+| [Kanban project](https://github.com/users/kort3x/projects/3) | See current work |
 
-## Scope
+The lab requires a browser with WebGL enabled. Cardinal intentionally does not
+silently substitute the deferred CSS prototype when WebGL is unavailable.
 
-Cards move, rotate, scale, and flip independently or simultaneously. Zones support
-responsive geometry, multiple arrangements, and project-controlled presentation.
-Cards can change shape as content changes, receive dynamic elements, attach to
-other cards, and participate in multi-card selection and target-intent sessions.
+## Run locally
 
-Card geometry is implemented as a true beveled rounded cuboid behind the same
-scene interface. WebGL is required by default. The CSS renderer remains available
-only as an explicit prototype mode; its implementation is deferred to [issue #16](https://github.com/kort3x/cardinal/issues/16).
+```sh
+npm install --prefix packages/card-engine
+npm --prefix examples/card-engine-lab start
+```
 
-Cardinal owns visual state, layout, animation, and interaction mechanics. Consuming
-projects own business rules, permissions, networking, and persistence. Picko is one
-possible future consumer; no Picko integration is part of this project.
+Open <http://localhost:4173/>. The lab is served as a standalone example and
+imports the engine directly from `packages/card-engine/`.
 
-## Development approach
+## Run the tests
 
-Implement fresh modules in `packages/card-engine/`, with independent examples in
-`examples/card-engine-lab/` and `examples/card-engine-use/`. Do not import or wrap
-the old Picko engine. Backward compatibility is not required. The first slice has
-runnable tooling. Run deterministic engine tests with
-`npm --prefix packages/card-engine test`.
+```sh
+npm test
+npm run test:chrome:acceptance
+npm run test:chrome:layout
+```
 
-See the [true 3D renderer plan](docs/plans/true-3d-renderer.md) and
-[ADR 0001](docs/adr/0001-true-3d-card-renderer.md) for the renderer seam, mesh,
-content-texture, and browser-evidence plan.
+See the [browser testing guide](docs/verification/browser-testing.md) for the
+full workflow, interactive Chrome checks, cross-browser acceptance, and
+performance scenarios.
 
-Repository documentation, comments, tests, issues, demo-facing labels, and
-accessibility text use English. Localization may be added later by consumers.
+## Scope and architecture
+
+Cards are authored as complete snapshots and changed through explicit scene
+transactions. Cardinal owns the current visual realization, card geometry,
+animation channels, zone layout, and pointer/keyboard interaction mechanics.
+Consuming projects own card meaning, authorization, persistence, networking,
+and application-specific rules.
+
+The engine is developed in `packages/card-engine/`. Runnable examples live in
+`examples/card-engine-lab/` and `examples/card-engine-use/`. The project does
+not import or wrap the old Picko engine, and backward compatibility is not a
+goal.
+
+## Current status
+
+The true 3D WebGL renderer, dynamic elements, responsive zones, interaction
+intent flow, and public Card Lab are implemented. Work continues through the
+[vertical slice roadmap](docs/slices/README.md), with browser evidence recorded
+alongside the implementation.
+
+CSS fallback is deferred to [issue #16](https://github.com/kort3x/cardinal/issues/16).
+Picko integration, voting rules, community collections, and legacy cleanup are
+outside this project.
+
+## License
+
+No license has been selected yet.
