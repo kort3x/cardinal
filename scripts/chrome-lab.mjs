@@ -130,6 +130,7 @@ const elementScenario = String.raw`(async () => {
   const state = () => ({
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
     status: document.querySelector("#status")?.textContent ?? "",
+    fps: document.querySelector("#fps-status")?.textContent ?? "",
     selection: document.querySelector("#selection-status")?.textContent ?? "",
     pointer: document.querySelector("#pointer-status")?.dataset.pointerState
       ? JSON.parse(document.querySelector("#pointer-status").dataset.pointerState)
@@ -169,7 +170,7 @@ const elementScenario = String.raw`(async () => {
 
   await sleep(700);
   record("baseline WebGL lab", (current) => current.renderer.includes("Three.js WebGL")
-    && current.shells === 1 && current.elements.length === 3);
+    && current.shells === 1 && current.elements.length === 3 && current.fps.includes("FPS:"));
   await step("track pointer coordinates", () => {
     const stage = document.querySelector("#stage");
     stage.scrollIntoView({ block: "center", inline: "center" });

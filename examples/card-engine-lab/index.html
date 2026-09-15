@@ -78,9 +78,10 @@
       .scene-column > .motion-actions { margin: 0 0 10px; }
       #stage { position: relative; width: 100%; height: min(1100px, calc(100vh - 330px)); min-height: 500px; margin: 0; border: 1px solid var(--lab-border); border-radius: 8px; background: radial-gradient(circle at 50% 35%, #323842, var(--lab-bg-deep) 70%); overflow: hidden; }
       #full-window-control { position: absolute; top: 14px; right: 14px; z-index: 10; border-color: var(--lab-accent); background: rgb(33 37 43 / 90%); }
-      #renderer-status, #status, #pointer-status { margin: 7px 0 0; min-height: 1.4em; }
+      #renderer-status, #status, #fps-status, #pointer-status { margin: 7px 0 0; min-height: 1.4em; }
       #renderer-status { color: var(--lab-muted); font-size: 0.82rem; }
       #status { color: var(--lab-accent); }
+      #fps-status { color: var(--lab-muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
       #pointer-status { min-height: 1.5em; margin: 0; color: var(--lab-text); font-variant-numeric: tabular-nums; }
       code { color: var(--lab-cyan); }
       body.stage-full-window { overflow: hidden; }
@@ -93,6 +94,7 @@
       body.stage-full-window .scene-column > .motion-actions,
       body.stage-full-window #renderer-status,
       body.stage-full-window #status,
+      body.stage-full-window #fps-status,
       body.stage-full-window #pointer-status { display: none; }
       body.stage-full-window .scene-column { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100vh; }
       body.stage-full-window #stage { position: fixed; inset: 0; z-index: 1; width: 100vw; height: 100vh; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; }
@@ -278,6 +280,7 @@
         <div class="scene-column">
           <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
           <p id="status" aria-live="polite"></p>
+          <p id="fps-status" aria-live="off">FPS: detecting…</p>
           <p id="pointer-status" data-pointer-state='{"status":"not-observed"}'>Pointer: not observed yet</p>
           <div id="stage" aria-label="Card stage">
             <button id="full-window-control" type="button" aria-pressed="false">Full window</button>
@@ -342,6 +345,7 @@
       const stage = document.querySelector("#stage");
       const rendererStatus = document.querySelector("#renderer-status");
       const status = document.querySelector("#status");
+      const fpsStatus = document.querySelector("#fps-status");
       const pointerStatus = document.querySelector("#pointer-status");
       const fullWindowControl = document.querySelector("#full-window-control");
       const setFullWindow = (enabled) => {
@@ -354,7 +358,7 @@
         if (event.key === "Escape" && document.body.classList.contains("stage-full-window")) setFullWindow(false);
       });
       sceneColumn.prepend(toolbar);
-      sceneColumn.append(stage, rendererStatus, status, pointerStatus);
+      sceneColumn.append(stage, rendererStatus, status, fpsStatus, pointerStatus);
       controlPanel.remove();
     </script>
     <script type="importmap">

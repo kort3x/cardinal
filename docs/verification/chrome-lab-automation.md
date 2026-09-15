@@ -30,7 +30,8 @@ after the run; it never moves or resizes that window. Set
 The current `elements` scenario covers hide/show, remove, add, edit, reorder,
 overlay, preserve-space, repeated image instances, multi-card element changes,
 pointer hit testing, and element changes during movement and flipping. The
-`layout` scenario verifies the full-width element editors, compact actions, and
+scenario also verifies that the lab's live FPS readout is present. The `layout`
+scenario verifies the full-width element editors, compact actions, and
 the usable element rail, model dropdown alignment, scale presets, and bundled
 background presets. The acceptance scenario covers combined motion, edge-on
 orientation, reduced motion, and scale transitions at 100%, 150%, and 200%.

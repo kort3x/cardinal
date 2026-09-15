@@ -3,6 +3,7 @@ import { createCardScene } from "../../packages/card-engine/src/index.js";
 const stage = document.querySelector("#stage");
 const rendererStatus = document.querySelector("#renderer-status");
 const status = document.querySelector("#status");
+const fpsStatus = document.querySelector("#fps-status");
 const pointerStatus = document.querySelector("#pointer-status");
 const cardList = document.querySelector("#card-list");
 const addCardButton = document.querySelector("#add-card");
@@ -50,6 +51,22 @@ const backgroundPresets = Object.freeze({
 const LAB_CAMERA_CENTER = Object.freeze({ x: 450, y: 250 });
 const LAB_CAMERA_UNITS_PER_PIXEL = 1;
 const LAB_ZONE_GEOMETRY = Object.freeze({ x: -250, y: -200, width: 1400, height: 900, depth: 0 });
+
+let fpsFrameCount = 0;
+let fpsWindowStart = performance.now();
+function updateFps(now) {
+  fpsFrameCount += 1;
+  const elapsed = now - fpsWindowStart;
+  if (elapsed >= 500) {
+    const fps = fpsFrameCount * 1000 / elapsed;
+    fpsStatus.textContent = `FPS: ${fps.toFixed(0)}`;
+    fpsStatus.dataset.fps = fps.toFixed(1);
+    fpsFrameCount = 0;
+    fpsWindowStart = now;
+  }
+  requestAnimationFrame(updateFps);
+}
+requestAnimationFrame(updateFps);
 
 const logicalFaceDefinitions = [
   {
