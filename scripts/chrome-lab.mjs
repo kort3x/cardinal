@@ -6,6 +6,13 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
+const inputScenarios = {
+  "mobile-scale": async (options) => (await import("./chrome-mobile-scale.mjs")).runMobileScaleScenario(options),
+  drag: async (options) => (await import("./chrome-drag-scenario.mjs")).runDragScenario(options),
+  "drag-geometry": async (options) => (await import("./chrome-drag-geometry.mjs")).runDragGeometryScenario(options),
+  "drag-performance": async (options) => (await import("./chrome-drag-performance.mjs")).runDragPerformanceScenario(options),
+};
+
 const args = new Set(process.argv.slice(2));
 const scenarioIndex = process.argv.indexOf("--scenario");
 const scenario = scenarioIndex === -1 ? "elements" : process.argv[scenarioIndex + 1];
@@ -20,7 +27,7 @@ if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid Chrome port: 
 if (typeof WebSocket !== "function") {
   throw new Error("Chrome automation requires Node 22+ with the built-in WebSocket API");
 }
-if (scenario !== "elements" && scenario !== "acceptance" && scenario !== "layout" && scenario !== "resize" && scenario !== "movement" && scenario !== "random" && scenario !== "spin-state" && scenario !== "performance" && scenario !== "random-performance" && scenario !== "diagnostics" && scenario !== "zones" && scenario !== "main-zones") throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
+if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "performance", "random-performance", "diagnostics", "zones", "main-zones", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -356,6 +363,8 @@ const layoutScenario = String.raw`(async () => {
       && child.right <= container.right + tolerance);
   };
   const elementsPanel = document.querySelector(".elements-group");
+  const elementsDefaultCollapsed = elementsPanel?.open === false;
+  elementsPanel.open = true;
   const stage = document.querySelector("#stage");
   const rows = [...document.querySelectorAll("#element-list .element-row")];
   record("WebGL lab is visible", () => document.querySelector("#renderer-status")?.textContent.includes("Three.js WebGL"));
@@ -408,6 +417,22 @@ const layoutScenario = String.raw`(async () => {
   });
   record("scale presets stay compact", () => document.querySelectorAll('[data-scale]').length === 5
     && [...document.querySelectorAll('[data-scale]')].map((button) => button.textContent.trim()).join(",") === "25%,50%,100%,150%,200%");
+  const speedLayout = (() => {
+    const toolbar = document.querySelector(".motion-actions");
+    const speed = document.querySelector("#motion-speed-control");
+    const firstButton = toolbar?.querySelector("button");
+    const speedRect = rect(speed);
+    const buttonRect = rect(firstButton);
+    return {
+      inToolbar: speed?.parentElement === toolbar,
+      isFirst: toolbar?.firstElementChild === speed,
+      speedHeight: speedRect?.height,
+      buttonHeight: buttonRect?.height,
+      heightMatch: speedRect && buttonRect && Math.abs(speedRect.height - buttonRect.height) <= 2,
+    };
+  })();
+  record("target speed is the first button-sized stage control", () => speedLayout.inToolbar
+    && speedLayout.isFirst && speedLayout.heightMatch);
   const cardActions = document.querySelector(".cards-sidebar .presets");
   const cardList = document.querySelector("#card-list");
   const spawnZone = document.querySelector("#spawn-zone");
@@ -430,6 +455,41 @@ const layoutScenario = String.raw`(async () => {
     && Math.abs(addedTop - actionsTop) <= 1
     && Math.abs(removedTop - actionsTop) <= 1
     && spawnedInArchive);
+  record("lab logo sits above the Cards toolbox corner", () => {
+    const cardsGroup = document.querySelector(".cards-sidebar > .control-group");
+    const logo = document.querySelector(".lab-header .lab-logo");
+    const logoRect = logo?.getBoundingClientRect();
+    const cardsRect = cardsGroup?.getBoundingClientRect();
+    return Boolean(logo) && logo.getAttribute("alt")?.includes("lab logo")
+      && getComputedStyle(logo).pointerEvents === "none"
+      && logoRect && cardsRect && logoRect.bottom >= cardsRect.top - 1
+      && logoRect.left <= cardsRect.left + 2;
+  });
+  const transferButtons = [...document.querySelectorAll(".zone-actions [data-transfer-zone]")];
+  record("send-to-zone buttons follow stage order and colors", () =>
+    transferButtons.map((button) => button.textContent.trim()).join(",") === "Lake,River,Ocean"
+    && transferButtons.every((button) => {
+      const zone = document.querySelector("#zone-" + button.dataset.transferZone + " span");
+      return zone && getComputedStyle(button).color === getComputedStyle(zone).color;
+    }));
+  const toolboxes = [...document.querySelectorAll(".lab-workspace details.control-group")];
+  const cardsBox = toolboxes.find((box) => box.querySelector(":scope > summary")?.textContent.trim() === "Cards");
+  record("control boxes are keyboard-accessible collapsible panels", () => {
+    const initiallyOpen = toolboxes.filter((box) => box.open).map((box) => box.querySelector(":scope > summary")?.textContent.trim());
+    const summaryRect = cardsBox?.querySelector(":scope > summary")?.getBoundingClientRect();
+    const cardsRect = cardsBox?.getBoundingClientRect();
+    cardsBox?.querySelector(":scope > summary")?.click();
+    const collapsed = cardsBox?.open === false;
+    cardsBox?.querySelector(":scope > summary")?.click();
+    return toolboxes.length === 11 && initiallyOpen.join(",") === "Cards,Zones,Elements"
+      && elementsDefaultCollapsed && collapsed && cardsBox?.open === true
+      && summaryRect && cardsRect && summaryRect.width >= cardsRect.width - 2;
+  });
+  const railTitles = (rail) => [...rail.querySelectorAll(":scope > details.control-group > summary")].map((summary) => summary.textContent.trim());
+  record("toolboxes follow the scene-and-card workflow order", () =>
+    railTitles(document.querySelector(".cards-sidebar")).join(",") === "Cards,Zones,Drag"
+    && railTitles(document.querySelector(".elements-sidebar")).join(",") === "Scale,Shape,Dimensions,Move,Rotate,Flip,Logical faces,Elements");
+  record("collapsing panels reserves stable scrollbar space", () => getComputedStyle(document.documentElement).scrollbarGutter.includes("stable"));
   const fullWindowControl = document.querySelector("#full-window-control");
   fullWindowControl?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -454,7 +514,7 @@ const layoutScenario = String.raw`(async () => {
   document.querySelector("#animation-test")?.click();
   await new Promise((resolve) => setTimeout(resolve, 10200));
   record("ten-second animation test settles", () => document.querySelector("#animation-test")?.disabled === false
-    && document.querySelector("#animation-test")?.textContent === "Animation test · 10s"
+    && document.querySelector("#animation-test")?.textContent === "Test"
     && document.querySelector("#status")?.textContent.includes("x 450 · y 250")
     && document.querySelector("#status")?.textContent.includes("angle 0°")
     && document.querySelector("#status")?.textContent.includes("scale 1.00")
@@ -546,6 +606,7 @@ const movementScenario = String.raw`(async () => {
   const stage = document.querySelector("#stage");
   const moveX = document.querySelector("#move-x");
   const moveY = document.querySelector("#move-y");
+  const motionSpeed = document.querySelector("#motion-speed");
   const cameraCenter = { x: 450, y: 250 };
   const visibleWorld = () => ({
     left: cameraCenter.x - stage.clientWidth / 2,
@@ -557,6 +618,7 @@ const movementScenario = String.raw`(async () => {
     x: { min: moveX?.min, max: moveX?.max },
     y: { min: moveY?.min, max: moveY?.max },
     visible: visibleWorld(),
+    status: document.querySelector("#status")?.textContent,
   }});
   const setRange = (input, value) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, String(value));
@@ -570,9 +632,17 @@ const movementScenario = String.raw`(async () => {
       && Number(moveY?.min) <= Math.floor(world.top)
       && Number(moveY?.max) >= Math.ceil(world.bottom);
   });
-  setRange(moveX, moveX.max);
-  await new Promise((resolve) => setTimeout(resolve, 850));
-  record("card reaches the visible right edge", () => document.querySelector("#status")?.textContent.includes("x " + moveX.max));
+  record("target speed control is available", () => motionSpeed?.min === "0.25"
+    && motionSpeed?.max === "2" && document.querySelector("#motion-speed-value")?.textContent === "1×");
+  setRange(motionSpeed, 2);
+  document.querySelector('button[data-move-preset="right"]')?.click();
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  record("fast target movement settles sooner", () => document.querySelector("#status")?.textContent.includes("stable"));
+  setRange(motionSpeed, 0.25);
+  document.querySelector('button[data-move-preset="left"]')?.click();
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  record("slow target movement remains animated longer", () => document.querySelector("#status")?.textContent.includes("animating")
+    && document.querySelector("#status")?.textContent.includes("x "));
   return { ok: results.every((result) => result.pass), results };
 })()`;
 
@@ -855,7 +925,13 @@ const mainZonesScenario = String.raw`(async () => {
   const zoneText = (id) => zoneRow(id)?.textContent ?? '';
   await sleep(800);
   record('main lab exposes three integrated zones', document.querySelectorAll('#zone-list .zone-row').length === 3 && zoneText('reserve').includes('1 card'));
-  for (let index = 0; index < 5; index += 1) document.querySelector('#add-card').click();
+  for (let index = 0; index < 2; index += 1) document.querySelector('#add-card').click();
+  await sleep(200);
+  record('the first three cards spawn in River by default', zoneText('reserve').includes('3 cards') && zoneText('workbench').includes('0 cards'));
+  document.querySelector('#add-card').click();
+  await sleep(200);
+  record('cards after the first three spawn in Lake by default', zoneText('reserve').includes('3 cards') && zoneText('archive').includes('1 card') && document.querySelector('#spawn-zone').value === 'archive');
+  for (let index = 0; index < 2; index += 1) document.querySelector('#add-card').click();
   document.querySelector('#select-all').click();
   document.querySelector('[data-transfer-zone="archive"]').click();
   await sleep(900);
@@ -889,7 +965,7 @@ async function run() {
     const target = chrome.targets.find((candidate) => candidate.type === "page");
     if (!target) throw new Error("Chrome did not expose a page target");
     connection = connect(target);
-    if (headless) {
+    if (headless && chrome.process) {
       await connection.command("Emulation.setDeviceMetricsOverride", {
         width: 2515,
         height: 1322,
@@ -901,28 +977,43 @@ async function run() {
     }
     await connection.command("Page.navigate", { url: scenario === "zones" ? new URL('/examples/card-engine-lab/zones.html', labUrl).href : labUrl });
     await delay(1200);
-    const evaluation = await connection.command("Runtime.evaluate", {
-      expression: scenario === "elements" ? elementScenario
-        : scenario === "layout" ? layoutScenario
-          : scenario === "resize" ? resizeScenario
-              : scenario === "movement" ? movementScenario
-              : scenario === "random" ? randomScenario
-              : scenario === "spin-state" ? spinStateScenario
-              : scenario === "performance" ? performanceScenario
-              : scenario === "random-performance" ? randomPerformanceScenario
-              : scenario === "diagnostics" ? diagnosticsScenario
-              : scenario === "zones" ? zonesScenario
-              : scenario === "main-zones" ? mainZonesScenario
-              : acceptanceScenario,
-      awaitPromise: true,
-      returnByValue: true,
-    });
-    if (evaluation.exceptionDetails) throw new Error(evaluation.exceptionDetails.text ?? "Chrome lab scenario threw");
-    const report = evaluation.result?.value;
+    const report = inputScenarios[scenario]
+      ? await inputScenarios[scenario]({ command: connection.command })
+      : await (async () => {
+        const evaluation = await connection.command("Runtime.evaluate", {
+          expression: scenario === "elements" ? elementScenario
+            : scenario === "layout" ? layoutScenario
+              : scenario === "resize" ? resizeScenario
+                  : scenario === "movement" ? movementScenario
+                  : scenario === "random" ? randomScenario
+                  : scenario === "spin-state" ? spinStateScenario
+                  : scenario === "performance" ? performanceScenario
+                  : scenario === "random-performance" ? randomPerformanceScenario
+                  : scenario === "diagnostics" ? diagnosticsScenario
+                  : scenario === "zones" ? zonesScenario
+                  : scenario === "main-zones" ? mainZonesScenario
+                  : acceptanceScenario,
+          awaitPromise: true,
+          returnByValue: true,
+        });
+        if (evaluation.exceptionDetails) throw new Error(evaluation.exceptionDetails.text ?? "Chrome lab scenario threw");
+        return evaluation.result?.value;
+      })();
     for (const result of report?.results ?? []) {
-      console.log(`${result.pass ? "PASS" : "FAIL"} ${result.label}: ${result.status}`);
+      const marker = result.skipped ? "SKIP" : result.pass ? "PASS" : "FAIL";
+      console.log(`${marker} ${result.label}: ${result.status ?? result.error ?? ""}`);
       if (!result.pass && result.pointer) console.log(`  pointer: ${JSON.stringify(result.pointer)}`);
       if (!result.pass && result.details) console.log(`  details: ${JSON.stringify(result.details)}`);
+      if (result.skipped && result.details?.reason) console.log(`  reason: ${result.details.reason}`);
+    }
+    if (inputScenarios[scenario] && report?.environment) {
+      console.log(`Chrome ${scenario} environment: ${JSON.stringify(report.environment)}`);
+    }
+    if (inputScenarios[scenario] && report?.measurementNotes) {
+      console.log(`Chrome ${scenario} measurement notes: ${JSON.stringify(report.measurementNotes)}`);
+    }
+    if (inputScenarios[scenario] && report?.measurements) {
+      console.log(`Chrome ${scenario} measurements: ${JSON.stringify(report.measurements)}`);
     }
     if (!report || report.ok !== true) throw new Error("Chrome lab scenario failed");
     if (report.measurements?.inputLatencyMs !== undefined) console.log(`Chrome measurements: input latency ${report.measurements.inputLatencyMs.toFixed(2)} ms · landing delta ${report.measurements.landingDeltaPx.toFixed(0)} px`);

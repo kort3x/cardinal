@@ -8,11 +8,10 @@ Issues and specs live in GitHub Issues; use the `gh` CLI. See `docs/agents/issue
 
 This is a single-context repository. See `docs/agents/domain.md`.
 
-## Chrome lab verification
+## Browser testing
 
-Chrome is the dominant interactive browser for lab verification. When the user
-says “show me in Chrome”, run the relevant scenario through
-`npm run show:chrome -- --scenario <name>` and leave the visible Chrome window
-open so the user can inspect it. For repeatable checks use
-`npm run test:chrome`; this launches a temporary headless Chrome when no debug
-session is already available. The current checked-in scenario is `elements`.
+Before running, extending, diagnosing or reporting Chrome, Firefox or Safari
+tests, read the [browser testing runbook](docs/verification/browser-testing.md).
+It owns command selection, setup, window preservation, Safari interference,
+input helpers and evidence requirements. “Show me in Chrome” means a visible
+demonstration left open for inspection, not a headless substitute.

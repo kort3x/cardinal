@@ -19,18 +19,20 @@
         --lab-accent: #e5c07b;
         --lab-focus: #61afef;
         --lab-cyan: #56b6c2;
-        --lab-zone-archive: #b86b73;
-        --lab-zone-workbench: #5d88aa;
-        --lab-zone-reserve: #7f9f69;
+        --lab-zone-archive: #56b6c2;
+        --lab-zone-workbench: #61afef;
+        --lab-zone-reserve: #c678dd;
         color: var(--lab-text);
         background: var(--lab-bg);
         font-family: system-ui, sans-serif;
       }
+      html { scrollbar-gutter: stable; }
+      html.stage-full-window { scrollbar-gutter: auto; }
       body { margin: 0; min-height: 100vh; }
-      main { width: min(2500px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 40px; }
-      .lab-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+      main { width: min(2500px, calc(100% - 32px)); margin: 0 auto; padding: 12px 0 40px; }
+      .lab-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 96px; }
       .lab-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-      .lab-logo { display: block; width: 72px; height: 72px; flex: 0 0 auto; object-fit: contain; }
+      .lab-logo { display: block; position: relative; z-index: 3; width: 96px; height: 96px; flex: 0 0 auto; object-fit: contain; transform: translateY(22px); pointer-events: none; }
       .lab-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px 14px; min-width: 0; }
       .lab-title p { margin: 0; }
       h1 { margin: 0; }
@@ -39,21 +41,43 @@
       p { color: var(--lab-muted); }
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
       button, label, select { border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); padding: 9px 12px; color: var(--lab-text); background: var(--lab-panel); font: inherit; }
+      .motion-actions > button { height: 39px; box-sizing: border-box; }
+      .motion-actions .motion-speed-control { display: inline-flex; align-self: stretch; align-items: center; gap: 8px; min-width: 190px; height: 39px; box-sizing: border-box; margin: 0; padding: 9px 12px; }
+      .motion-actions .motion-speed-control input[type="range"] { width: 82px; margin: 0; accent-color: var(--lab-accent); }
+      .motion-actions .motion-speed-control output { min-width: 2.5em; color: var(--lab-accent); text-align: right; white-space: nowrap; }
       button { cursor: pointer; }
       button:hover, button:focus-visible { border-color: var(--lab-focus); }
       button[aria-pressed="true"], label:has(> input[type="checkbox"]:checked) { border-color: var(--lab-accent); background: #3a3429; color: var(--lab-accent); box-shadow: 0 0 0 1px rgb(229 192 123 / 25%); }
+      #add-card { border-color: var(--lab-accent); background: #3a3429; color: var(--lab-accent); }
       input[type="checkbox"] { accent-color: var(--lab-accent); }
       label { display: inline-flex; align-items: center; gap: 8px; }
       .control-panel { display: none; }
       .control-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
       .control-group { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); background: var(--lab-bg-deep); }
-      .control-group legend { padding: 0 6px; color: var(--lab-accent); font-weight: 700; }
+      .control-group > summary { display: flex; align-items: center; min-height: 20px; box-sizing: border-box; margin: -12px; padding: 12px; color: var(--lab-accent); font-weight: 700; cursor: pointer; user-select: none; }
+      .control-group[open] > summary { margin-bottom: 10px; }
+      .control-group > summary::marker { color: var(--lab-accent); }
       .control-group p { margin: 10px 0 0; font-size: 0.9rem; }
       .control-row { display: grid; grid-template-columns: 34px minmax(90px, 1fr) max-content; align-items: center; gap: 8px; margin: 7px 0; }
       .control-row input[type="range"] { width: 100%; accent-color: var(--lab-accent); }
       .control-row.select-row { grid-template-columns: max-content minmax(0, 1fr); }
       .control-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
+      #spawn-zone[data-zone-id="archive"] { color: var(--lab-zone-archive); border-color: var(--lab-zone-archive); }
+      #spawn-zone[data-zone-id="workbench"] { color: var(--lab-zone-workbench); border-color: var(--lab-zone-workbench); }
+      #spawn-zone[data-zone-id="reserve"] { color: var(--lab-zone-reserve); border-color: var(--lab-zone-reserve); }
+      #spawn-zone option[data-zone-id="archive"] { color: var(--lab-zone-archive); }
+      #spawn-zone option[data-zone-id="workbench"] { color: var(--lab-zone-workbench); }
+      #spawn-zone option[data-zone-id="reserve"] { color: var(--lab-zone-reserve); }
       .control-row output { min-width: 4.5em; color: var(--lab-accent); text-align: right; white-space: nowrap; }
+      .drag-group .control-row { margin: 5px 0; }
+      .drag-group .toggle-row { grid-template-columns: minmax(0, 1fr) max-content; }
+      .drag-group .toggle-row input { margin: 0; accent-color: var(--lab-accent); }
+      .drag-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+      .drag-actions button { min-width: 0; padding: 6px 8px; }
+      #interaction-status { min-height: 2.7em; margin: 8px 0 0; color: var(--lab-accent); }
+      #drag-help { margin-top: 8px; color: var(--lab-muted); font-size: 0.82rem; }
+      #drag-help summary { cursor: pointer; color: var(--lab-focus); }
+      #drag-help p { margin: 6px 0 0; }
       .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; color: var(--lab-muted); font-size: 0.9rem; }
       .presets button { padding: 6px 8px; font-size: 0.9rem; }
       #card-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -89,6 +113,9 @@
       .zone-row[data-zone-id="reserve"] .zone-name { color: var(--lab-zone-reserve); }
       .zone-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
       .zone-actions button { min-width: 0; padding-inline: 7px; }
+      .zone-actions button[data-transfer-zone="archive"] { color: var(--lab-zone-archive); border-color: var(--lab-zone-archive); }
+      .zone-actions button[data-transfer-zone="workbench"] { color: var(--lab-zone-workbench); border-color: var(--lab-zone-workbench); }
+      .zone-actions button[data-transfer-zone="reserve"] { color: var(--lab-zone-reserve); border-color: var(--lab-zone-reserve); }
       .zone-row { grid-template-columns: minmax(0, 1fr) max-content max-content; }
       .zone-row button { padding: 4px 6px; font-size: 0.8rem; }
       .cards-sidebar .presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -109,11 +136,11 @@
       #stage { position: relative; width: 100%; height: min(1100px, calc(100vh - 330px)); min-height: 500px; margin: 0; border: 1px solid var(--lab-border); border-radius: 8px; background: radial-gradient(circle at 50% 35%, #323842, var(--lab-bg-deep) 70%); overflow: hidden; }
       .lab-zone-anchor { position: absolute; z-index: 1; box-sizing: border-box; border: 1px dashed; border-radius: 3px; pointer-events: none; }
       .lab-zone-anchor span { position: absolute; left: 8px; bottom: 8px; display: inline-block; padding: 2px 5px; background: rgb(33 37 43 / 88%); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
-      #zone-archive { inset: 18px auto 18px 18px; width: 30%; border-color: rgb(184 107 115 / 68%); background: transparent; }
+      #zone-archive { inset: 18px auto 18px 18px; width: 30%; border-color: rgb(86 182 194 / 68%); background: transparent; }
       #zone-archive span { color: var(--lab-zone-archive); }
-      #zone-workbench { inset: 18px 18px 18px auto; width: 30%; border-color: rgb(93 136 170 / 68%); background: transparent; }
+      #zone-workbench { inset: 18px 18px 18px auto; width: 30%; border-color: rgb(97 175 239 / 68%); background: transparent; }
       #zone-workbench span { color: var(--lab-zone-workbench); }
-      #zone-reserve { left: 33%; bottom: 18px; width: 34%; height: 40%; border-color: rgb(127 159 105 / 68%); background: transparent; }
+      #zone-reserve { left: 33%; bottom: 18px; width: 34%; height: 40%; border-color: rgb(198 120 221 / 68%); background: transparent; }
       #zone-reserve span { color: var(--lab-zone-reserve); }
       .lab-zone-anchor[hidden] { display: none; }
       #full-window-control { background: rgb(33 37 43 / 90%); }
@@ -155,6 +182,8 @@
       @media (max-width: 640px) {
         .lab-workspace { grid-template-columns: 1fr; }
         .elements-sidebar { grid-column: auto; }
+        .lab-header { align-items: flex-start; }
+        .lab-logo { width: 72px; height: 72px; transform: translateY(18px); }
       }
     </style>
   </head>
@@ -171,20 +200,20 @@
         <a class="zones-link" href="/examples/card-engine-lab/zones.html">Zones lab <span aria-hidden="true">↗</span></a>
       </div>
       <div class="toolbar motion-actions" aria-label="Animated card actions">
-        <button id="move">Animate move</button>
-        <button id="rotate">Animate rotate</button>
-        <button id="scale">Animate scale</button>
-        <button id="flip">Animate flip</button>
-        <button id="spin" type="button" aria-pressed="false">Spin in place</button>
-        <button id="combined">Run together · full spin</button>
-        <button id="random" type="button" aria-pressed="false">Random motion</button>
-        <button id="animation-test" type="button">Animation test · 10s</button>
+        <button id="move">Move</button>
+        <button id="rotate">Rotate</button>
+        <button id="scale">Scale</button>
+        <button id="flip">Flip</button>
+        <button id="spin" type="button" aria-pressed="false">Spin</button>
+        <button id="combined">Demo</button>
+        <button id="random" type="button" aria-pressed="false">Random</button>
+        <button id="animation-test" type="button">Test</button>
         <button id="reduced" type="button" aria-pressed="false">Reduced motion</button>
       </div>
       <section class="control-panel" aria-label="Card controls">
         <div class="control-section" aria-label="Card model controls">
-          <fieldset class="control-group">
-            <legend>Shape</legend>
+          <details class="control-group">
+            <summary>Shape</summary>
             <label class="control-row select-row" for="shape">
               <span>Profile</span>
               <select id="shape" aria-label="Card shape">
@@ -192,10 +221,10 @@
                 <option value="shield">Shield</option>
               </select>
             </label>
-          </fieldset>
+          </details>
 
-          <fieldset class="control-group">
-            <legend>Logical faces</legend>
+          <details class="control-group">
+            <summary>Logical faces</summary>
             <label class="control-row select-row" for="face-count">
               <span>Count</span>
               <select id="face-count" aria-label="Number of logical faces">
@@ -207,10 +236,10 @@
               </select>
             </label>
             <p>One physical back · front cycle: A → … → A</p>
-          </fieldset>
+          </details>
 
-          <fieldset class="control-group">
-            <legend>Dimensions</legend>
+          <details class="control-group">
+            <summary>Dimensions</summary>
             <label class="control-row select-row" for="card-sizing">
               <span>Sizing</span>
               <select id="card-sizing" aria-label="Card sizing mode">
@@ -234,13 +263,13 @@
               <output id="card-thickness-value" for="card-thickness">6</output>
             </label>
             <p>Auto height follows visible flow elements; fixed size uses the width and height sliders. Depth changes the physical cuboid and stack separation.</p>
-          </fieldset>
+          </details>
 
         </div>
 
         <div class="control-section" aria-label="Motion controls">
-          <fieldset class="control-group">
-            <legend>Move</legend>
+          <details class="control-group">
+            <summary>Move</summary>
           <label class="control-row" for="move-x">
             <span>X</span>
             <input id="move-x" type="range" min="100" max="800" step="1" value="450" aria-describedby="move-x-value">
@@ -258,10 +287,15 @@
             <button type="button" data-move-preset="top">Top</button>
             <button type="button" data-move-preset="bottom">Bottom</button>
           </div>
-          </fieldset>
+          <label id="motion-speed-control" class="control-row motion-speed-control" for="motion-speed">
+            <span>Speed</span>
+            <input id="motion-speed" type="range" min="0.25" max="2" step="0.25" value="1" aria-describedby="motion-speed-value">
+            <output id="motion-speed-value" for="motion-speed">1×</output>
+          </label>
+          </details>
 
-          <fieldset class="control-group">
-            <legend>Rotate</legend>
+          <details class="control-group">
+            <summary>Rotate</summary>
           <label class="control-row" for="rotate-slider">
             <span>Angle</span>
             <input id="rotate-slider" type="range" min="-180" max="180" step="1" value="0" aria-describedby="rotate-value">
@@ -274,10 +308,10 @@
             <button type="button" data-rotate="180">180°</button>
             <button type="button" data-rotate="-45">-45°</button>
           </div>
-          </fieldset>
+          </details>
 
-          <fieldset class="control-group">
-            <legend>Scale</legend>
+          <details class="control-group">
+            <summary>Scale</summary>
           <label class="control-row" for="scale-slider">
             <span>Size</span>
             <input id="scale-slider" type="range" min="0.25" max="2" step="0.01" value="1" aria-describedby="scale-value">
@@ -290,10 +324,10 @@
             <button type="button" data-scale="1.5">150%</button>
             <button type="button" data-scale="2">200%</button>
           </div>
-          </fieldset>
+          </details>
 
-          <fieldset class="control-group">
-            <legend>Flip</legend>
+          <details class="control-group">
+            <summary>Flip</summary>
           <label class="control-row" for="flip-axis">
             <span>Spin</span>
             <select id="flip-axis" aria-label="Spin axis">
@@ -316,13 +350,13 @@
             <button type="button" data-flip="0">Face up</button>
             <button type="button" data-flip="1">Face down</button>
           </div>
-          </fieldset>
+          </details>
         </div>
       </section>
       <section class="lab-workspace" aria-label="Card scene workspace">
         <aside class="side-controls cards-sidebar" aria-label="Left control rail">
-          <fieldset class="control-group">
-            <legend>Cards</legend>
+          <details class="control-group" open>
+            <summary>Cards</summary>
             <div class="presets">
               <button id="add-card" type="button">Add</button>
               <button id="remove-cards" type="button">Remove</button>
@@ -331,17 +365,55 @@
             </div>
             <label class="control-row select-row" for="spawn-zone">
               <span>Spawn in</span>
-              <select id="spawn-zone" aria-label="Zone for new cards">
-                <option value="archive">Archive</option>
-                <option value="reserve" selected>Reserve</option>
-                <option value="workbench">Workbench</option>
+              <select id="spawn-zone" aria-label="Zone for new cards" data-zone-id="reserve">
+                <option value="archive" data-zone-id="archive">Lake</option>
+                <option value="workbench" data-zone-id="workbench">Ocean</option>
+                <option value="reserve" data-zone-id="reserve" selected>River</option>
               </select>
             </label>
             <div id="card-list" role="group" aria-label="Cards in the lab"></div>
             <p id="selection-status" aria-live="polite"></p>
-          </fieldset>
-          <fieldset class="control-group" id="zones-group">
-            <legend>Zones</legend>
+          </details>
+          <details class="control-group drag-group">
+            <summary>Drag</summary>
+            <label class="control-row toggle-row" for="drag-enabled">
+              <span>Enable dragging</span>
+              <input id="drag-enabled" type="checkbox" checked>
+            </label>
+            <label class="control-row toggle-row" for="drag-touch">
+              <span>Touch drag</span>
+              <input id="drag-touch" type="checkbox">
+            </label>
+            <label class="control-row select-row" for="drag-denied-zone">
+              <span>Deny zone</span>
+              <select id="drag-denied-zone" aria-label="Denied drag destination">
+                <option value="" selected>None</option>
+                <option value="archive">Lake</option>
+                <option value="workbench">Ocean</option>
+                <option value="reserve">River</option>
+              </select>
+            </label>
+            <label class="control-row select-row" for="drag-response">
+              <span>Response</span>
+              <select id="drag-response" aria-label="Drag drop response mode">
+                <option value="immediate" selected>Immediate accept</option>
+                <option value="reject">Immediate reject</option>
+                <option value="delay">Delayed accept</option>
+                <option value="manual">Manual approval</option>
+              </select>
+            </label>
+            <div class="drag-actions" aria-label="Pending drop approval">
+              <button id="drag-accept" type="button" disabled hidden>Accept</button>
+              <button id="drag-reject" type="button" disabled hidden>Reject</button>
+            </div>
+            <p id="interaction-status" role="status" aria-live="polite">Drag ready. Use Space or pointer input to pick up a card.</p>
+            <details id="drag-help">
+              <summary>Keyboard help</summary>
+              <p>Focus a card, then Space to pick it up. Use Arrow keys to choose a slot, Tab to change zones, Enter or Space to drop, and Escape to cancel.</p>
+            </details>
+          </details>
+          <details class="control-group" id="zones-group" open>
+            <summary>Zones</summary>
             <div id="zone-list" role="list" aria-label="Zones in the lab"></div>
             <label class="control-row select-row" for="zone-slot">
               <span>Slot</span>
@@ -350,12 +422,12 @@
               </select>
             </label>
             <div class="zone-actions">
-              <button type="button" data-transfer-zone="archive">Archive</button>
-              <button type="button" data-transfer-zone="reserve">Reserve</button>
-              <button type="button" data-transfer-zone="workbench">Workbench</button>
+              <button type="button" data-transfer-zone="archive">Lake</button>
+              <button type="button" data-transfer-zone="reserve">River</button>
+              <button type="button" data-transfer-zone="workbench">Ocean</button>
             </div>
             <p>Zones own membership and grid placement. Anchored zones follow the stage as it resizes.</p>
-          </fieldset>
+          </details>
         </aside>
         <div class="scene-column">
           <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
@@ -376,14 +448,14 @@
             <button id="full-window-control" type="button" aria-pressed="false">Full window</button>
           </div>
           <div id="stage" aria-label="Card stage">
-            <div id="zone-archive" class="lab-zone-anchor" data-zone-id="archive"><span>Archive</span></div>
-            <div id="zone-workbench" class="lab-zone-anchor" data-zone-id="workbench"><span>Workbench</span></div>
-            <div id="zone-reserve" class="lab-zone-anchor" data-zone-id="reserve"><span>Reserve</span></div>
+            <div id="zone-archive" class="lab-zone-anchor" data-zone-id="archive"><span>Lake</span></div>
+            <div id="zone-workbench" class="lab-zone-anchor" data-zone-id="workbench"><span>Ocean</span></div>
+            <div id="zone-reserve" class="lab-zone-anchor" data-zone-id="reserve"><span>River</span></div>
           </div>
         </div>
         <aside class="side-controls elements-sidebar" aria-label="Right control rail">
-          <fieldset class="control-group">
-            <legend>Elements</legend>
+          <details class="control-group">
+            <summary>Elements</summary>
             <div id="element-list" aria-live="polite"></div>
             <div class="presets">
               <label for="element-type">Add:</label>
@@ -417,7 +489,7 @@
               <button id="apply-background" type="button">Apply background</button>
             </div>
             <p>Elements belong to the selected cards’ active logical face. Reorder changes flow order; overlay elements use normalized position.</p>
-          </fieldset>
+          </details>
         </aside>
       </section>
     </main>
@@ -429,14 +501,24 @@
       const motionControls = controlPanel.querySelector('[aria-label="Motion controls"]');
       const leftRail = document.querySelector(".cards-sidebar");
       const rightRail = document.querySelector(".elements-sidebar");
-      const group = (parent, title) => [...parent.querySelectorAll("fieldset")]
-        .find((candidate) => candidate.querySelector("legend")?.textContent.trim() === title);
+      const group = (parent, title) => [...parent.querySelectorAll("details.control-group")]
+        .find((candidate) => candidate.querySelector(":scope > summary")?.textContent.trim() === title);
       const elementsGroup = group(rightRail, "Elements");
+      const cardsGroup = group(leftRail, "Cards");
+      const zonesGroup = group(leftRail, "Zones");
+      const dragGroup = group(leftRail, "Drag");
+      const shapeGroup = group(modelControls, "Shape");
+      const facesGroup = group(modelControls, "Logical faces");
+      const dimensionsGroup = group(modelControls, "Dimensions");
+      const scaleGroup = group(motionControls, "Scale");
       elementsGroup.classList.add("elements-group");
-      leftRail.append(group(modelControls, "Shape"), group(modelControls, "Logical faces"), group(modelControls, "Dimensions"));
-      rightRail.append(group(motionControls, "Move"), group(motionControls, "Rotate"), group(motionControls, "Scale"), group(motionControls, "Flip"), elementsGroup);
+      leftRail.append(cardsGroup, zonesGroup, dragGroup);
+      rightRail.append(scaleGroup, shapeGroup, dimensionsGroup,
+        group(motionControls, "Move"), group(motionControls, "Rotate"), group(motionControls, "Flip"),
+        facesGroup, elementsGroup);
       const sceneColumn = document.querySelector(".scene-column");
       const toolbar = document.querySelector(".motion-actions");
+      const motionSpeedControl = document.querySelector("#motion-speed-control");
       const stage = document.querySelector("#stage");
       const rendererStatus = document.querySelector("#renderer-status");
       const status = document.querySelector("#status");
@@ -446,6 +528,7 @@
       const fullWindowControl = document.querySelector("#full-window-control");
       const setFullWindow = (enabled) => {
         document.body.classList.toggle("stage-full-window", enabled);
+        document.documentElement.classList.toggle("stage-full-window", enabled);
         fullWindowControl.setAttribute("aria-pressed", String(enabled));
         fullWindowControl.textContent = enabled ? "Exit full window" : "Full window";
       };
@@ -454,6 +537,7 @@
         if (event.key === "Escape" && document.body.classList.contains("stage-full-window")) setFullWindow(false);
       });
       sceneColumn.prepend(toolbar);
+      toolbar.prepend(motionSpeedControl);
       sceneColumn.append(stage, rendererStatus, status, fpsStatus, pointerStatus, diagnosticsPanel);
       controlPanel.remove();
     </script>

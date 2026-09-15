@@ -38,6 +38,8 @@ async function ensureLabServer() {
 }
 
 const stateExpression = `JSON.stringify({
+  environment: { innerWidth, innerHeight, outerWidth, outerHeight, screenX, screenY,
+    devicePixelRatio, userAgent: navigator.userAgent },
   renderer: document.querySelector("#renderer-status")?.textContent ?? "",
   status: document.querySelector("#status")?.textContent ?? "",
   shells: document.querySelectorAll(".cardinal-webgl-card").length,
@@ -47,7 +49,36 @@ const stateExpression = `JSON.stringify({
     visible: row.querySelector("input[type=checkbox]")?.checked,
     content: row.querySelector("input[type=text]")?.value ?? "",
   })),
+  interaction: globalThis.__cardinalGetScene?.()?.snapshot?.().interaction ?? { sessions: [] },
+  zones: globalThis.__cardinalGetScene?.()?.snapshot?.().desired?.zones ?? [],
 })`;
+
+const getSceneSetupExpression = `(async () => {
+  const module = await import("/examples/card-engine-lab/main.js");
+  globalThis.__cardinalGetScene = module.getScene;
+  return true;
+})()`;
+
+const scenePointExpression = (kind, zoneId) => `JSON.stringify((() => {
+  const scene = globalThis.__cardinalGetScene?.();
+  const snapshot = scene?.snapshot?.();
+  if (!scene || !snapshot) throw new Error("Cardinal scene is unavailable");
+  const point = ${kind === "card"
+    ? `snapshot.visual.find(({ cardId }) => cardId === snapshot.desired.cards[0]?.id)?.pose`
+    : `snapshot.zones.find(({ id }) => id === ${JSON.stringify(zoneId)})?.geometry`};
+  if (!point) throw new Error("Missing ${kind} drag point");
+  const scenePoint = ${kind === "card"
+    ? `{ x: point.x, y: point.y, z: point.z ?? 0 }`
+    : `{ x: point.x + point.width / 2, y: point.y + point.height / 2, z: point.depth ?? 0 }`};
+  return scene.sceneToClient(scenePoint);
+})())`;
+
+const focusCardExpression = (cardId) => `(() => {
+  const shell = document.querySelector(".cardinal-webgl-card[data-card-id=" + ${JSON.stringify(JSON.stringify(cardId))} + "]");
+  if (!shell) throw new Error("Missing keyboard card shell");
+  shell.focus();
+  return document.activeElement === shell;
+})()`;
 
 const setExpression = (selector, value, event = "input") => `(() => {
   const element = document.querySelector(${JSON.stringify(selector)});
@@ -60,12 +91,30 @@ const setExpression = (selector, value, event = "input") => `(() => {
 
 const clickExpression = (selector) => `document.querySelector(${JSON.stringify(selector)})?.click(); true`;
 
-async function acceptance(name, evaluate, navigate) {
+function zoneContainsCard(state, zoneId, cardId) {
+  return state.zones?.find(({ id }) => id === zoneId)?.cardIds?.includes(cardId) === true;
+}
+
+function interactionSession(state) {
+  return state.interaction?.sessions?.at(-1) ?? null;
+}
+
+async function acceptance(name, evaluate, navigate, actions, prepareScene) {
   await navigate(labUrl);
   await delay(1000);
+  await prepareScene();
   const checks = [];
-  const record = (label, value, predicate) => checks.push({ label, pass: Boolean(predicate(value)), status: value.status });
+  const record = (label, value, predicate) => {
+    const pass = Boolean(predicate(value));
+    checks.push({
+      label,
+      pass,
+      status: value.status,
+      ...(pass ? {} : { detail: { interaction: value.interaction, zones: value.zones } }),
+    });
+  };
   let state = await evaluate(stateExpression);
+  console.log(`${name} measured environment: ${JSON.stringify(state.environment)}`);
   record("baseline WebGL", state, (value) => value.renderer.includes("Three.js WebGL") && value.shells === 1);
 
   const moveTarget = await evaluate("Number(document.querySelector('#move-x')?.max || 760)");
@@ -164,7 +213,118 @@ async function acceptance(name, evaluate, navigate) {
   state = await evaluate(stateExpression);
   record("edit custom text", state, (value) => value.elements.some((element) => element.content === "Cross-browser text"));
 
+  // Start the interaction journey from a fresh, stable scene so the original
+  // 18 presentation checks above remain independent of input state.
+  await navigate(labUrl);
+  await delay(1000);
+  await prepareScene();
+  await delay(250);
+  state = await evaluate(stateExpression);
+  const cardId = state.zones.flatMap(({ cardIds }) => cardIds ?? [])[0] ?? "cardinal-demo";
+  const cardPoint = () => evaluate(scenePointExpression("card"));
+  const archivePoint = () => evaluate(scenePointExpression("zone", "archive"));
+  const workbenchPoint = () => evaluate(scenePointExpression("zone", "workbench"));
+
+  await evaluate(setExpression("#drag-denied-zone", "", "change"));
+  await actions.dragStart(await cardPoint(), await archivePoint(), 240);
+  await actions.up();
+  await actions.release();
+  await delay(850);
+  state = await evaluate(stateExpression);
+  record("pointer drag allowed transfer", state, (value) => zoneContainsCard(value, "archive", cardId)
+    && value.interaction.sessions.length === 0);
+
+  await evaluate(setExpression("#drag-denied-zone", "workbench", "change"));
+  await actions.dragStart(await cardPoint(), await workbenchPoint(), 240);
+  await delay(120);
+  state = await evaluate(stateExpression);
+  const deniedSession = interactionSession(state);
+  record("pointer drag exposes denied candidate", state, () => deniedSession?.candidate?.toZoneId === "workbench"
+    && deniedSession.candidate.allowed === false && Boolean(deniedSession.candidate.reason));
+  await actions.up();
+  await actions.release();
+  await delay(450);
+  state = await evaluate(stateExpression);
+  record("denied pointer transfer preserves membership", state, (value) => zoneContainsCard(value, "archive", cardId)
+    && value.interaction.sessions.length === 0);
+
+  await navigate(labUrl);
+  await delay(1000);
+  await prepareScene();
+  await delay(250);
+  await evaluate(setExpression("#drag-denied-zone", "", "change"));
+  if (!await evaluate(focusCardExpression(cardId))) throw new Error("Keyboard card shell did not receive focus");
+  await actions.keyPress(" ");
+  await delay(120);
+  state = await evaluate(stateExpression);
+  record("keyboard Space picks up a card", state, (value) => interactionSession(value)?.phase === "dragging");
+  await actions.keyPress("\uE00C");
+  await delay(220);
+  state = await evaluate(stateExpression);
+  record("keyboard Escape cancels without transfer", state, (value) => zoneContainsCard(value, "reserve", cardId)
+    && value.interaction.sessions.length === 0);
+
+  if (!await evaluate(focusCardExpression(cardId))) throw new Error("Keyboard card shell did not receive focus");
+  await actions.keyPress(" ");
+  await actions.keyPress("\uE004");
+  await actions.keyPress("\uE007");
+  await actions.release();
+  await delay(850);
+  state = await evaluate(stateExpression);
+  record("keyboard transfer uses the allowed destination", state, (value) => zoneContainsCard(value, "archive", cardId)
+    && value.interaction.sessions.length === 0);
+
   return { browser: name, ok: checks.every((check) => check.pass), checks };
+}
+
+function createWebDriverActions(perform, release) {
+  const pointerId = "cardinal-pointer";
+  const keyboardId = "cardinal-keyboard";
+  const pointer = (action) => perform([{
+    type: "pointer",
+    id: pointerId,
+    parameters: { pointerType: "mouse" },
+    actions: [action],
+  }]);
+  const pointerSequence = (actions) => perform([{
+    type: "pointer",
+    id: pointerId,
+    parameters: { pointerType: "mouse" },
+    actions,
+  }]);
+  const keyboard = (actions) => perform([{
+    type: "key",
+    id: keyboardId,
+    actions,
+  }]);
+  return {
+    dragStart(from, to, duration = 0) {
+      return pointerSequence([
+        { type: "pointerMove", x: Math.round(from.x), y: Math.round(from.y), duration: 0, origin: "viewport" },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerMove", x: Math.round(to.x), y: Math.round(to.y), duration, origin: "viewport" },
+      ]);
+    },
+    move(point, duration = 0) {
+      return pointer({
+        type: "pointerMove",
+        x: Math.round(point.x),
+        y: Math.round(point.y),
+        duration,
+        origin: "viewport",
+      });
+    },
+    down() {
+      return pointer({ type: "pointerDown", button: 0 });
+    },
+    up() {
+      return pointer({ type: "pointerUp", button: 0 });
+    },
+    keyPress(value) {
+      return keyboard([{ type: "keyDown", value }, { type: "keyUp", value }]);
+    },
+    release,
+  };
 }
 
 async function runFirefox() {
@@ -202,8 +362,12 @@ async function runFirefox() {
       const value = response.result.result.value;
       return typeof value === "string" && value.startsWith("{") ? JSON.parse(value) : value;
     };
+    const actions = createWebDriverActions(
+      (sources) => command("input.performActions", { context, actions: sources }),
+      () => command("input.releaseActions", { context }),
+    );
     const navigate = (url) => command("browsingContext.navigate", { context, url, wait: "complete" });
-    const report = await acceptance("Firefox 155.0.1", evaluate, navigate);
+    const report = await acceptance("Firefox 155.0.1", evaluate, navigate, actions, () => evaluate(getSceneSetupExpression));
     await command("session.end").catch(() => {});
     socket.close();
     return report;
@@ -232,8 +396,23 @@ async function runSafari() {
       const value = await command("/execute/sync", { method: "POST", body: JSON.stringify({ script: `return ${expression}`, args: [] }) });
       return typeof value === "string" && value.startsWith("{") ? JSON.parse(value) : value;
     };
+    const evaluateAsync = async (expression) => {
+      const value = await command("/execute/async", {
+        method: "POST",
+        body: JSON.stringify({
+          script: `const done = arguments[arguments.length - 1]; Promise.resolve(${expression}).then(done, (error) => done({ __cardinalError: error?.message || String(error) }));`,
+          args: [],
+        }),
+      });
+      if (value?.__cardinalError) throw new Error(value.__cardinalError);
+      return typeof value === "string" && value.startsWith("{") ? JSON.parse(value) : value;
+    };
+    const actions = createWebDriverActions(
+      (sources) => command("/actions", { method: "POST", body: JSON.stringify({ actions: sources }) }),
+      () => request(`/session/${session}/actions`, { method: "DELETE" }),
+    );
     const navigate = (url) => command("/url", { method: "POST", body: JSON.stringify({ url }) });
-    return await acceptance("Safari 26.6.2", evaluate, navigate);
+    return await acceptance("Safari 26.6.2", evaluate, navigate, actions, () => evaluateAsync(getSceneSetupExpression));
   } finally {
     if (session) {
       await request(`/session/${session}`, { method: "DELETE" }).catch(() => {});
@@ -247,7 +426,10 @@ async function run() {
   try {
     for (const browser of requestedBrowsers) {
       const report = browser === "firefox" ? await runFirefox() : await runSafari();
-      for (const check of report.checks) console.log(`${check.pass ? "PASS" : "FAIL"} ${report.browser}: ${check.label}`);
+      for (const check of report.checks) {
+        const detail = check.pass ? "" : ` — ${JSON.stringify(check.detail ?? { status: check.status })}`;
+        console.log(`${check.pass ? "PASS" : "FAIL"} ${report.browser}: ${check.label}${detail}`);
+      }
       if (!report.ok) throw new Error(`${report.browser} acceptance failed`);
       console.log(`${report.browser} acceptance passed (${report.checks.length} checks)`);
     }

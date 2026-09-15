@@ -11,6 +11,8 @@ are recorded; final issue review remains.
 
 - [Design](docs/specs/cardinal.md)
 - [Vertical slices](docs/slices/README.md)
+- [Browser testing: run, extend, diagnose and report](docs/verification/browser-testing.md)
+- [Live lab demo](https://kort3x.github.io/cardinal/)
 - [Kanban project](https://github.com/users/kort3x/projects/3)
 - [First slice: basic card actions](https://github.com/kort3x/cardinal/issues/2)
 

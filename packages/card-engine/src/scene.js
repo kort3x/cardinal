@@ -4,6 +4,8 @@ import { createClock, interpolate, shortestAngleTarget } from "./motion.js";
 import { createHeadlessRenderer, createRenderer } from "./renderer.js";
 import { createWebGLRenderer } from "./renderers/webgl.js";
 import { resolveZones } from "./zones.js";
+import { createInteraction } from "./interaction.js";
+import { createInputAdapter } from "./input.js";
 
 const copy = (value) => structuredClone(value);
 
@@ -91,7 +93,8 @@ function visualPose(card, pose) {
 export function createCardScene(config = {}) {
   const clock = config.motion?.clock ?? createClock();
   const reducedMotion = Boolean(config.motion?.reducedMotion);
-  const duration = config.motion?.duration ?? 320;
+  let duration = config.motion?.duration ?? 320;
+  if (!Number.isFinite(duration) || duration <= 0) throw new RangeError("Motion duration must be positive and finite");
   const camera = { projection: "orthographic", ...(config.camera ?? {}) };
   const createRendererAdapter = config.renderer ?? (
     config.renderMode === "css" ? createRenderer : config.element ? createWebGLRenderer : createHeadlessRenderer
@@ -125,6 +128,47 @@ export function createCardScene(config = {}) {
   let destroyed = false;
   let resolvedZones = new Map();
   let geometryFrame = null;
+  let interaction;
+  let input;
+  let interactionPositions = new Map();
+
+  function clientToScene(point, depth = 0) {
+    return renderer.clientToScene ? renderer.clientToScene(point, depth) : { x: point.x, y: point.y };
+  }
+
+  function sceneToClient(point) {
+    return renderer.sceneToClient?.(point) ?? { x: point.x, y: point.y };
+  }
+
+  function presentInteraction(positions, detail, resting) {
+    const previous = interactionPositions;
+    interactionPositions = positions;
+    for (const id of new Set([...previous.keys(), ...positions.keys()])) {
+      const current = cardPose(id);
+      if (!current) continue;
+      const entry = positions.get(id);
+      const target = entry?.pose ?? resting.get(id);
+      if (!target) continue;
+      let changed = false;
+      for (const name of ['x', 'y', 'z']) {
+        if (entry?.direct) {
+          cancelChannel(id, name);
+          changed = changed || current[name] !== target[name];
+          current[name] = target[name];
+        } else {
+          const active = channels.get(id)?.[name];
+          if (Math.abs((active?.to ?? current[name]) - target[name]) > 0.0001) {
+            scheduleChannel(id, name, target[name], { interactionOwned: true });
+            changed = true;
+          }
+        }
+      }
+      if (changed) renderCard(id, { render: false });
+    }
+    renderer.updateInteraction?.(detail);
+    renderer.render?.();
+    ensureFrame();
+  }
 
   function solve(snapshot, zones) {
     // The actual WebGL camera owns projection, including perspective scaling.
@@ -152,6 +196,7 @@ export function createCardScene(config = {}) {
       const current = cardPose(cardId);
       if (!targetPose.visible) { current.visible = false; continue; }
       current.visible = true;
+      if (interactionPositions.has(cardId)) continue;
       for (const name of ["x", "y", "z"]) {
         const channel = channels.get(cardId)?.[name];
         if (channel) {
@@ -163,6 +208,7 @@ export function createCardScene(config = {}) {
         } else scheduleChannel(cardId, name, targetPose[name]);
       }
     }
+    interaction?.reconcile();
     renderAll({ render: false });
     renderer.render?.();
     ensureFrame();
@@ -298,6 +344,19 @@ export function createCardScene(config = {}) {
     return session;
   }
 
+  function setMotion(options = {}) {
+    if (!options || typeof options !== "object" || Array.isArray(options)) {
+      throw new TypeError("scene.setMotion requires an options object");
+    }
+    if (options.duration !== undefined) {
+      if (!Number.isFinite(options.duration) || options.duration <= 0) {
+        throw new RangeError("Motion duration must be positive and finite");
+      }
+      duration = options.duration;
+    }
+    return { duration };
+  }
+
   function settleTicket(ticket, status) {
     if (ticket.status) return;
     ticket.status = status;
@@ -377,6 +436,7 @@ export function createCardScene(config = {}) {
     if (logicalFaceChanged && channels.size > 0) emit("change", snapshot());
     if (channels.size > 0 && !frameId) frameId = clock.requestFrame(onFrame);
     if (channels.size === 0) {
+      if (frameId !== null) clock.cancelFrame(frameId);
       frameId = null;
       if (wasSettling) emit("change", snapshot());
     }
@@ -448,7 +508,8 @@ export function createCardScene(config = {}) {
     return true;
   }
 
-  function scheduleChannel(cardId, channelName, target, { transition, operationIndex, immediate = false } = {}) {
+  function scheduleChannel(cardId, channelName, target, { transition, operationIndex, immediate = false, interactionOwned = false } = {}) {
+    if (!interactionOwned && interactionPositions.has(cardId) && ['x', 'y', 'z'].includes(channelName)) return;
     const pose = cardPose(cardId);
     const isFlip = channelName === "flipX" || channelName === "flipY";
     const axis = isFlip ? channelName.slice(-1).toLowerCase() : null;
@@ -513,6 +574,7 @@ export function createCardScene(config = {}) {
     const nextZones = resolveZones(next, renderer, resolvedZones);
     const poses = solve(next, nextZones);
     const previousTargets = desired ? solve(desired, resolvedZones) : new Map();
+    interaction?.beforeCommit(next);
     if (desired) sample(clock.now());
     const previousDesired = desired;
     const previousVisual = new Map(visual);
@@ -577,6 +639,7 @@ export function createCardScene(config = {}) {
     renderer.render?.();
     ensureFrame();
     trackGeometry();
+    interaction?.reconcile();
     emit("change", snapshot());
   }
 
@@ -720,7 +783,7 @@ export function createCardScene(config = {}) {
         if (!zone) throw new Error(`Unknown zone: ${operation.zoneId}`);
         if (!operation.changes || typeof operation.changes !== "object") throw new TypeError("Zone operation requires changes");
         for (const key of Object.keys(operation.changes)) {
-          if (!["geometry", "depth", "visible", "capacity", "arrangement"].includes(key)) throw new TypeError(`Unsupported zone change: ${key}`);
+          if (!["geometry", "depth", "visible", "capacity", "arrangement", "dropTarget"].includes(key)) throw new TypeError(`Unsupported zone change: ${key}`);
         }
         Object.assign(zone, copy(operation.changes));
         transition.moved.add(operationIndex);
@@ -736,6 +799,7 @@ export function createCardScene(config = {}) {
     normalizeSnapshot(next); // Validate the complete batch before any state or motion mutation.
     const nextZones = resolveZones(next, renderer, resolvedZones);
     const targets = solve(next, nextZones);
+    interaction?.beforeCommit(next, operations);
     sample(clock.now());
     transitions.add(transition);
     const previous = desired;
@@ -814,6 +878,7 @@ export function createCardScene(config = {}) {
     if (transition.pending > 0) ensureFrame();
     renderAll({ render: false });
     renderer.render?.();
+    interaction?.reconcile();
     emit("change", snapshot());
     return { finished: transition.finished };
   }
@@ -831,6 +896,7 @@ export function createCardScene(config = {}) {
       renderer: renderer.type ?? "custom",
       rendererReason: rendererReason ?? renderer.reason ?? null,
       projection: renderer.projection ?? null,
+      interaction: interaction?.snapshot() ?? { sessions: [] },
     };
   }
 
@@ -848,6 +914,8 @@ export function createCardScene(config = {}) {
   function destroy() {
     if (destroyed) return;
     destroyed = true;
+    input?.destroy();
+    interaction?.destroy();
     if (geometryFrame !== null) clock.cancelFrame(geometryFrame);
     if (frameId) clock.cancelFrame(frameId);
     frameId = null;
@@ -865,5 +933,21 @@ export function createCardScene(config = {}) {
     listeners.clear();
   }
 
-  return { apply, transact, spin, stopSpin, select, hitTest, target, snapshot, viewport, refreshGeometry, on, destroy };
+  interaction = createInteraction({
+    state: () => ({ desired, visual, zones: [...resolvedZones.values()] }),
+    solve: (next) => solve(next, new Map([...resolvedZones].map(([id, zone]) => [id, { ...zone, ...next.zones.find((candidate) => candidate.id === id), geometry: zone.geometry, visible: zone.visible }]))),
+    sample: () => sample(clock.now()),
+    refresh: refreshGeometry,
+    takePosition: (id) => { for (const name of ['x', 'y', 'z']) cancelChannel(id, name); },
+    present: presentInteraction,
+    commit: (operations) => { interactionPositions = new Map(); return transact(operations); },
+    emit,
+    rules: config.interaction?.rules,
+    toClient: sceneToClient,
+    fromClient: clientToScene,
+  });
+  const api = { apply, transact, spin, stopSpin, select, hitTest, target, setMotion, snapshot, viewport, refreshGeometry, on, destroy,
+    clientToScene, sceneToClient, drag: interaction.drag, resolveDrop: interaction.resolveDrop, invalidateRules: interaction.invalidateRules };
+  if (config.element && config.interaction) input = createInputAdapter({ element: config.element, scene: api, options: config.interaction });
+  return api;
 }

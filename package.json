@@ -16,6 +16,11 @@
     "test:chrome:diagnostics": "node scripts/chrome-lab.mjs --headless --scenario diagnostics",
     "test:chrome:zones": "node scripts/chrome-lab.mjs --headless --scenario zones",
     "test:chrome:main-zones": "node scripts/chrome-lab.mjs --headless --scenario main-zones",
+    "test:chrome:drag": "node scripts/chrome-lab.mjs --headless --scenario drag",
+    "test:chrome:drag-geometry": "node scripts/chrome-lab.mjs --headless --scenario drag-geometry",
+    "test:chrome:drag-performance": "node scripts/chrome-lab.mjs --headless --scenario drag-performance",
+    "test:chrome:mobile-scale": "node scripts/chrome-lab.mjs --headless --scenario mobile-scale",
+    "build:pages": "node scripts/build-pages.mjs",
     "test:cross-browser": "node scripts/cross-browser-lab.mjs",
     "show:chrome": "node scripts/chrome-lab.mjs --show"
   }

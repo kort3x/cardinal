@@ -492,6 +492,38 @@ function physicalSide(pose) {
   return facing > 0 ? "front" : "back";
 }
 
+const INTERACTION_PHASES = new Set(["dragging", "pending"]);
+const INTERACTION_ALLOWED_COLOR = 0xe5c07b;
+const INTERACTION_DENIED_COLOR = 0xf87171;
+const INTERACTION_PREVIEW_RENDER_ORDER = 100000;
+
+function cardRootFor(object) {
+  while (object && !object.userData?.cardId) object = object.parent;
+  return object;
+}
+
+export function selectCardIntersection(intersections, cards) {
+  const nearestHitByCard = new Map();
+  for (const intersection of intersections ?? []) {
+    const root = cardRootFor(intersection.object);
+    const cardId = root?.userData?.cardId;
+    if (!cardId || nearestHitByCard.has(cardId) && nearestHitByCard.get(cardId).distance <= intersection.distance) continue;
+    // Keep the intersected mesh for side reporting; the root is only used for identity.
+    nearestHitByCard.set(cardId, { ...intersection, cardId });
+  }
+  return [...nearestHitByCard.values()].sort((first, second) => {
+    const firstOrder = cards.get(first.cardId)?.cardGroup.renderOrder ?? 0;
+    const secondOrder = cards.get(second.cardId)?.cardGroup.renderOrder ?? 0;
+    return secondOrder - firstOrder || first.distance - second.distance || String(first.cardId).localeCompare(String(second.cardId));
+  })[0] ?? null;
+}
+
+export function cardSideForIntersection(object, mounted) {
+  return object === mounted.back || object === mounted.backBase ? "back"
+    : object === mounted.front || object === mounted.frontBase ? "front"
+      : "edge";
+}
+
 function accessibleContent(card, pose) {
   const side = physicalSide(pose);
   if (side === "edge") return { side, content: { elements: [{ id: "edge", type: "text", content: { text: "Card edge" } }] } };
@@ -558,6 +590,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   element.append(accessibilityLayer);
 
   let contextAvailable = true;
+  let disposed = false;
   let rendererReason = null;
   const setRendererReason = (reason) => {
     rendererReason = reason;
@@ -583,6 +616,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
 
   const cards = new Map();
   const imageCache = new Map();
+  const interactionPreview = new THREE.Group();
+  interactionPreview.userData.interactionPreview = true;
+  renderScene.add(interactionPreview);
+  let interactionSessions = [];
+  let interactionPreviewKey = null;
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
   const handleWindowResize = () => {
     if (!resizeObserver) resize();
@@ -591,6 +629,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   window.addEventListener("resize", handleWindowResize);
 
   function resize() {
+    if (disposed) return;
     stageSize = elementSize(element);
     const pixelRatio = Math.min(2, globalThis.devicePixelRatio || 1);
     webgl.setPixelRatio(pixelRatio);
@@ -614,7 +653,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function render() {
-    if (!contextAvailable) return;
+    if (disposed || !contextAvailable) return;
     webgl.render(renderScene, camera);
   }
 
@@ -628,7 +667,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       rejectImage = reject;
     });
     const image = new Image();
-    const entry = { image, loaded: false, failed: false, promise };
+    const entry = { image, loaded: false, failed: false, promise,
+      cancel: () => rejectImage(new Error("Card image load cancelled by renderer disposal")) };
     image.onload = () => {
       entry.loaded = true;
       resolveImage(image);
@@ -655,6 +695,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (!context) return null;
     context.scale(resolution, resolution);
     const texture = new THREE.CanvasTexture(canvas2d);
+    let textureDisposed = false;
+    texture.addEventListener("dispose", () => { textureDisposed = true; });
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
@@ -671,6 +713,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       .map((source) => [source, cachedImage(source)]);
     const images = new Map(imageEntries.filter(([, entry]) => entry.loaded).map(([source, entry]) => [source, entry.image]));
     const redraw = (source, image) => {
+      if (disposed || textureDisposed) return;
       images.set(source, image);
       drawCardTextureContent(context, content, dimensions, images, { ...options, elementRenderers });
       texture.needsUpdate = true;
@@ -680,7 +723,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     for (const [source, entry] of imageEntries) {
       if (!entry.loaded) entry.promise.then(
         (image) => redraw(source, image),
-        (error) => onStatus({ reason: "asset-load-failed", source, error }),
+        (error) => { if (!disposed && !textureDisposed) onStatus({ reason: "asset-load-failed", source, error }); },
       );
     }
     return texture;
@@ -865,12 +908,13 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.accessibilityShell.inert = pose.visible === false;
     mounted.lastCard = card;
     mounted.lastPose = pose;
+    mounted.drawOrder = pose.drawOrder ?? 0;
     updateGeometry(mounted, card, dimensions, thickness);
     const renderedScale = pose.scale * (pose.depthScale ?? 1);
     const x = pose.x - center.x;
     const y = center.y - pose.y;
     mounted.cardGroup.position.set(x, y, pose.z);
-    mounted.cardGroup.renderOrder = pose.drawOrder ?? 0;
+    mounted.cardGroup.renderOrder = mounted.drawOrder;
     mounted.cardGroup.scale.setScalar(renderedScale);
     mounted.bodyGroup.rotation.order = "ZXY";
     mounted.bodyGroup.rotation.set(radians(pose.tiltX), radians(pose.tiltY), radians(pose.angle));
@@ -882,6 +926,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
     updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, targetDimensions);
     updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, targetDimensions);
+    if (interactionSessions.length > 0) applyInteractionPriority();
     if (shouldRender) render();
   }
 
@@ -892,39 +937,201 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const projectedPoint = worldPoint.project(camera);
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera({ x: projectedPoint.x, y: projectedPoint.y }, camera);
-    const intersections = raycaster.intersectObjects([...cards.values()].filter(({ cardGroup }) => cardGroup.visible).map(({ cardGroup }) => cardGroup), true);
-    const cardRoot = (object) => {
-      while (object && !object.userData.cardId) object = object.parent;
-      return object;
-    };
-    const hit = intersections.find(({ object }) => cardRoot(object));
-    if (!hit) {
-      const candidates = [...cards.entries()]
-        .map(([cardId, mounted]) => {
-          const pose = mounted.lastPose;
-          if (!pose || pose.visible === false) return null;
-          const scale = pose.scale * (pose.depthScale ?? 1);
-          const dx = (point.x - (pose.x ?? 0)) / scale;
-          const dy = (point.y - (pose.y ?? 0)) / scale;
-          const angle = radians(pose.angle ?? 0);
-          const localX = Math.cos(angle) * dx + Math.sin(angle) * dy;
-          const localY = -Math.sin(angle) * dx + Math.cos(angle) * dy;
-          if (Math.abs(localX) > (pose.width ?? mounted.width) / 2 || Math.abs(localY) > (pose.height ?? mounted.height) / 2) return null;
-          return { cardId, pose };
-        })
-        .filter(Boolean)
-        .sort((first, second) => (second.pose.drawOrder ?? 0) - (first.pose.drawOrder ?? 0));
-      const candidate = candidates[0];
-      if (!candidate) return null;
-      return { cardId: candidate.cardId, side: physicalSide(candidate.pose), distance: 0 };
-    }
-    const object = cardRoot(hit.object);
-    const mounted = cards.get(object?.userData.cardId);
+    const intersections = raycaster.intersectObjects(
+      [...cards.values()]
+        .filter(({ cardGroup, lastPose }) => cardGroup.visible && lastPose?.visible !== false)
+        .map(({ cardGroup }) => cardGroup),
+      true,
+    );
+    const hit = selectCardIntersection(intersections, cards);
+    if (!hit) return null;
+    const mounted = cards.get(hit.cardId);
     if (!mounted) return null;
-    const side = hit.object === mounted.back || hit.object === mounted.backBase ? "back"
-      : hit.object === mounted.front || hit.object === mounted.frontBase ? "front"
-        : "edge";
-    return { cardId: object.userData.cardId, side, distance: hit.distance };
+    return { cardId: hit.cardId, side: cardSideForIntersection(hit.object, mounted), distance: hit.distance };
+  }
+
+  function canvasBounds() {
+    const rect = canvas.getBoundingClientRect?.() ?? {};
+    return {
+      left: Number.isFinite(rect.left) ? rect.left : 0,
+      top: Number.isFinite(rect.top) ? rect.top : 0,
+      width: Number.isFinite(rect.width) && rect.width > 0 ? rect.width : stageSize.width,
+      height: Number.isFinite(rect.height) && rect.height > 0 ? rect.height : stageSize.height,
+    };
+  }
+
+  function clientToScene(point, depth = 0) {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || !Number.isFinite(depth)) {
+      throw new TypeError("clientToScene requires finite x, y, and depth coordinates");
+    }
+    const bounds = canvasBounds();
+    camera.updateMatrixWorld(true);
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera({
+      x: (point.x - bounds.left) / bounds.width * 2 - 1,
+      y: 1 - (point.y - bounds.top) / bounds.height * 2,
+    }, camera);
+    const worldPoint = raycaster.ray.intersectPlane(
+      new THREE.Plane(new THREE.Vector3(0, 0, 1), -depth),
+      new THREE.Vector3(),
+    );
+    if (!worldPoint) return null;
+    return { x: worldPoint.x + center.x, y: center.y - worldPoint.y };
+  }
+
+  function sceneToClient(point) {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || (point.z !== undefined && !Number.isFinite(point.z))) {
+      throw new TypeError("sceneToClient requires finite x, y, and z coordinates");
+    }
+    const bounds = canvasBounds();
+    camera.updateMatrixWorld(true);
+    const projected = new THREE.Vector3(
+      point.x - center.x,
+      center.y - point.y,
+      point.z ?? 0,
+    ).project(camera);
+    return {
+      x: bounds.left + (projected.x + 1) / 2 * bounds.width,
+      y: bounds.top + (1 - projected.y) / 2 * bounds.height,
+    };
+  }
+
+  function disposeInteractionPreview() {
+    for (const child of [...interactionPreview.children]) {
+      interactionPreview.remove(child);
+      child.traverse((object) => {
+        object.geometry?.dispose();
+        object.material?.dispose();
+      });
+    }
+  }
+
+  function previewLine(points, color) {
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const line = new THREE.LineLoop(geometry, material);
+    line.renderOrder = INTERACTION_PREVIEW_RENDER_ORDER;
+    line.userData.interactionPreview = true;
+    interactionPreview.add(line);
+    return line;
+  }
+
+  function candidateGeometry(candidate) {
+    return candidate?.geometry
+      ?? candidate?.resolvedZone?.geometry
+      ?? candidate?.zone?.geometry
+      ?? candidate?.toZone?.geometry
+      ?? null;
+  }
+
+  function targetPoseFor(session, cardId) {
+    const targetPose = session?.targetPose;
+    if (!targetPose) return null;
+    if (targetPose instanceof Map) return targetPose.get(cardId) ?? null;
+    if (Array.isArray(targetPose)) {
+      return targetPose.find((entry) => entry?.cardId === cardId)?.pose ?? null;
+    }
+    if (targetPose[cardId] && Number.isFinite(targetPose[cardId].x) && Number.isFinite(targetPose[cardId].y)) {
+      return targetPose[cardId];
+    }
+    return Number.isFinite(targetPose.x) && Number.isFinite(targetPose.y) ? targetPose : null;
+  }
+
+  function previewTargetSignature(targetPose) {
+    if (targetPose instanceof Map) return [...targetPose.entries()];
+    return targetPose;
+  }
+
+  function interactionPreviewSignature(sessions) {
+    return JSON.stringify(sessions.map((session) => ({
+      id: session?.id,
+      phase: session?.phase,
+      cardIds: session?.cardIds,
+      primaryCardId: session?.primaryCardId,
+      candidate: session?.candidate && {
+        toZoneId: session.candidate.toZoneId,
+        index: session.candidate.index,
+        geometry: session.candidate.geometry,
+        allowed: session.candidate.allowed,
+        reason: session.candidate.reason,
+      },
+      targetPose: previewTargetSignature(session?.targetPose),
+    })));
+  }
+
+  function previewTarget(session, cardId, targetPose) {
+    const mounted = cards.get(cardId);
+    if (!mounted || !targetPose || targetPose.visible === false) return;
+    const card = mounted.lastCard;
+    const dimensions = {
+      width: targetPose.width ?? mounted.width,
+      height: targetPose.height ?? mounted.height,
+    };
+    const shape = createCardShape(card?.shape ?? templates[card?.template]?.shape, dimensions);
+    const targetGroup = new THREE.Group();
+    targetGroup.position.set(targetPose.x - center.x, center.y - targetPose.y, targetPose.z ?? 0);
+    targetGroup.scale.setScalar((targetPose.scale ?? 1) * (targetPose.depthScale ?? 1));
+    const bodyGroup = new THREE.Group();
+    bodyGroup.rotation.order = "ZXY";
+    bodyGroup.rotation.set(radians(targetPose.tiltX ?? 0), radians(targetPose.tiltY ?? 0), radians(targetPose.angle ?? 0));
+    const faceGroup = new THREE.Group();
+    faceGroup.rotation.order = "YXZ";
+    faceGroup.rotation.set(radians(targetPose.flipX ?? 0), radians(targetPose.flipY ?? 0), 0);
+    const thickness = targetPose.thickness ?? mounted.thickness;
+    const points = shape.getPoints(32).map(({ x, y }) => new THREE.Vector3(x, y, thickness / 2 + 0.2));
+    targetGroup.add(bodyGroup);
+    bodyGroup.add(faceGroup);
+    faceGroup.add(previewLine(points, session.candidate.allowed ? INTERACTION_ALLOWED_COLOR : INTERACTION_DENIED_COLOR));
+    interactionPreview.add(targetGroup);
+  }
+
+  function applyInteractionPriority() {
+    for (const mounted of cards.values()) mounted.cardGroup.renderOrder = mounted.drawOrder ?? 0;
+    const activeSessions = interactionSessions.filter((session) => INTERACTION_PHASES.has(session?.phase));
+    const highestDrawOrder = Math.max(-1, ...[...cards.values()].map((mounted) => mounted.drawOrder ?? 0));
+    let priority = highestDrawOrder + 1;
+    for (const session of activeSessions) {
+      for (const cardId of session.cardIds ?? []) {
+        const mounted = cards.get(cardId);
+        if (!mounted) continue;
+        mounted.cardGroup.renderOrder = priority;
+        priority += 1;
+      }
+    }
+  }
+
+  function updateInteraction({ sessions = [] } = {}) {
+    const nextSessions = Array.isArray(sessions) ? sessions : [];
+    const nextPreviewKey = interactionPreviewSignature(nextSessions);
+    interactionSessions = nextSessions;
+    applyInteractionPriority();
+    if (nextPreviewKey === interactionPreviewKey) return;
+    interactionPreviewKey = nextPreviewKey;
+    disposeInteractionPreview();
+    for (const session of nextSessions) {
+      if (!INTERACTION_PHASES.has(session?.phase)) continue;
+      const candidate = session.candidate;
+      const geometry = candidateGeometry(candidate);
+      if (geometry && [geometry.x, geometry.y, geometry.width, geometry.height].every(Number.isFinite)
+        && geometry.width > 0 && geometry.height > 0) {
+        const depth = geometry.depth ?? 0;
+        previewLine([
+          new THREE.Vector3(geometry.x - center.x, center.y - geometry.y, depth + 0.2),
+          new THREE.Vector3(geometry.x + geometry.width - center.x, center.y - geometry.y, depth + 0.2),
+          new THREE.Vector3(geometry.x + geometry.width - center.x, center.y - geometry.y - geometry.height, depth + 0.2),
+          new THREE.Vector3(geometry.x - center.x, center.y - geometry.y - geometry.height, depth + 0.2),
+        ], candidate.allowed ? INTERACTION_ALLOWED_COLOR : INTERACTION_DENIED_COLOR);
+      }
+      if (candidate?.allowed !== true) continue;
+      for (const cardId of session.cardIds ?? []) previewTarget(session, cardId, targetPoseFor(session, cardId));
+    }
   }
 
   function remove(cardId) {
@@ -979,14 +1186,28 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     },
     update,
     hitTest,
+    clientToScene,
+    sceneToClient,
+    updateInteraction,
     render,
     remove,
     destroy() {
+      if (disposed) return;
+      disposed = true;
       resizeObserver?.disconnect();
       window.removeEventListener("resize", handleWindowResize);
       canvas.removeEventListener("webglcontextlost", handleContextLost);
       canvas.removeEventListener("webglcontextrestored", handleContextRestored);
+      interactionSessions = [];
+      interactionPreviewKey = null;
+      disposeInteractionPreview();
       for (const cardId of cards.keys()) remove(cardId);
+      for (const entry of imageCache.values()) {
+        entry.image.onload = null;
+        entry.image.onerror = null;
+        entry.cancel();
+      }
+      imageCache.clear();
       webgl.dispose();
       canvas.remove();
       accessibilityLayer.remove();

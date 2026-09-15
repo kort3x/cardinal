@@ -174,6 +174,7 @@ export function normalizeSnapshot(snapshot) {
     if (zone.capacity !== undefined && (!Number.isInteger(zone.capacity) || zone.capacity < 0)) throw new RangeError(`Zone ${zone.id} capacity must be a non-negative integer`);
     if (zone.cardIds.length > (zone.capacity ?? Infinity)) throw new RangeError(`Zone ${zone.id} exceeds capacity`);
     if (zone.visible !== undefined && typeof zone.visible !== "boolean") throw new TypeError(`Zone ${zone.id} visible must be boolean`);
+    if (zone.dropTarget !== undefined && !['surface', 'transparent'].includes(zone.dropTarget)) throw new TypeError(`Zone ${zone.id} dropTarget must be surface or transparent`);
     const arrangement = zone.arrangement ?? { type: "grid", gap: 16 };
     if (arrangement.type !== "grid") throw new TypeError(`Unknown arrangement: ${arrangement.type}`);
     if (arrangement.gap !== undefined && (!Number.isFinite(arrangement.gap) || arrangement.gap < 0)) throw new RangeError(`Zone ${zone.id} gap must be non-negative`);

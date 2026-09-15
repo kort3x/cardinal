@@ -15,6 +15,8 @@ const scene = createCardScene({ element, motion });
 
 scene.apply({ cards, zones });
 
+scene.setMotion({ duration: 500 }); // Changes the duration of future transitions.
+
 scene.transact([
   { type: "rotate", cardId: "card-7", angle: 15 },
   { type: "face", cardId: "card-7", face: "faceDown", axis: "y" },
@@ -53,6 +55,10 @@ and compacts its ordered IDs after a transfer. `arrangement.gap` defaults to 16.
 Displaced neighbors animate together and participate in transaction completion.
 Independent rotation, scale, and spin channels survive geometry retargeting.
 
+Use `scene.setMotion({ duration })` to change the duration used by future
+animated transitions without rebuilding the scene. Transitions already in
+progress keep the duration they were scheduled with.
+
 Anchors are measured through the actual camera, including page scroll and CSS
 position changes. An engine-owned frame check runs while anchored zones exist;
 it only retargets when measurements change. `scene.refreshGeometry()` also permits
@@ -70,8 +76,58 @@ world Z: the camera sits on positive Z, so a more negative depth is farther away
 WebGL performs depth projection once, without another artificial card scale.
 
 Open `/examples/card-engine-lab/zones.html` for the six-card, three-zone lab.
-Advanced overflow policies, drag insertion previews and other arrangements belong
-to later slices; this grid implementation does not silently scale cards to fit.
+Advanced overflow policies and other arrangements belong to later slices;
+this grid implementation does not silently scale cards to fit.
+
+## Drag interaction (Issue #4, acceptance in progress)
+
+Input is opt-in, and missing project rules deny pickup. The engine owns pointer
+capture, keyboard navigation, temporary grid previews and cancellation. The project
+decides whether a released intent may become a committed move:
+
+```js
+const scene = createCardScene({
+  element,
+  interaction: {
+    touchDrag: false, // opt in before touch contact; otherwise preserve scrolling
+    rules: {
+      canStart: ({ cardIds }) => ({ allowed: cardIds.length === 1 }),
+      canDrop: ({ toZoneId }) => ({ allowed: toZoneId !== "locked" }),
+    },
+  },
+});
+scene.on("drop", async (intent) => {
+  const accepted = await projectApproves(intent);
+  const result = scene.resolveDrop(intent.id, { accepted });
+  if (result.status === "accepted") await result.finished;
+});
+scene.apply({ cards, zones });
+```
+
+`canStart` and `canDrop` are synchronous and return `{ allowed, reason? }`.
+Call `scene.invalidateRules()` when project permissions change; pending approvals
+are cancelled, so their late replies return `stale`. Membership remains committed
+to its source until approval; rejection returns to the latest committed layout.
+Removing cards/destinations or making a conflicting authoritative move cancels
+the session. This slice carries one card even when multiple cards are selected.
+A new gesture supersedes older gesture previews; there is no global pending lock.
+
+For programmatic interaction, `scene.drag({ cardIds: [id], primaryCardId: id,
+point: { x, y } })` returns `update`, `release`, `cancel`, `snapshot`, and `finished`.
+Update with `{ point: { x, y } }` or `{ toZoneId, index }`. Points refer to the
+world Z=0 plane. `clientToScene({ x, y }, depth)` and `sceneToClient({ x, y, z })`
+convert through the actual camera and canvas bounds. `release()` returns an intent
+or null; `finished` resolves the logical outcome, not the decorative return motion.
+Diagnostics are in `snapshot().interaction.sessions` and `interaction-change`.
+
+Zones default to `dropTarget: "surface"`: a denied foreground zone blocks zones
+behind it. `dropTarget: "transparent"` excludes a zone from drag targeting.
+Equal-depth zones use later authored zone order as the foreground tie-break.
+
+Focus a card and press Space to pick up, arrows to choose insertion position,
+Tab/Shift+Tab to choose a zone, Enter/Space to release, and Escape to cancel.
+The main lab includes Drag controls for denial and immediate/rejected/delayed/manual
+approval. Cross-browser acceptance remains tracked in #4; CSS input is not supported.
 
 Faces use one canonical `elements` array. Element IDs are unique within a face,
 and the array may contain repeated element types or project-defined types:

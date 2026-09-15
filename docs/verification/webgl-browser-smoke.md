@@ -10,16 +10,23 @@ line; a real browser context-loss run is still required for acceptance evidence.
 
 ## Run
 
-Start either consumer from the repository root:
+For automated runs, setup, browser selection and result reporting, use the
+[browser testing runbook](browser-testing.md). Start a consumer manually for the
+visual matrix below:
 
 ```sh
 npm --prefix examples/card-engine-lab start
 npm --prefix examples/card-engine-use start
-npm run test:cross-browser
 ```
 
 Check the lab at `http://localhost:4173/` and the independent consumer at
 `http://localhost:4174/` in Chromium, Firefox, and WebKit/Safari.
+
+## Safari automation and user interference
+
+Before Safari automation or interpretation of its failures, follow the general
+[Safari interference protocol](browser-testing.md#safari-automation-and-user-interference).
+This heading remains for existing links; the runbook owns the procedure.
 
 ## Matrix
 

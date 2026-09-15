@@ -806,6 +806,21 @@ test("apply retargets from the currently displayed pose", () => {
   scene.destroy();
 });
 
+test("motion duration can be changed for future transitions", async () => {
+  const clock = testClock();
+  const scene = createCardScene({ motion: { clock, duration: 320 } });
+  scene.apply({ cards: [card], zones: [zone] });
+  assert.deepEqual(scene.setMotion({ duration: 640 }), { duration: 640 });
+
+  const transition = scene.transact([{ type: "move", cardId: "card-1", position: { x: 400, y: 220 } }]);
+  clock.tick(320);
+  assert.equal(scene.snapshot().visual[0].pose.x, 245);
+  clock.tick(320);
+  assert.deepEqual(await transition.finished, [{ type: "move", cardId: "card-1", status: "settled" }]);
+  assert.throws(() => scene.setMotion({ duration: 0 }), /positive and finite/);
+  scene.destroy();
+});
+
 test("one transaction composes move, rotation, scale, and flip", async () => {
   const clock = testClock();
   const scene = createCardScene({ motion: { clock, duration: 320 } });

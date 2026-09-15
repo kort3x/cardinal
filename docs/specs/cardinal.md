@@ -230,6 +230,7 @@ const scene = createCardScene({
 });
 
 scene.apply({ cards, zones }); // Reconcile a complete desired snapshot by ID.
+scene.setMotion({ duration: 500 }); // Change the duration of future transitions.
 
 const transition = scene.transact([
   { type: "move", cardId: "card-7", to: "display", index: 0 },
