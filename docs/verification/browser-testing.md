@@ -135,6 +135,15 @@ latency.
 - Preserve the user's existing Chrome window position and dimensions. A reused
   debug browser uses its actual viewport, even with `--headless`; a newly launched
   headless Chrome uses a 2515×1322 page viewport (DPR 1 by default).
+- A visible **show-in-Chrome** demonstration uses a temporary dedicated Chrome
+  profile with an unused debug port. Its profile accent must be Chrome's built-in
+  reddish **Rosé** preset so the user can distinguish the agent's demo window
+  from their normal Chrome. Never change the user's normal profile.
+- The visible demo baseline is a 2515×1322 page viewport, a 2515×1409 outer
+  Chrome window, DPR 1, and outer top-left position `(screenX 89, screenY 31)`.
+  Launch with those target values when creating the dedicated session, then
+  measure the actual result. macOS may adjust the position by a pixel; report
+  the measured values rather than assuming the requested ones.
 - Firefox runs headlessly with a 2500×1300 page viewport and DPR 1.
 - Safari requests a 2500×1300 outer window at (100, 0), keeping clear of the
   left-side Dock. macOS may constrain placement. Measure actual values; an outer
@@ -161,6 +170,12 @@ latency.
    The runner reuses an existing debug browser; if that browser is headless,
    select an unused port to launch a visible session rather than claiming it is
    visible. Do not terminate an unrelated session to make room.
+   Visible demonstrations are paced for human inspection: hold the initial
+   state for at least 2 seconds, perform one meaningful action at a time, pause
+   about 1–2 seconds after control or selection changes, wait for animations to
+   settle, and hold the demonstrated result for at least 2 seconds. Stop any
+   continuous motion and leave the final state stable for at least 3 seconds.
+   Use faster timing only when the user explicitly requests a fast demo.
 4. Cleanup belongs to the run: release input, restore temporary fixture overrides,
    and close only sessions/processes it created. Test runners normally terminate
    their temporary browsers and lab server; `show:chrome` keeps its launched

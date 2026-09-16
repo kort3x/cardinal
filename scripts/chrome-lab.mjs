@@ -149,6 +149,8 @@ function connect(target) {
 
 const elementScenario = String.raw`(async () => {
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const showDemo = new URLSearchParams(location.search).has("show-demo");
+  const stepPause = showDemo ? 1800 : 850;
   const results = [];
   const state = () => ({
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
@@ -192,11 +194,11 @@ const elementScenario = String.raw`(async () => {
   };
   const step = async (label, action, predicate) => {
     await action();
-    await sleep(850);
+    await sleep(stepPause);
     record(label, predicate);
   };
 
-  await sleep(700);
+  await sleep(showDemo ? 2500 : 700);
   record("baseline WebGL lab", (current) => current.renderer.includes("Three.js WebGL")
     && current.shells === 1 && current.elements.length >= 5
     && ["title", "image", "flavour"].every((id) => current.elements.some((element) => element.name?.startsWith(id)))
@@ -1089,7 +1091,9 @@ async function run() {
     } else {
       await connection.command("Emulation.clearDeviceMetricsOverride");
     }
-    await connection.command("Page.navigate", { url: scenario === "zones" ? new URL('/examples/card-engine-lab/zones.html', labUrl).href : labUrl });
+    const navigationUrl = new URL(scenario === "zones" ? "/examples/card-engine-lab/zones.html" : labUrl, labUrl);
+    if (keepOpen && scenario === "elements") navigationUrl.searchParams.set("show-demo", "1");
+    await connection.command("Page.navigate", { url: navigationUrl.href });
     await delay(1200);
     const report = inputScenarios[scenario]
       ? await inputScenarios[scenario]({ command: connection.command })
