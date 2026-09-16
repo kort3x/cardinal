@@ -101,4 +101,11 @@ outside this project.
 
 ## License
 
-No license has been selected yet.
+Cardinal's software and documentation are licensed under the
+[Apache License 2.0](LICENSE). This permissive license allows commercial use,
+modification, and redistribution, and includes an explicit contributor patent
+grant.
+
+Visual assets are separate from the software license. Check
+[ASSET-LICENSE.md](ASSET-LICENSE.md) and the individual asset notes before
+redistributing the lab artwork or logos.
