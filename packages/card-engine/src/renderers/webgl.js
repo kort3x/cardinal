@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { createHeadlessRenderer } from "../renderer.js";
-import { DEFAULT_CARD_THICKNESS, cardDimensions, cardThickness } from "../layout.js";
+import { DEFAULT_CARD_THICKNESS, cardDimensions, cardThickness, spacerHeight } from "../layout.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
@@ -304,6 +304,7 @@ function drawTextElement(context, element, dimensions, x, y, width, color, varia
 }
 
 function flowElementHeight(context, element, dimensions, width) {
+  if (element.type === "spacer") return spacerHeight(element);
   if (element.type === "image") return element.layout?.height ? dimensions.height * element.layout.height : 120;
   if (element.type === "text") {
     const style = element.style ?? {};
@@ -364,6 +365,9 @@ function drawBackgroundImage(context, content, dimensions, images) {
 }
 
 const builtInElementRenderers = {
+  spacer: {
+    measure: ({ element }) => spacerHeight(element),
+  },
   text: {
     measure: ({ context, element, dimensions, width }) => flowElementHeight(context, element, dimensions, width),
     draw: ({ context, element, dimensions, x, y, width, content }) => {
@@ -434,6 +438,7 @@ function accessibleElementText(content) {
   return sortedElements(content).map(({ element }) => {
     if (element.type === "text") return elementText(element);
     if (element.type === "image") return elementImageAlt(element);
+    if (element.type === "spacer") return "";
     return element.content?.label ?? `${element.type} element`;
   }).filter(Boolean).join(". ");
 }
@@ -621,6 +626,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   renderScene.add(interactionPreview);
   let interactionSessions = [];
   let interactionPreviewKey = null;
+  let selectedCardIds = new Set();
+  let primaryCardId = null;
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
   const handleWindowResize = () => {
     if (!resizeObserver) resize();
@@ -1032,7 +1039,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function targetPoseFor(session, cardId) {
-    const targetPose = session?.targetPose;
+    const targetPose = session?.targetPoses ?? session?.targetPose;
     if (!targetPose) return null;
     if (targetPose instanceof Map) return targetPose.get(cardId) ?? null;
     if (Array.isArray(targetPose)) {
@@ -1062,7 +1069,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
         allowed: session.candidate.allowed,
         reason: session.candidate.reason,
       },
-      targetPose: previewTargetSignature(session?.targetPose),
+      targetPose: previewTargetSignature(session?.targetPoses ?? session?.targetPose),
     })));
   }
 
@@ -1134,6 +1141,24 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     }
   }
 
+  function updateSelection({ cardIds = [], primaryCardId: primary = null } = {}) {
+    selectedCardIds = new Set(cardIds);
+    primaryCardId = primary;
+    let changed = false;
+    for (const [id, mounted] of cards) {
+      const selected = selectedCardIds.has(id);
+      const isPrimary = selected && id === primaryCardId;
+      if (mounted.accessibilityShell.dataset.selected === String(selected)
+        && mounted.accessibilityShell.dataset.primary === String(isPrimary)) continue;
+      changed = true;
+      mounted.accessibilityShell.setAttribute("aria-pressed", String(selected));
+      mounted.accessibilityShell.dataset.selected = String(selected);
+      mounted.accessibilityShell.dataset.primary = String(isPrimary);
+      mounted.bodyMaterial.color.setHex(selected ? (isPrimary ? 0xe5c07b : 0xc9af76) : 0xffffff);
+    }
+    if (changed) render();
+  }
+
   function remove(cardId) {
     const mounted = cards.get(cardId);
     if (!mounted) return;
@@ -1189,6 +1214,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     clientToScene,
     sceneToClient,
     updateInteraction,
+    updateSelection,
     render,
     remove,
     destroy() {

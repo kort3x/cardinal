@@ -480,6 +480,7 @@ test("selection is an ordered engine-owned set and reconciles removed cards", ()
   scene.apply({ cards: [card, secondCard], zones: [twoCardZone] });
 
   assert.deepEqual(scene.select(["card-2", "card-1"]), {
+    accepted: true,
     cardIds: ["card-2", "card-1"],
     primaryCardId: "card-1",
     anchorCardId: "card-1",
@@ -491,6 +492,184 @@ test("selection is an ordered engine-owned set and reconciles removed cards", ()
     primaryCardId: "card-1",
     anchorCardId: "card-1",
   });
+  scene.destroy();
+});
+
+function batchFixture() {
+  return {
+    cards: ["A", "B", "C", "D", "E"].map((id) => ({ ...structuredClone(card), id })),
+    zones: [
+      { ...structuredClone(zone), id: "source", cardIds: ["A", "B", "C", "D", "E"] },
+      { ...structuredClone(zone), id: "destination", cardIds: [], geometry: { ...zone.geometry, x: 800 } },
+    ],
+  };
+}
+
+test("selection reconciliation never publishes an ineligible active cohort", () => {
+  for (const change of ["rules", "apply", "transact", "hidden-zone", "geometry"]) {
+    const fixture = batchFixture();
+    let blocked = false;
+    let sourceVisible = true;
+    const geometry = new Map(fixture.zones.map((entry) => [entry.id, entry.geometry]));
+    if (change === "geometry") fixture.zones = fixture.zones.map(({ geometry: ignored, ...entry }) => ({ ...entry, anchor: `#${entry.id}` }));
+    const scene = createCardScene({
+      motion: { reducedMotion: true },
+      selection: { canSelect: ({ cardId, snapshot }) => ({ allowed: cardId !== "D"
+        || !blocked && snapshot.cards.find(({ id }) => id === cardId).pose.angle !== 90 }) },
+      interaction: { rules: { canStart: () => ({ allowed: true }), canDrop: () => ({ allowed: true }) } },
+      renderer: () => ({ update() {}, destroy() {}, measureZone: (entry) => ({
+        geometry: geometry.get(entry.id), visible: entry.id !== "source" || sourceVisible,
+      }) }),
+    });
+    scene.apply(fixture);
+    scene.select(["B", "D"]);
+    scene.drag({ cardIds: ["B", "D"], primaryCardId: "B", point: { x: 10, y: 10 } });
+    const observed = [];
+    scene.on("selection-change", () => observed.push(scene.snapshot()));
+    if (change === "rules") { blocked = true; scene.invalidateRules(); }
+    if (change === "apply") {
+      const next = scene.snapshot().desired;
+      next.cards.find(({ id }) => id === "D").pose.angle = 90;
+      scene.apply(next);
+    }
+    if (change === "transact") scene.transact([{ type: "rotate", cardId: "D", angle: 90 }]);
+    if (change === "hidden-zone") scene.transact([{ type: "zone", zoneId: "source", changes: { visible: false } }]);
+    if (change === "geometry") { sourceVisible = false; scene.refreshGeometry(); }
+    assert.equal(observed.length, 1, change);
+    assert.deepEqual(observed[0].interaction.sessions, [], change);
+    assert.equal(observed[0].selection.cardIds.includes("D"), false, change);
+    scene.destroy();
+  }
+});
+
+test("failed batch commits restore displaced preview neighbors as well as the cohort", () => {
+  const fixture = batchFixture();
+  let rejectMeasurement = false;
+  const geometry = new Map(fixture.zones.map((entry) => [entry.id, entry.geometry]));
+  fixture.zones = fixture.zones.map(({ geometry: ignored, ...entry }) => ({ ...entry, anchor: `#${entry.id}` }));
+  const scene = createCardScene({
+    motion: { reducedMotion: true },
+    interaction: { rules: { canStart: () => ({ allowed: true }), canDrop: () => ({ allowed: true }) } },
+    renderer: () => ({
+      update() {}, destroy() {},
+      measureZone(entry) {
+        if (rejectMeasurement && entry.id === "destination" && entry.cardIds.includes("B")) {
+          throw new Error("Destination measurement failed");
+        }
+        return { geometry: geometry.get(entry.id), visible: true };
+      },
+    }),
+  });
+  scene.apply(fixture);
+  const before = scene.snapshot();
+  const session = scene.drag({ cardIds: ["B", "D"], primaryCardId: "B", point: { x: 10, y: 10 } });
+  session.update({ toZoneId: "destination", index: 0 });
+  const intent = session.release();
+  assert.notDeepEqual(scene.snapshot().visual, before.visual);
+  rejectMeasurement = true;
+  assert.throws(() => scene.resolveDrop(intent.id, { accepted: true }), /Destination measurement failed/);
+  assert.deepEqual(scene.snapshot().desired, before.desired);
+  assert.deepEqual(scene.snapshot().visual, before.visual);
+  assert.equal(scene.snapshot().interaction.sessions.length, 0);
+  scene.destroy();
+});
+
+test("moveBatch interprets insertion after removing every selected member", async () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply(batchFixture());
+  scene.select(["B", "D"]);
+  const result = await scene.transact([{ type: "moveBatch", cardIds: ["B", "D"], to: "source", index: 3 }]).finished;
+  assert.deepEqual(scene.snapshot().desired.zones[0].cardIds, ["A", "C", "E", "B", "D"]);
+  assert.deepEqual(scene.snapshot().selection.cardIds, ["B", "D"]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].type, "moveBatch");
+  assert.deepEqual(result[0].cardIds, ["B", "D"]);
+  assert.equal(result[0].status, "settled");
+  scene.destroy();
+});
+
+test("moveBatch validates the final transaction so full zones can exchange batches", async () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  const fixture = batchFixture();
+  fixture.zones[0].cardIds = ["A", "B", "C"];
+  fixture.zones[0].capacity = 3;
+  fixture.zones[1].cardIds = ["D", "E"];
+  fixture.zones[1].capacity = 2;
+  scene.apply(fixture);
+  await scene.transact([
+    { type: "moveBatch", cardIds: ["A", "B"], to: "destination", index: 0 },
+    { type: "moveBatch", cardIds: ["D", "E"], to: "source", index: 0 },
+  ]).finished;
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), [["D", "E", "C"], ["A", "B"]]);
+  scene.destroy();
+});
+
+test("an invalid final batch operation leaves desired, selection and visual state unchanged", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply(batchFixture());
+  scene.select(["B", "D"]);
+  const before = scene.snapshot();
+  assert.throws(() => scene.transact([
+    { type: "moveBatch", cardIds: ["B", "D"], to: "destination" },
+    { type: "scale", cardId: "D", factor: -1 },
+  ]), /positive/);
+  assert.deepEqual(scene.snapshot(), before);
+  assert.throws(() => scene.transact([
+    { type: "moveBatch", cardIds: ["B", "missing"], to: "destination" },
+  ]));
+  assert.deepEqual(scene.snapshot(), before);
+  scene.destroy();
+});
+
+test("moveBatch clears absolute positioning for every member and matches a fresh layout", async () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply(batchFixture());
+  await scene.transact(["B", "D"].map((cardId) => ({ type: "move", cardId, position: { x: 15, y: 20 } }))).finished;
+  await scene.transact([{ type: "moveBatch", cardIds: ["B", "D"], to: "destination" }]).finished;
+  const actual = scene.snapshot();
+  for (const id of ["B", "D"]) assert.equal(actual.desired.cards.find((entry) => entry.id === id).positionMode, undefined);
+  const expected = createCardScene({ motion: { reducedMotion: true } });
+  expected.apply(actual.desired);
+  assert.deepEqual(Object.fromEntries(actual.visual.map(({ cardId, pose }) => [cardId, pose])),
+    Object.fromEntries(expected.snapshot().visual.map(({ cardId, pose }) => [cardId, pose])));
+  expected.destroy();
+  scene.destroy();
+});
+
+test("moveBatch completion waits for secondary members after primary movement is superseded", async () => {
+  const clock = testClock();
+  const scene = createCardScene({ motion: { clock, duration: 300 } });
+  scene.apply(batchFixture());
+  let completed = false;
+  const batch = scene.transact([{ type: "moveBatch", cardIds: ["B", "D"], to: "destination" }]);
+  batch.finished.then(() => { completed = true; });
+  clock.tick(100);
+  scene.transact([{ type: "move", cardId: "B", position: { x: 100, y: 100 } }], { immediate: true });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  clock.tick(200);
+  const result = await batch.finished;
+  assert.equal(result[0].status, "superseded");
+  assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === "D").pose.x >= 800, true);
+  scene.destroy();
+});
+
+test("batch transforms and element edits use individual cards without moving membership", async () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply(batchFixture());
+  const before = scene.snapshot();
+  await scene.transact(["B", "D"].flatMap((cardId, index) => [
+    { type: "rotate", cardId, angle: index ? 45 : 90 },
+    { type: "scale", cardId, factor: index ? 1.5 : 0.75 },
+    { type: "face", cardId, face: "faceDown" },
+    { type: "element", cardId, elementId: "title", action: "update", element: { content: { text: cardId } } },
+  ])).finished;
+  const after = scene.snapshot();
+  assert.deepEqual(after.desired.zones, before.desired.zones);
+  assert.equal(after.desired.cards.find(({ id }) => id === "B").pose.angle, 90);
+  assert.equal(after.desired.cards.find(({ id }) => id === "D").pose.angle, 45);
+  assert.equal(after.desired.cards.find(({ id }) => id === "D").faces.front.elements[0].content.text, "D");
+  assert.equal(after.desired.cards.find(({ id }) => id === "B").faceUp, false);
   scene.destroy();
 });
 
@@ -557,6 +736,39 @@ test("project-defined element renderers measure and draw custom elements", () =>
     },
   });
   assert.deepEqual(calls, [["fillText", "New", 18, 18]]);
+});
+
+test("spacer elements add adjustable flow space without rendering content", () => {
+  const calls = [];
+  const context = {
+    fillText(...args) { calls.push(["fillText", ...args]); },
+    fillRect() {},
+    measureText(text) { return { width: text.length * 8 }; },
+  };
+  drawCardTextureContent(context, {
+    elements: [
+      { id: "top", type: "text", content: { text: "Top" }, layout: { mode: "flow" } },
+      { id: "space", type: "spacer", content: { height: 32 }, layout: { mode: "flow" } },
+      { id: "bottom", type: "text", content: { text: "Bottom" }, layout: { mode: "flow" } },
+    ],
+  }, { width: 180, height: 160 });
+
+  assert.deepEqual(calls, [
+    ["fillText", "Top", 18, 18],
+    ["fillText", "Bottom", 18, 90],
+  ]);
+});
+
+test("spacer elements default to a small flow gap", () => {
+  const snapshot = normalizeSnapshot({
+    cards: [{
+      ...card,
+      sizing: { mode: "content", minHeight: 1 },
+      faces: { front: { elements: [{ id: "space", type: "spacer" }] } },
+    }],
+    zones: [zone],
+  });
+  assert.equal(snapshot.cards[0].faces.front.elements[0].content.height, 20);
 });
 
 test("card elements support repeated types and targeted lifecycle operations", async () => {

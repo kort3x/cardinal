@@ -1,4 +1,4 @@
-import { DEFAULT_CARD_THICKNESS, cardDimensions } from "./layout.js";
+import { DEFAULT_CARD_THICKNESS, cardDimensions, spacerHeight } from "./layout.js";
 
 const noop = () => {};
 
@@ -99,6 +99,11 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
         node.alt = element.content?.alt ?? "";
         if (element.content?.src) node.src = element.content.src;
         else node.removeAttribute("src");
+      } else if (element.type === "spacer") {
+        node.textContent = "";
+        node.setAttribute("aria-hidden", "true");
+        node.style.display = "block";
+        node.style.height = `${spacerHeight(element)}px`;
       } else {
         const text = element.type === "text" ? element.content?.text ?? element.content?.value ?? "" : `Unsupported element: ${element.type}`;
         node.textContent = wrapText(text, contentWidth, element.style?.font ?? "14.4px system-ui, sans-serif");

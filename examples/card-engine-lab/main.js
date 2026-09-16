@@ -17,12 +17,16 @@ const removeCardsButton = document.querySelector("#remove-cards");
 const selectAllButton = document.querySelector("#select-all");
 const deselectAllButton = document.querySelector("#deselect-all");
 const selectionStatus = document.querySelector("#selection-status");
+const selectionDetail = document.querySelector("#selection-detail");
 const zoneList = document.querySelector("#zone-list");
 const zoneSlot = document.querySelector("#zone-slot");
 const spawnZone = document.querySelector("#spawn-zone");
 const transferZoneButtons = [...document.querySelectorAll("[data-transfer-zone]")];
 const dragEnabled = document.querySelector("#drag-enabled");
 const touchDrag = document.querySelector("#drag-touch");
+const touchSelection = document.querySelector("#touch-selection");
+const dragPresentation = document.querySelector("#drag-presentation");
+const dragDeniedCard = document.querySelector("#drag-denied-card");
 const dragDeniedZone = document.querySelector("#drag-denied-zone");
 const dragResponse = document.querySelector("#drag-response");
 const dragAcceptButton = document.querySelector("#drag-accept");
@@ -97,8 +101,8 @@ scaleSlider.value = String(defaultCardScale());
 touchDrag.checked = isTouchCapable();
 const LAB_ZONE_DEFINITIONS = Object.freeze([
   { id: "archive", label: "Lake", anchor: "#zone-archive", arrangement: { type: "grid", gap: 16 } },
-  { id: "workbench", label: "Ocean", anchor: "#zone-workbench", arrangement: { type: "grid", gap: 16 } },
   { id: "reserve", label: "River", anchor: "#zone-reserve", arrangement: { type: "grid", gap: 16 } },
+  { id: "workbench", label: "Ocean", anchor: "#zone-workbench", arrangement: { type: "grid", gap: 16 } },
 ]);
 
 function syncSpawnZoneColor() {
@@ -161,6 +165,35 @@ function sameDragDiagnosticPose(first, second) {
     && first.z === second.z;
 }
 
+function observeDragDiagnosticSession(interaction) {
+  const capture = dragDiagnosticCapture;
+  if (!capture) return;
+  const session = interaction.sessions.find((item) => capture.intentId
+    ? item.id === capture.intentId : item.primaryCardId === capture.cardId);
+  if (session && !capture.intentId) {
+    capture.intentId = session.id;
+    capture.cardIds = [...session.cardIds];
+    capture.primaryCardId = session.primaryCardId;
+    capture.sources = structuredClone(session.sources);
+    capture.sourceZoneId = capture.sources.find(({ cardId }) => cardId === capture.primaryCardId)?.zoneId ?? null;
+  }
+  // Resolution may be synchronous inside the drop listener. Finish later so its
+  // outcome is recorded before a terminal interaction snapshot is reported.
+  if (capture.intentId && !session) {
+    capture.releasedAt ??= performance.now();
+    scheduleDragDiagnosticFinish(capture, "interaction-ended");
+  }
+}
+
+function scheduleDragDiagnosticFinish(capture, reason) {
+  clearTimeout(capture.finishTimer);
+  capture.finishTimer = setTimeout(() => {
+    if (dragDiagnosticCapture !== capture) return;
+    const pending = scene?.snapshot().interaction.sessions.some(({ id }) => id === capture.intentId);
+    if (!pending) finishDragDiagnostic(reason);
+  }, 250);
+}
+
 function finishDragDiagnostic(reason) {
   const capture = dragDiagnosticCapture;
   if (!capture) return;
@@ -173,17 +206,15 @@ function finishDragDiagnostic(reason) {
   const finalState = scene?.snapshot?.();
   const finalSession = finalState?.interaction?.sessions?.find(({ primaryCardId }) => primaryCardId === capture.cardId);
   const finalZone = finalState?.desired?.zones?.find(({ cardIds = [] }) => cardIds.includes(capture.cardId));
-  const outcomeText = interactionStatus.textContent ?? "";
-  const outcome = outcomeText.startsWith("Drop accepted")
-    ? "accepted"
-    : outcomeText.startsWith("Drop rejected")
-      ? "rejected"
-      : outcomeText.startsWith("Drop cancelled") || outcomeText.startsWith("Drag cancelled")
-        ? "cancelled"
-        : null;
+  const outcome = capture.outcome ?? (capture.intentId ? "cancelled" : "not-dragged");
   lastDragDiagnosticSample = {
     capturedAt: new Date().toISOString(),
     cardId: capture.cardId,
+    cardIds: [...capture.cardIds],
+    primaryCardId: capture.primaryCardId,
+    cohortCount: capture.cardIds.length,
+    sources: structuredClone(capture.sources),
+    intentId: capture.intentId ?? null,
     cardCount: finalState?.desired?.cards?.length ?? null,
     browser: detectedBrowser(),
     deviceModel: navigator.userAgentData?.model || null,
@@ -191,7 +222,8 @@ function finishDragDiagnostic(reason) {
     sourceZoneId: capture.sourceZoneId,
     outcome,
     accepted: outcome === "accepted" ? true : outcome === "rejected" ? false : null,
-    durationMs: Number((capture.endedAt - capture.startedAt).toFixed(1)),
+    durationMs: Number(((capture.releasedAt ?? capture.endedAt) - capture.startedAt).toFixed(1)),
+    resolutionDurationMs: Number((capture.endedAt - capture.startedAt).toFixed(1)),
     pointerEvents: capture.pointerEvents,
     pointerMoves: capture.pointerMoves,
     frames: capture.frameTimes.length,
@@ -204,7 +236,10 @@ function finishDragDiagnostic(reason) {
     endReason: capture.endReason,
     finalInteractionPhase: finalSession?.phase ?? null,
     finalZoneId: finalZone?.id ?? null,
+    finalSources: capture.cardIds.flatMap((cardId) => (finalState?.desired?.zones ?? []).flatMap((zone) =>
+      zone.cardIds.includes(cardId) ? [{ cardId, zoneId: zone.id, index: zone.cardIds.indexOf(cardId) }] : [])),
   };
+  clearTimeout(capture.finishTimer);
   dragDiagnosticCapture = undefined;
   dragDiagnosticArmed = false;
   recordDragButton.textContent = "Record next drag";
@@ -214,7 +249,7 @@ function finishDragDiagnostic(reason) {
 
 function captureDragDiagnosticFrame(now) {
   const capture = dragDiagnosticCapture;
-  if (!capture) return;
+  if (!capture || capture.releasedAt !== undefined) return;
   capture.frameTimes.push(now);
   const pose = dragDiagnosticPose(capture.cardId);
   if (pose && !sameDragDiagnosticPose(pose, capture.lastPose)) {
@@ -236,9 +271,11 @@ function observeDragDiagnosticPointer(event) {
     capture.pendingMoveAt = performance.now();
   }
   if (event.type === "pointerup") {
-    capture.finishTimer = setTimeout(() => finishDragDiagnostic("pointerup"), 250);
+    capture.releasedAt = performance.now();
+    scheduleDragDiagnosticFinish(capture, "pointerup");
   } else if (event.type === "pointercancel") {
-    capture.finishTimer = setTimeout(() => finishDragDiagnostic("pointercancel"), 100);
+    capture.releasedAt = performance.now();
+    scheduleDragDiagnosticFinish(capture, "pointercancel");
   }
 }
 
@@ -248,7 +285,7 @@ function armDragDiagnostic() {
   recordDragButton.textContent = dragDiagnosticArmed ? "Waiting for drag…" : "Record next drag";
   recordDragButton.setAttribute("aria-pressed", String(dragDiagnosticArmed));
   diagnosticsStatus.textContent = dragDiagnosticArmed
-    ? "Ready: drag one card with a mouse, pen, or touch contact."
+    ? "Ready: drag a card or selection with a mouse, pen, or touch contact."
     : "Drag capture cancelled.";
 }
 
@@ -267,15 +304,70 @@ function updateFps(now) {
 }
 requestAnimationFrame(updateFps);
 
+const CARDINAL_FLAVOUR_POOL = Object.freeze([
+  "Bright wing.\nSharp song.",
+  "Red feather.\nBold heart.",
+  "Wait. Watch.\nTake flight.",
+  "First light.\nFind the branch.",
+  "Small song.\nWide sky.",
+  "Red in the\nwinter hush.",
+  "Perch high.\nSee far.",
+  "Brave color.\nQuiet woods.",
+  "Stay bright.\nThrough the cold.",
+  "Find the sun.\nKeep singing.",
+  "One wingbeat.\nFrom wonder.",
+  "Scarlet against\nthe snow.",
+  "The red has\narrived.",
+  "Stillness, then\nsudden flight.",
+  "Where the branch bends,\nI sing.",
+  "Bright eyes.\nBrighter feathers.",
+  "Winter bows to\na flash of red.",
+  "Take the\nopen sky.",
+]);
+const defaultCardinalFlavour = CARDINAL_FLAVOUR_POOL[Math.floor(Math.random() * CARDINAL_FLAVOUR_POOL.length)];
+
 const logicalFaceDefinitions = [
   {
     id: "face-a",
     elements: [
-      { id: "title", type: "text", content: { text: "The Cardinal" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
-      { id: "image", type: "image", content: { src: "/examples/card-engine-lab/cardinal.png", alt: "A stylized red cardinal" }, layout: { mode: "flow", order: 1 } },
-      { id: "flavour", type: "text", content: { text: "One card from the new independent engine." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 2 } },
+      {
+        id: "eyebrow",
+        type: "text",
+        content: { text: "FIELD GUIDE · 001" },
+        style: { variant: "flavour", color: "#e5c07b", font: "700 10px ui-monospace, SFMono-Regular, Menlo, monospace", lineHeight: 13 },
+        layout: { mode: "flow", order: 0 },
+      },
+      {
+        id: "title",
+        type: "text",
+        content: { text: "The Cardinal" },
+        style: { variant: "title", color: "#f7f4e9", font: "800 21px system-ui, sans-serif", lineHeight: 25 },
+        layout: { mode: "flow", order: 1 },
+      },
+      {
+        id: "image",
+        type: "image",
+        content: { src: "/examples/card-engine-lab/majestic.png", alt: "A majestic red cardinal perched on a branch in an autumn forest" },
+        layout: { mode: "flow", order: 2, height: 0.472 },
+      },
+      {
+        id: "flavour",
+        type: "text",
+        content: { text: defaultCardinalFlavour },
+        style: { variant: "flavour", color: "#d7dee8", font: "500 13px system-ui, sans-serif", lineHeight: 18 },
+        layout: { mode: "flow", order: 3 },
+      },
+      {
+        id: "specimen",
+        type: "text",
+        content: { text: "SPECIMEN · 001" },
+        style: { variant: "flavour", color: "#9da7b3", font: "700 9px ui-monospace, SFMono-Regular, Menlo, monospace", lineHeight: 12 },
+        layout: { mode: "flow", order: 4 },
+      },
     ],
-    background: "#f4c95d",
+    background: "#17212b",
+    textColor: "#f7f4e9",
+    mutedTextColor: "#d7dee8",
   },
   {
     id: "face-b",
@@ -325,8 +417,9 @@ const baseCard = {
   faceUp: true,
   back: {
     elements: [
-      { id: "title", type: "text", content: { text: "Card back" }, style: { variant: "title" }, layout: { mode: "flow", order: 0 } },
-      { id: "flavour", type: "text", content: { text: "The back of the card." }, style: { variant: "flavour" }, layout: { mode: "flow", order: 1 } },
+      { id: "eyebrow", type: "text", content: { text: "CARDINAL CARD ENGINE" }, style: { variant: "flavour", color: "#e5c07b", font: "700 10px ui-monospace, SFMono-Regular, Menlo, monospace", lineHeight: 13 }, layout: { mode: "flow", order: 0 } },
+      { id: "title", type: "text", content: { text: "Card back" }, style: { variant: "title", color: "#f7f4e9", font: "800 21px system-ui, sans-serif", lineHeight: 25 }, layout: { mode: "flow", order: 1 } },
+      { id: "flavour", type: "text", content: { text: "Turn the card to explore another logical face." }, style: { variant: "flavour", color: "#bdcbd0", font: "500 13px system-ui, sans-serif", lineHeight: 18 }, layout: { mode: "flow", order: 2 } },
     ],
     background: "#17212b",
     textColor: "#f7f4e9",
@@ -339,6 +432,7 @@ let cardZoneIds = new Map([[baseCard.id, "reserve"]]);
 let spawnZoneAuto = true;
 
 let selectedCardIds = new Set([baseCard.id]);
+let selectionReason = "";
 let nextCardNumber = 2;
 let nextElementNumber = 1;
 let renderedElementKey;
@@ -798,13 +892,18 @@ function zoneSnapshot(cards) {
   for (const id of cardZoneIds.keys()) {
     if (!cardIds.has(id)) cardZoneIds.delete(id);
   }
-  const memberships = new Map(LAB_ZONE_DEFINITIONS.map(({ id }) => [id, []]));
+  const committed = scene?.snapshot().desired.zones ?? [];
+  const memberships = new Map(LAB_ZONE_DEFINITIONS.map(({ id }) => [id,
+    (committed.find((zone) => zone.id === id)?.cardIds ?? [])
+      .filter((cardId) => cardIds.has(cardId) && cardZoneIds.get(cardId) === id),
+  ]));
   for (const card of cards) {
     const zoneId = memberships.has(cardZoneIds.get(card.id)) ? cardZoneIds.get(card.id) : "reserve";
     cardZoneIds.set(card.id, zoneId);
-    memberships.get(zoneId).push(card.id);
+    if (!memberships.get(zoneId).includes(card.id)) memberships.get(zoneId).push(card.id);
   }
   return LAB_ZONE_DEFINITIONS.map(({ id, label, anchor, geometry, arrangement }) => ({
+    ...committed.find((zone) => zone.id === id),
     id,
     label,
     ...(anchor ? { anchor } : { geometry }),
@@ -824,8 +923,8 @@ function desiredSnapshot(cards = sceneCards()) {
 function cardFootprint(card) {
   const scale = card.pose?.scale ?? 1;
   return {
-    width: (card.dimensions?.width ?? 180) * scale,
-    height: (card.dimensions?.height ?? 250) * scale,
+    width: (card.dimensions?.width ?? 220) * scale,
+    height: (card.dimensions?.height ?? 307) * scale,
   };
 }
 
@@ -861,7 +960,8 @@ function nextCardPosition(cards) {
 }
 
 function currentCard(state = scene.snapshot()) {
-  return state.desired.cards.find(({ id }) => selectedCardIds.has(id));
+  return state.desired.cards.find(({ id }) => id === state.selection.primaryCardId)
+    ?? state.desired.cards.find(({ id }) => selectedCardIds.has(id));
 }
 
 let spinHandles = new Map();
@@ -1338,6 +1438,10 @@ const interactionRules = {
       : { allowed: false, reason: "Dragging is disabled in the lab." };
   },
   canDrop(request) {
+    if (!request.cardIds?.length) return { allowed: false, reason: "No cards in the proposed batch." };
+    if (request.cardIds.includes(dragDeniedCard.value)) {
+      return { allowed: false, reason: `${dragDeniedCard.value} is denied; the whole batch is unavailable.` };
+    }
     const toZoneId = interactionDestination(request);
     if (!toZoneId) return { allowed: false, reason: "No visible destination zone." };
     if (dragDeniedZone.value && toZoneId === dragDeniedZone.value) {
@@ -1348,6 +1452,10 @@ const interactionRules = {
   },
 };
 
+function cohortLabel({ cardIds = [], primaryCardId } = {}) {
+  return `${cardIds.length} card${cardIds.length === 1 ? "" : "s"} (primary ${primaryCardId ?? cardIds[0] ?? "none"})`;
+}
+
 function renderPendingDropControls() {
   const hasPending = Boolean(interactionLifecycle?.pending.size);
   dragAcceptButton.hidden = !hasPending;
@@ -1357,6 +1465,10 @@ function renderPendingDropControls() {
 }
 
 function disposeInteractionLifecycle() {
+  if (dragDiagnosticCapture) {
+    dragDiagnosticCapture.outcome = "cancelled";
+    finishDragDiagnostic("scene-recreated");
+  }
   if (interactionLifecycle) {
     interactionLifecycle.active = false;
     for (const timer of interactionLifecycle.timers.values()) clearTimeout(timer);
@@ -1407,7 +1519,7 @@ function updateInteractionStatus(state = scene?.snapshot(), interaction = state?
     return;
   }
   if (interactionLifecycle) interactionLifecycle.outcome = "";
-  const cardLabel = session.primaryCardId ?? session.cardIds?.[0] ?? "card";
+  const cardLabel = cohortLabel(session);
   const candidate = session.candidate;
   const destination = candidate?.toZoneId ? interactionZoneLabel(state, candidate.toZoneId) : "outside a zone";
   const slot = candidate?.index === undefined ? "" : ` at slot ${candidate.index}`;
@@ -1441,10 +1553,13 @@ function resolvePendingDrop(sceneInstance, lifecycle, intentId, accepted) {
     const outcome = sceneInstance.resolveDrop(intentId, { accepted });
     const intent = pending.intent;
     lifecycle.outcome = outcome?.status === "accepted"
-      ? `Drop accepted: ${intent.primaryCardId} → ${interactionZoneLabel(sceneInstance.snapshot(), intent.toZoneId)} at slot ${intent.index}.`
+      ? `Drop accepted: ${cohortLabel(intent)} → ${interactionZoneLabel(sceneInstance.snapshot(), intent.toZoneId)} at slot ${intent.index}.`
       : outcome?.status === "rejected"
-        ? `Drop rejected for ${intent.primaryCardId}.`
-        : `Drop response is stale for ${intent.primaryCardId}.`;
+        ? `Drop rejected for ${cohortLabel(intent)}.`
+        : `Drop response is stale for ${cohortLabel(intent)}.`;
+    if (dragDiagnosticCapture?.intentId === intentId) {
+      dragDiagnosticCapture.outcome = outcome?.status === "stale" ? "cancelled" : outcome?.status;
+    }
     interactionStatus.textContent = lifecycle.outcome;
   } catch (error) {
     interactionStatus.textContent = `Drop response failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -1472,6 +1587,8 @@ function respondToDrop(sceneInstance, lifecycle, intent) {
 }
 
 function startScene(cards = sceneCards()) {
+  const previousSelection = scene?.snapshot().selection;
+  const desired = desiredSnapshot(cards);
   disposeInteractionLifecycle();
   stopDemoAnimations();
   scene?.destroy();
@@ -1485,8 +1602,8 @@ function startScene(cards = sceneCards()) {
     const createdScene = createCardScene({
       element: stage,
       templates: {
-        illustrated: { width: 180, height: 250, thickness: 6, shape: "rounded-rectangle" },
-        shield: { width: 180, height: 250, thickness: 6, shape: "shield" },
+        illustrated: { width: 220, height: 307, thickness: 6, shape: "rounded-rectangle" },
+        shield: { width: 220, height: 307, thickness: 6, shape: "shield" },
       },
       camera: {
         projection: "orthographic",
@@ -1501,28 +1618,34 @@ function startScene(cards = sceneCards()) {
       interaction: {
         rules: interactionRules,
         touchDrag: touchDrag.checked,
+        touchSelection: touchSelection.checked,
+        dragPresentation: dragPresentation.value,
       },
     });
     scene = createdScene;
     const lifecycle = { active: true, scene: createdScene, timers: new Map(), pending: new Map(), outcome: "" };
     interactionLifecycle = lifecycle;
-    createdScene.apply(desiredSnapshot(cards));
+    createdScene.apply(desired);
     createdScene.on("change", updateStatus);
     createdScene.on("renderer-status", updateStatus);
     createdScene.on("selection-change", (selection) => {
       if (scene !== createdScene || !lifecycle.active) return;
       selectedCardIds = new Set(selection.cardIds);
+      selectionReason = "";
       syncControlsFromSelection();
     });
     createdScene.on("interaction-change", (interaction) => {
       if (scene !== createdScene || !lifecycle.active) return;
+      observeDragDiagnosticSession(interaction);
       prunePendingDrops(lifecycle, interaction);
       updateStatus(createdScene.snapshot(), interaction, true);
     });
     createdScene.on("drop", (intent) => respondToDrop(createdScene, lifecycle, intent));
     selectedCardIds = new Set([...selectedCardIds].filter((id) => cards.some((card) => card.id === id)));
-    if (selectedCardIds.size === 0 && cards[0]) selectedCardIds.add(cards[0].id);
-    selectedCardIds = new Set(scene.select([...selectedCardIds]).cardIds);
+    selectLabCards([...selectedCardIds], previousSelection ? {
+      primaryCardId: previousSelection.primaryCardId,
+      anchorCardId: previousSelection.anchorCardId,
+    } : {});
     renderCardList();
     syncControlsFromSelection();
     updateStatus();
@@ -1537,10 +1660,13 @@ function startScene(cards = sceneCards()) {
 }
 
 function applyLabCards(cards) {
+  const previousSelection = scene.snapshot().selection;
+  const requestedSelection = [...selectedCardIds].filter((id) => cards.some((card) => card.id === id));
   scene.apply(desiredSnapshot(cards));
-  selectedCardIds = new Set([...selectedCardIds].filter((id) => cards.some((card) => card.id === id)));
-  if (selectedCardIds.size === 0 && cards[0]) selectedCardIds.add(cards[0].id);
-  selectedCardIds = new Set(scene.select([...selectedCardIds]).cardIds);
+  selectLabCards(requestedSelection, requestedSelection.includes(previousSelection.primaryCardId) ? {
+    primaryCardId: previousSelection.primaryCardId,
+    anchorCardId: previousSelection.anchorCardId,
+  } : {});
   renderCardList();
   syncControlsFromSelection();
   updateStatus();
@@ -1610,16 +1736,28 @@ function renderCardList() {
     zone.dataset.zoneId = cardZoneIds.get(card.id) ?? "";
     zone.textContent = zoneNames.get(cardZoneIds.get(card.id)) ?? "zone —";
     input.addEventListener("change", () => {
-      selectedCardIds = new Set(scene.select([card.id], { mode: "toggle" }).cardIds);
+      selectLabCards([card.id], { mode: "toggle" });
       syncControlsFromSelection();
       updateStatus();
       renderCardList();
+      // Keep keyboard actions attached to the card the user just selected,
+      // rather than the checkbox that was replaced during list rendering.
+      const shell = [...stage.querySelectorAll(".cardinal-webgl-card")]
+        .find((candidate) => candidate.dataset.cardId === card.id);
+      shell?.focus?.({ preventScroll: true });
     });
     label.append(input, document.createTextNode(`Card ${index + 1}`), depth, zone);
     return label;
   });
   cardList.replaceChildren(...items);
+  const deniedId = dragDeniedCard.value;
+  const deniedIds = [...dragDeniedCard.options].slice(1).map(({ value }) => value);
+  if (JSON.stringify(deniedIds) !== JSON.stringify(state.desired.cards.map(({ id }) => id))) {
+    dragDeniedCard.replaceChildren(new Option("None", ""), ...state.desired.cards.map(({ id }) => new Option(id, id)));
+    dragDeniedCard.value = state.desired.cards.some(({ id }) => id === deniedId) ? deniedId : "";
+  }
   selectionStatus.textContent = `${selectedCardIds.size} of ${state.desired.cards.length} selected`;
+  selectionDetail.textContent = selectionReason || `Primary: ${state.selection.primaryCardId ?? "none"} · Anchor: ${state.selection.anchorCardId ?? "none"}`;
   updateCardListDepth(state);
 }
 
@@ -1700,6 +1838,7 @@ function backgroundContentFor(card) {
 
 function elementEditorValue(element) {
   if (element.type === "image") return element.content?.src ?? "";
+  if (element.type === "spacer") return element.content?.height ?? 20;
   return element.content?.text ?? element.content?.value ?? "";
 }
 
@@ -1750,13 +1889,21 @@ function renderElementList(state = scene.snapshot()) {
     visibility.append(name);
 
     const editor = document.createElement("input");
-    editor.type = "text";
+    editor.type = element.type === "spacer" ? "number" : "text";
     editor.value = elementEditorValue(element);
-    editor.setAttribute("aria-label", `Content for ${element.id}`);
-    editor.placeholder = element.type === "image" ? "Image URL" : "Text";
+    editor.setAttribute("aria-label", element.type === "spacer" ? `Height for ${element.id}` : `Content for ${element.id}`);
+    if (element.type === "spacer") {
+      editor.min = "0";
+      editor.max = "480";
+      editor.step = "1";
+      editor.placeholder = "Height";
+    } else {
+      editor.placeholder = element.type === "image" ? "Image URL" : "Text";
+    }
     editor.addEventListener("change", () => {
       const content = { ...(element.content ?? {}) };
       if (element.type === "image") content.src = editor.value;
+      else if (element.type === "spacer") content.height = Math.max(0, Number(editor.value));
       else content.text = editor.value;
       applyElementOperation({ action: "update", elementId: element.id, element: { content } });
     });
@@ -1975,7 +2122,16 @@ function updateMotionSpeed() {
 }
 
 function selectedCards(state = scene.snapshot()) {
-  return state.desired.cards.filter(({ id }) => selectedCardIds.has(id));
+  const cards = new Map(state.desired.cards.map((card) => [card.id, card]));
+  return state.selection.cardIds.map((id) => cards.get(id)).filter(Boolean);
+}
+
+function selectLabCards(cardIds, options = {}) {
+  const result = scene.select(cardIds, options);
+  selectedCardIds = new Set(result.cardIds);
+  selectionReason = result.accepted === false ? `Selection unavailable: ${result.reason ?? "project limit"}` : "";
+  renderCardList();
+  return result;
 }
 
 function selectedCardIdsArray() {
@@ -2232,12 +2388,10 @@ function transferCardsTo(destination) {
   if (selected.length === 0 || target?.visible === false) return;
   const start = Math.max(0, Number.parseInt(zoneSlot.value, 10) || 0);
   try {
-    run(selected.map((cardId, index) => ({
-      type: "move",
-      cardId,
-      to: destination,
-      index: start + index,
-    })));
+    const state = scene.snapshot();
+    const selectedSet = new Set(selected);
+    const ordered = state.desired.zones.flatMap(({ cardIds }) => cardIds.filter((id) => selectedSet.has(id)));
+    run([{ type: "moveBatch", cardIds: ordered, to: destination, index: start }]);
   } catch (error) {
     showStatusMessage(`Zone transfer failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -2265,14 +2419,14 @@ for (const button of transferZoneButtons) {
 }
 
 selectAllButton.addEventListener("click", () => {
-  selectedCardIds = new Set(scene.select(scene.snapshot().desired.cards.map(({ id }) => id)).cardIds);
+  selectLabCards(scene.snapshot().desired.cards.map(({ id }) => id));
   renderCardList();
   syncControlsFromSelection();
   updateStatus();
 });
 
 deselectAllButton.addEventListener("click", () => {
-  selectedCardIds = new Set(scene.select([]).cardIds);
+  selectLabCards([]);
   renderCardList();
   syncControlsFromSelection();
   updateStatus();
@@ -2304,8 +2458,10 @@ addElementButton.addEventListener("click", () => {
   const id = `${elementType.value}-${nextElementNumber}`;
   nextElementNumber += 1;
   const element = elementType.value === "image"
-    ? { id, type: "image", content: { src: "/examples/card-engine-lab/cardinal.png", alt: "A stylized red cardinal" }, layout: { mode: "flow" } }
-    : { id, type: "text", content: { text: "New text element" }, layout: { mode: "flow" } };
+    ? { id, type: "image", content: { src: "/examples/card-engine-lab/majestic.png", alt: "A majestic red cardinal" }, layout: { mode: "flow" } }
+    : elementType.value === "spacer"
+      ? { id, type: "spacer", content: { height: 24 }, layout: { mode: "flow" } }
+      : { id, type: "text", content: { text: "New text element" }, layout: { mode: "flow" } };
   applyElementOperation({ action: "add", elementId: id, element });
 });
 
@@ -2362,7 +2518,46 @@ dragEnabled.addEventListener("change", () => {
   if (!scene) interactionStatus.textContent = dragEnabled.checked ? "Drag ready." : "Dragging is disabled in the lab.";
 });
 dragDeniedZone.addEventListener("change", invalidateInteractionRules);
+dragDeniedCard.addEventListener("change", invalidateInteractionRules);
 touchDrag.addEventListener("change", () => startScene());
+touchSelection.addEventListener("change", () => startScene());
+dragPresentation.addEventListener("change", () => startScene());
+
+document.querySelector("#flip-selection").addEventListener("click", () => {
+  stopContinuousFlip();
+  run(flipSelectedOperations());
+});
+
+document.querySelector("#batch-fixture").addEventListener("click", () => {
+  stopDemoAnimations();
+  stopRandomMotion();
+  stopContinuousFlip();
+  const source = configuredCard(baseCard);
+  const cards = Array.from({ length: 4 }, (_, index) => ({
+    ...structuredClone(source),
+    id: `batch-card-${index + 1}`,
+    dimensions: { width: 110, height: 150 },
+    sizing: { mode: "fixed" },
+    faceUp: index !== 1,
+    pose: { angle: index * 8, scale: 0.65, flipY: index === 1 ? 180 : 0 },
+  }));
+  dragDeniedZone.value = "";
+  dragDeniedCard.value = "";
+  dragResponse.value = "manual";
+  dragEnabled.checked = true;
+  scene.invalidateRules();
+  const zones = LAB_ZONE_DEFINITIONS.map(({ id, ...zone }) => ({
+    ...zone, id, visible: true,
+    cardIds: id === "archive" ? [cards[0].id, cards[2].id] : id === "reserve" ? [cards[1].id, cards[3].id] : [],
+  }));
+  for (const zone of zones) {
+    zoneVisibility.set(zone.id, true);
+    document.querySelector(zone.anchor).hidden = false;
+  }
+  scene.apply({ cards, zones });
+  selectLabCards([cards[0].id, cards[1].id], { primaryCardId: cards[0].id, anchorCardId: cards[0].id });
+  updateStatus();
+});
 
 function respondToFirstPendingDrop(accepted) {
   const lifecycle = interactionLifecycle;
@@ -2394,6 +2589,9 @@ for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"])
       if (!cardId) return;
       dragDiagnosticCapture = {
         cardId,
+        cardIds: [],
+        primaryCardId: cardId,
+        sources: [],
         pointerId: event.pointerId,
         pointerType: event.pointerType ?? "unknown",
         startedAt: performance.now(),

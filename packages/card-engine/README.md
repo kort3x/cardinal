@@ -50,6 +50,21 @@ zones or explicitly omitting those cards from the same snapshot. Validation runs
 before commit, including final batch capacity (so full zones can exchange cards).
 Insertion indices apply in operation order; omitted indices append to the zone.
 
+For a cohort, use one `moveBatch` operation. Its index is interpreted after
+removing every member from its source, including members already in the target:
+
+```js
+await scene.transact([
+  { type: "moveBatch", cardIds: ["card-7", "card-8"], to: "reserve", index: 0 },
+]).finished;
+```
+
+The supplied order is preserved. Preview and commit use the same membership
+calculation. All members join the destination arrangement, including cards that
+previously had absolute positions. The completion handle includes every member
+and displaced neighbor; final capacity validation permits exchanges between full
+zones in one transaction. Invalid transactions leave the whole scene unchanged.
+
 Grid layout uses the largest unscaled width and height in the zone as track sizes
 and compacts its ordered IDs after a transfer. `arrangement.gap` defaults to 16.
 Displaced neighbors animate together and participate in transaction completion.
@@ -79,7 +94,7 @@ Open `/examples/card-engine-lab/zones.html` for the six-card, three-zone lab.
 Advanced overflow policies and other arrangements belong to later slices;
 this grid implementation does not silently scale cards to fit.
 
-## Drag interaction (Issue #4, acceptance in progress)
+## Selection and drag interaction
 
 Input is opt-in, and missing project rules deny pickup. The engine owns pointer
 capture, keyboard navigation, temporary grid previews and cancellation. The project
@@ -88,10 +103,13 @@ decides whether a released intent may become a committed move:
 ```js
 const scene = createCardScene({
   element,
+  selection: { multiple: true, max: 10, scope: "scene" },
   interaction: {
     touchDrag: false, // opt in before touch contact; otherwise preserve scrolling
+    touchSelection: false, // explicit tap-to-toggle selection mode
+    dragPresentation: "preserve", // or an animated "compact" bundle
     rules: {
-      canStart: ({ cardIds }) => ({ allowed: cardIds.length === 1 }),
+      canStart: ({ cardIds }) => ({ allowed: cardIds.length <= 10 }),
       canDrop: ({ toZoneId }) => ({ allowed: toZoneId !== "locked" }),
     },
   },
@@ -109,7 +127,12 @@ Call `scene.invalidateRules()` when project permissions change; pending approval
 are cancelled, so their late replies return `stale`. Membership remains committed
 to its source until approval; rejection returns to the latest committed layout.
 Removing cards/destinations or making a conflicting authoritative move cancels
-the session. This slice carries one card even when multiple cards are selected.
+the whole session. Picking up a selected card carries the complete selection.
+The picked card becomes primary and its grab offset stays attached to the pointer;
+every member retains its own face and independent rotation, scale, and flip.
+The cohort and source order are frozen at pickup. Later selection changes cannot
+alter an active gesture. One denied member or insufficient capacity rejects the
+whole batch. One release emits one intent and one approval commits the batch once.
 A new gesture supersedes older gesture previews; there is no global pending lock.
 
 For programmatic interaction, `scene.drag({ cardIds: [id], primaryCardId: id,
@@ -119,15 +142,48 @@ world Z=0 plane. `clientToScene({ x, y }, depth)` and `sceneToClient({ x, y, z }
 convert through the actual camera and canvas bounds. `release()` returns an intent
 or null; `finished` resolves the logical outcome, not the decorative return motion.
 Diagnostics are in `snapshot().interaction.sessions` and `interaction-change`.
+Pass multiple IDs to carry a batch. Default `order: "source"` uses configured
+zone order then committed card order; `order: "provided"` preserves the supplied
+ID order. `presentation: "preserve" | "compact"` overrides carrying presentation
+for one session. Compact offsets affect active carrying only: pending approval
+always previews the actual solved destination slots. Cancellation returns every
+survivor and displaced neighbor to the latest committed source layouts.
+
+Configure selection through `selection.canSelect({ cardId, zoneId, snapshot })`,
+returning `{ allowed, reason? }`, plus `multiple`, `max`, and `scope: "scene" | "zone"`.
+The callback receives the desired model. Changing permissions requires
+`scene.invalidateRules()`, which reconciles selection and invalidates drag rules.
+Selection is presentation state and never grants move permission.
+
+`scene.select(ids, { mode })` accepts `replace`, `add`, `toggle`, `remove`, and
+`range`. A range request names one endpoint and uses the saved anchor or explicit
+`anchorCardId`. Same-zone ranges follow committed membership, while cross-zone
+ranges require an explicit `selection.rangeOrder` array. `selection.zoneOrder`
+controls source ordering and default logical navigation.
+
+Selection results include ordered `cardIds`, `primaryCardId`, `anchorCardId`, and
+`accepted`; denied changes include `reason` and leave the prior selection intact.
+Count/scope failures never silently truncate the requested set. Removal and clear
+remain available. `selection-change` fires only when the actual state changes.
+Reconciliation removes invalid selections while preserving eligible members.
 
 Zones default to `dropTarget: "surface"`: a denied foreground zone blocks zones
 behind it. `dropTarget: "transparent"` excludes a zone from drag targeting.
 Equal-depth zones use later authored zone order as the foreground tie-break.
 
+Plain click replaces selection, Ctrl/Cmd-click toggles, and Shift-click selects a
+logical range. Idle arrows move focus, Shift-arrows extend a range, and the
+plain `S` key toggles the focused card without relying on an operating-system
+or button-activation shortcut. Ctrl/Cmd-A selects eligible cards in scope, and
+idle Escape clears.
 Focus a card and press Space to pick up, arrows to choose insertion position,
 Tab/Shift+Tab to choose a zone, Enter/Space to release, and Escape to cancel.
 The main lab includes Drag controls for denial and immediate/rejected/delayed/manual
-approval. Cross-browser acceptance remains tracked in #4; CSS input is not supported.
+approval. Batch acceptance is tracked in #5; CSS input is not supported.
+With touch dragging enabled, the stage is the explicit touch-action surface;
+normal page scrolling remains available outside it. Tap-to-toggle selection is
+separate from dragging and does not claim long press. A second touch cancels an
+active gesture.
 
 Faces use one canonical `elements` array. Element IDs are unique within a face,
 and the array may contain repeated element types or project-defined types:
@@ -145,6 +201,14 @@ const face = {
 
 Legacy top-level `title`, `image`, and `flavour` fields are not accepted. This
 keeps element presence, visibility, order, and layout explicit.
+
+Cardinal also provides a built-in `spacer` element for intentional adjustable
+white space in a flow. Its `content.height` is measured in scene units and it
+renders no pixels:
+
+```js
+{ id: "breathing-room", type: "spacer", content: { height: 24 }, layout: { mode: "flow" } }
+```
 
 WebGL uses an orthographic camera by default, so moving a card across the stage
 does not change its apparent shape, size, or flip orientation. Perspective remains

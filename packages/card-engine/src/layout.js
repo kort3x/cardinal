@@ -26,6 +26,11 @@ function flowElements(content) {
     .map(({ element }) => element);
 }
 
+export function spacerHeight(element) {
+  const height = element?.content?.height ?? 20;
+  return Number.isFinite(height) && height >= 0 ? height : 20;
+}
+
 function textLineCount(text, width, fontSize) {
   const charactersPerLine = Math.max(1, Math.floor(width / (fontSize * 0.52)));
   return String(text ?? "").split("\n").reduce((count, paragraph) => {
@@ -53,6 +58,7 @@ function elementFlowHeight(element, width, preferredHeight, elementRenderers = {
     if (!Number.isFinite(measured) || measured < 0) throw new RangeError(`Element renderer ${element.type} returned an invalid height`);
     return measured;
   }
+  if (element.type === "spacer") return spacerHeight(element);
   if (element.type === "image") return element.layout?.height ? preferredHeight * element.layout.height : 120;
   if (element.type === "text") {
     const style = element.style ?? {};

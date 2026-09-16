@@ -180,9 +180,10 @@ function zoneList(scene) {
   }
 }
 
-function sourceDestination(scene, cardId) {
+function sourceDestination(scene, cardId, cardIds = [cardId]) {
   const zone = zoneList(scene).find((candidate) => candidate.cardIds?.includes(cardId));
-  return zone ? { toZoneId: zone.id, index: zone.cardIds.indexOf(cardId) } : null;
+  return zone ? { toZoneId: zone.id, index: zone.cardIds.slice(0, zone.cardIds.indexOf(cardId))
+    .filter((id) => !cardIds.includes(id)).length } : null;
 }
 
 function sessionSnapshot(session, result) {
@@ -195,12 +196,13 @@ function sessionSnapshot(session, result) {
   return result ?? null;
 }
 
-export function createInputAdapter({ element, scene, options = {} } = {}) {
+export function createInputAdapter({ element, scene, options = {}, selectionContext } = {}) {
   if (!element || !scene) throw new TypeError("createInputAdapter requires an element and scene");
 
   const doc = ownerDocument(element);
   const view = viewportWindow(element, doc);
   const touchDrag = options.touchDrag === true;
+  const touchSelection = options.touchSelection === true;
   const pickupDistance = Number.isFinite(options.pickupDistance) ? Math.max(0, options.pickupDistance) : DEFAULT_PICKUP_DISTANCE;
   const scrollEdge = Number.isFinite(options.autoScrollEdge) ? Math.max(1, options.autoScrollEdge) : DEFAULT_SCROLL_EDGE;
   const scrollSpeed = Number.isFinite(options.autoScrollSpeed) ? Math.max(0, options.autoScrollSpeed) : DEFAULT_SCROLL_SPEED;
@@ -214,6 +216,7 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
   let destroyed = false;
   let lastAnnouncement = "";
   let liveRegion = null;
+  let suppressNextClick = false;
 
   if (touchDrag && element.style) element.style.touchAction = "none";
 
@@ -330,45 +333,64 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
 
   function announceSession(state, snapshot) {
     if (!snapshot) return;
+    const count = snapshot.cardIds?.length ?? 1;
     if (snapshot.phase === "pending") { announce("Drop pending."); return; }
     if (snapshot.phase === "accepted") { announce("Drop accepted."); return; }
     if (snapshot.phase === "rejected") { announce("Drop rejected."); return; }
     if (snapshot.phase === "cancelled") { announce(`Drag cancelled${snapshot.reason ? `: ${snapshot.reason}` : "."}`); return; }
     if (snapshot.candidate) {
-      const place = `Destination ${snapshot.candidate.toZoneId}, position ${snapshot.candidate.index + 1}`;
+      const place = `${count} ${count === 1 ? "card" : "cards"}. Destination ${snapshot.candidate.toZoneId}, position ${snapshot.candidate.index + 1}`;
       announce(snapshot.candidate.allowed
         ? `${place}. Press Enter to release.`
         : `${place} unavailable${snapshot.candidate.reason ? `: ${snapshot.candidate.reason}` : "."}`);
       return;
     }
-    if (state?.mode === "keyboard") announce("Card picked up. Use arrow keys or Tab to choose a destination.");
+    if (state?.mode === "keyboard") announce(`${count} ${count === 1 ? "card" : "cards"} picked up. Use arrow keys or Tab to choose a destination.`);
   }
 
-  function selectionFor(cardId) {
+  function selectedState() {
     try {
-      const selected = scene.snapshot?.().selection?.cardIds ?? [];
-      return selected.includes(cardId);
+      return scene.snapshot?.().selection ?? { cardIds: [] };
     } catch {
-      return false;
+      return { cardIds: [] };
     }
   }
 
-  function prepareSelection(cardId) {
-    if (selectionFor(cardId)) return true;
+  function selectCards(cardIds, selectionOptions) {
     try {
-      scene.select?.([cardId], { mode: "replace", primaryCardId: cardId });
-      return true;
-    } catch {
-      return false;
+      const result = scene.select?.(cardIds, selectionOptions) ?? selectedState();
+      if (result.accepted === false) {
+        announce(`Selection unavailable: ${result.reason ?? "Request denied"}`);
+        return null;
+      }
+      return result;
+    } catch (error) {
+      announce(`Selection unavailable: ${error.message}`);
+      return null;
     }
   }
 
-  function startSession(shell, cardId, point, mode, pointerId = null, pointerType = null) {
+  function prepareSelection(cardId, modifiers = {}) {
+    const selected = selectedState();
+    if (selected.cardIds.includes(cardId)) {
+      if (selected.primaryCardId && selected.primaryCardId !== cardId) {
+        return selectCards([], { mode: "add", primaryCardId: cardId, anchorCardId: selected.anchorCardId });
+      }
+      return selected;
+    }
+    return selectCards([cardId], {
+      mode: modifiers.shiftKey ? "range" : modifiers.ctrlKey || modifiers.metaKey ? "add" : "replace",
+      primaryCardId: cardId,
+    });
+  }
+
+  function startSession(shell, cardId, point, mode, pointerId = null, pointerType = null, modifiers = {}) {
     if (destroyed || active) return false;
-    prepareSelection(cardId);
+    const selected = prepareSelection(cardId, modifiers);
+    if (!selected?.cardIds.includes(cardId)) return false;
     let session;
     try {
-      session = scene.drag({ cardIds: [cardId], primaryCardId: cardId, ...(point ? { point } : {}) });
+      session = scene.drag({ cardIds: [...selected.cardIds], primaryCardId: cardId, ...(point ? { point } : {}) });
     } catch (error) {
       announce(`Card cannot be dragged${error?.message ? `: ${error.message}` : "."}`);
       return false;
@@ -471,13 +493,14 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
 
   function pointerDown(event) {
     if (destroyed) return;
+    suppressNextClick = false;
     const pointerType = event.pointerType ?? "mouse";
-    if (pointerType === "touch" && !touchDrag) return;
+    if (pointerType === "touch" && !touchDrag && !touchSelection) return;
     if (pointerType === "touch" && (event.isPrimary === false || pointerIds.size > 0)) {
       pointerIds.add(event.pointerId);
       cancelSession("Second touch contact");
       pointerIds.clear();
-      event.preventDefault?.();
+      if (touchDrag) event.preventDefault?.();
       return;
     }
     if (event.isPrimary === false || (pointerType !== "touch" && event.button !== undefined && event.button !== 0)) return;
@@ -498,14 +521,16 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
     }
     const cardId = cardIdFrom(shell);
     if (!shell || !cardId || isInteractiveTarget(event.target, shell)) return;
+    suppressNextClick = true;
     pointerIds.add(event.pointerId);
-    press = { shell, cardId, pointerId: event.pointerId, pointerType, start: eventPoint(event), latest: eventPoint(event) };
+    press = { shell, cardId, pointerId: event.pointerId, pointerType, start: eventPoint(event), latest: eventPoint(event),
+      shiftKey: Boolean(event.shiftKey), ctrlKey: Boolean(event.ctrlKey), metaKey: Boolean(event.metaKey) };
     focusShell(shell);
   }
 
   function outsidePointerDown(event) {
     const pointer = press ?? active;
-    if (!touchDrag || event.pointerType !== "touch" || pointer?.pointerType !== "touch"
+    if (event.pointerType !== "touch" || pointer?.pointerType !== "touch"
       || pointer.released || event.pointerId === pointer.pointerId || element.contains?.(event.target)) return;
     // Capture belongs to the first pointer; a second contact can start elsewhere
     // on the page. Observe it without taking over that outside interaction.
@@ -527,8 +552,13 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
     const dx = press.latest.x - press.start.x;
     const dy = press.latest.y - press.start.y;
     if (dx * dx + dy * dy < pickupDistance * pickupDistance) return;
+    if (press.pointerType === "touch" && !touchDrag) {
+      pointerIds.delete(press.pointerId);
+      press = null;
+      return;
+    }
     const point = toScenePoint(press.latest);
-    if (!point || !startSession(press.shell, press.cardId, point, "pointer", press.pointerId, press.pointerType)) {
+    if (!point || !startSession(press.shell, press.cardId, point, "pointer", press.pointerId, press.pointerType, press)) {
       pointerIds.delete(press.pointerId);
       press = null;
       return;
@@ -554,7 +584,19 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
     const pendingPress = press;
     press = null;
     pointerIds.delete(event.pointerId);
-    prepareSelection(pendingPress.cardId);
+    const mode = pendingPress.pointerType === "touch" && touchSelection ? "toggle"
+      : pendingPress.shiftKey ? "range" : pendingPress.ctrlKey || pendingPress.metaKey ? "toggle" : "replace";
+    // Toggling out a member must allow the selection policy to choose a survivor.
+    selectCards([pendingPress.cardId], { mode,
+      ...((mode !== "toggle" || !selectedState().cardIds.includes(pendingPress.cardId))
+        ? { primaryCardId: pendingPress.cardId } : {}) });
+  }
+
+  function click(event) {
+    if (!suppressNextClick || event.detail === 0) return;
+    suppressNextClick = false;
+    event.preventDefault?.();
+    event.stopImmediatePropagation?.();
   }
 
   function pointerCancel(event) {
@@ -573,7 +615,7 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
   function currentKeyboardDestination(state) {
     const snapshot = readActiveSnapshot(state);
     if (snapshot?.candidate?.toZoneId) return { toZoneId: snapshot.candidate.toZoneId, index: snapshot.candidate.index };
-    return sourceDestination(scene, state.cardId);
+    return sourceDestination(scene, state.cardId, snapshot?.cardIds);
   }
 
   function updateKeyboardDestination(state, destination) {
@@ -598,7 +640,8 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
     if (!zone) return;
     if (key === "ArrowLeft" || key === "ArrowUp" || key === "ArrowRight" || key === "ArrowDown") {
       const delta = key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1;
-      const count = zone.cardIds?.filter((id) => id !== active.cardId).length ?? 0;
+      const cohort = readActiveSnapshot(active)?.cardIds ?? [active.cardId];
+      const count = zone.cardIds?.filter((id) => !cohort.includes(id)).length ?? 0;
       updateKeyboardDestination(active, { toZoneId: zone.id, index: Math.max(0, Math.min(count, current.index + delta)) });
       return;
     }
@@ -614,9 +657,14 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
 
   function keyDown(event) {
     if (destroyed) return;
+    const shell = cardShellFrom(event.target);
+    const cardId = cardIdFrom(shell);
+    if (shell && isInteractiveTarget(event.target, shell)) return;
+    if (!shell && event.target !== element) return;
     if (event.key === "Escape") {
       if (press) { press = null; pointerIds.clear(); event.preventDefault?.(); return; }
       if (active) { event.preventDefault?.(); cancelSession("Escape"); }
+      else { event.preventDefault?.(); selectCards([], { mode: "replace" }); }
       return;
     }
     if (active?.mode === "keyboard" && !active.released) {
@@ -630,14 +678,42 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
       }
       return;
     }
+    if (active && !active.released) return;
+    const modifier = event.ctrlKey || event.metaKey;
+    const space = [" ", "Spacebar", "Space"].includes(event.key);
+    // Card shells are buttons, so Space and Enter belong to activation/pickup.
+    // A plain S key has no platform shortcut conflict and is reserved here for
+    // toggling the focused card's selection.
+    if (!modifier && !event.shiftKey && event.key.toLowerCase() === "s" && cardId) {
+      event.preventDefault?.();
+      if (!event.repeat) selectCards([cardId], { mode: "toggle" });
+      return;
+    }
+    if (selectionContext && modifier && event.key.toLowerCase() === "a") {
+      event.preventDefault?.();
+      selectCards(selectionContext(cardId).eligibleCardIds, { mode: "replace" });
+      return;
+    }
+    if (selectionContext && cardId && ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].includes(event.key)) {
+      const ids = selectionContext(cardId).navigationCardIds;
+      const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+      const index = ids.indexOf(cardId);
+      const target = ids[index < 0 ? (delta > 0 ? 0 : ids.length - 1) : Math.max(0, Math.min(ids.length - 1, index + delta))];
+      if (!target) return;
+      event.preventDefault?.();
+      if (event.shiftKey) {
+        const anchorCardId = selectedState().anchorCardId ?? cardId;
+        selectCards([target], { mode: "range", primaryCardId: target, anchorCardId });
+      }
+      focusShell(shellForCard(element, target));
+      return;
+    }
     if (event.key !== " " && event.key !== "Spacebar" && event.key !== "Space" || event.repeat) return;
-    const shell = cardShellFrom(event.target);
-    const cardId = cardIdFrom(shell);
     if (!shell || !cardId || isInteractiveTarget(event.target, shell)) return;
     event.preventDefault?.();
     if (active?.released) cancelSession("Superseded by another keyboard pickup");
     if (!startSession(shell, cardId, null, "keyboard")) return;
-    updateKeyboardDestination(active, sourceDestination(scene, cardId));
+    updateKeyboardDestination(active, sourceDestination(scene, cardId, readActiveSnapshot(active)?.cardIds));
   }
 
   function onViewportChange() {
@@ -661,11 +737,16 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
   listen(element, "pointercancel", pointerCancel);
   listen(element, "lostpointercapture", lostPointerCapture);
   listen(element, "keydown", keyDown);
+  listen(element, "click", click, true);
   listen(view ?? doc, "pointerdown", outsidePointerDown, true);
   listen(element, "scroll", onViewportChange, true);
   listen(view, "scroll", onViewportChange, true);
   listen(view, "resize", onViewportChange);
   const unsubscribe = scene.on?.("interaction-change", onInteractionChange);
+  const unsubscribeSelection = scene.on?.("selection-change", (selection) => {
+    const count = selection.cardIds.length;
+    announce(`${count} ${count === 1 ? "card" : "cards"} selected${selection.primaryCardId ? `. Primary ${selection.primaryCardId}` : ""}.`);
+  });
 
   return {
     destroy() {
@@ -679,6 +760,7 @@ export function createInputAdapter({ element, scene, options = {} } = {}) {
       press = null;
       pointerIds.clear();
       unsubscribe?.();
+      unsubscribeSelection?.();
       for (const remove of listeners.splice(0)) remove();
       if (element.style) {
         if (originalTouchAction) element.style.touchAction = originalTouchAction;

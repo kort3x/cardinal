@@ -11,12 +11,14 @@ skill is required. Run commands from the repository root.
 | Fast engine gate | `npm test` | Deterministic engine tests, not browser verification |
 | Chrome element regressions | `npm run test:chrome` | The `elements` scenario only |
 | Chrome drag verification | `npm run test:chrome:drag` | Real mouse, keyboard and emulated touch input |
+| Chrome batch selection/drag | `npm run test:chrome:batch` | Cohort selection, atomic transfers and real input |
 | Chrome drag geometry | `npm run test:chrome:drag-geometry` | Mesh picking, overlap precedence and perspective drag fixtures |
-| Chrome drag timing | `npm run test:chrome:drag-performance` | Isolated rest/motion/drag samples with 1, 10 and 50 cards |
+| Chrome drag timing | `npm run test:chrome:drag-performance` | Rest/motion/single drag with 1/10/50 mounted cards; 5/10-card cohort samples |
 | Show the user a Chrome scenario | `npm run show:chrome -- --scenario drag` | Visible Chrome; substitute the relevant scenario below |
 | Edge acceptance | `npm run test:edge` | Headless Edge Chromium acceptance flow |
 | Edge drag verification | `npm run test:edge:drag` | Real mouse, keyboard and emulated touch input |
-| Edge drag timing | `npm run test:edge:drag-performance` | Isolated rest/motion/drag samples with 1, 10 and 50 cards |
+| Edge batch selection/drag | `npm run test:edge:batch` | Same batch scenario in Edge |
+| Edge drag timing | `npm run test:edge:drag-performance` | Same population and cohort samples in Edge |
 | Safari only | `npm run test:cross-browser -- safari` | Safari acceptance, including interaction checks |
 | Firefox only | `npm run test:cross-browser -- firefox` | Firefox acceptance, including interaction checks |
 | Both additional browsers | `npm run test:cross-browser` | Firefox, then Safari; excludes Chrome and stops on failure |
@@ -38,8 +40,9 @@ is necessary only when extending or diagnosing them.
 | Random movement and spin toggle state | `random`, `spin-state` |
 | Responsive zone geometry / integrated lab zone controls | `zones` / `main-zones` |
 | Dragging, rules, pending approval, input cancellation | `drag` |
+| Multi-selection, cohort carrying and atomic batch approval | `batch` |
 | Drag projection, shape hit regions and overlap precedence | `drag-geometry` |
-| Single-card dragging with increasing mounted population | `drag-performance` |
+| Single-card and cohort dragging with increasing mounted population | `drag-performance` |
 | Mobile responsive scale and touch-capability defaults | `mobile-scale` |
 | Cohort rendering / random-motion performance / report collection | `performance` / `random-performance` / `diagnostics` |
 
@@ -54,6 +57,12 @@ Select the changed feature's scenario plus relevant regressions; `test:chrome`
 does not run all Chrome scenarios, and `test:edge` is the Edge acceptance flow.
 Cross-browser acceptance is its own suite, not a promise that every Chromium
 scenario has Firefox/Safari parity.
+
+Desktop SafariDriver currently delivers mouse events for its requested touch
+source on the tested macOS setup. The runner explicitly skips its two touch
+checks and reports skip counts; these are not passes. The batch touch checks in
+Chrome, Edge and Firefox assert that actual `pointerType: "touch"` events arrive.
+None of this substitutes for physical Safari/iPhone or Surface touch/pen evidence.
 
 Run `drag-performance` after other browser work has finished. Its local browser
 timings are measurements, not a supported-device guarantee; report the actual
@@ -70,13 +79,17 @@ report instead of inferring performance from the visible FPS label. The explicit
 is incomplete:
 
 1. Open **Performance diagnostics** and click **Record next drag**.
-2. Drag one card across the stage with the physical input being evaluated.
+2. Drag one card or a selected cohort across the stage with the physical input
+   being evaluated. For a batch sample, use **Drag → Set up batch**, choose the
+   desired input mode before setup, and drag the selection into Ocean. Resolve
+   a manual pending drop with **Accept** or **Reject** before copying its report.
 3. Wait for **Drag sample captured; report refreshed.**
 4. Click **Copy report**, or copy the report text manually if clipboard access is
    unavailable.
 
 The report includes the actual browser/device identity, viewport and DPR, the
-card count, browser/version, input type, accepted/rejected outcome, approximate
+mounted card count, frozen cohort IDs/count, primary card, source memberships,
+browser/version, input type, accepted/rejected outcome, approximate
 drag FPS, pointer event counts, observed animation frames, frame-interval
 summary, missed frames over 20 ms, and pointer-event-to-next-observed-rAF
 latency. Desktop browsers commonly hide the exact Windows device model; the
@@ -170,8 +183,13 @@ engine. Lab fixtures supply project rules and controls, not repairs for engine b
      `waitFor`, `focusCard`, mouse/key/touch sequences and case cleanup.
    - [Chrome runtime helper](../../scripts/chrome-runtime.mjs): shared
      `createPageEvaluator(command)` used by the drag, geometry and timing scenarios.
+   - [Batch acceptance](../../scripts/batch-scenario.mjs): shared cohort journey;
+     [Chromium adapter](../../scripts/chrome-batch-scenario.mjs) supplies CDP input.
    - [Cross-browser runner](../../scripts/cross-browser-lab.mjs): shared
      `acceptance` journey and `createWebDriverActions` adapter for Firefox/Safari.
+     Batch expressions use an awaited, plain-object evaluator: Firefox decodes
+     JSON instead of treating BiDi remote objects as plain objects; Safari uses
+     async script execution. Named keys are mapped to WebDriver key codes.
    Other scenario helpers remain scoped inside their modules. Extend them in
    place; when another module needs the same
    mechanic, extract that helper and its callers together rather than copying

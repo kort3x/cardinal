@@ -85,8 +85,17 @@ export function normalizeElement(element, index = 0) {
   if (layout.zIndex !== undefined && !Number.isFinite(layout.zIndex)) {
     throw new TypeError(`Element ${element.id} overlay zIndex must be finite`);
   }
+  let content = element.content;
+  if (element.type === "spacer") {
+    const height = content?.height ?? 20;
+    if (!Number.isFinite(height) || height < 0) {
+      throw new RangeError(`Element ${element.id} spacer height must be finite and non-negative`);
+    }
+    content = { ...(content ?? {}), height };
+  }
   return {
     ...copy(element),
+    ...(content === undefined ? {} : { content: copy(content) }),
     visible: element.visible !== false,
     visibilityMode,
     layout: { ...layout, mode, order: layout.order ?? index, zIndex: layout.zIndex ?? 0 },

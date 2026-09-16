@@ -124,7 +124,7 @@ export async function runDragPerformanceScenario({ command }) {
     })()`);
   }
 
-  async function configureFixture(count) {
+  async function configureFixture(count, cohortSize = 1) {
     const result = await evaluate(String.raw`(async () => {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       const scene = getScene();
@@ -154,8 +154,9 @@ export async function runDragPerformanceScenario({ command }) {
         cardIds: zone.id === "reserve" ? cardIds : [],
       }));
       scene.apply({ cards, zones });
-      scene.select([cardIds[0]], { primaryCardId: cardIds[0] });
-      return { cardIds, primaryCardId: cardIds[0] };
+      const cohortIds = cardIds.slice(0, ${cohortSize});
+      scene.select(cohortIds, { primaryCardId: cardIds[0] });
+      return { cardIds, cohortIds, primaryCardId: cardIds[0] };
     })()`);
     await waitFor(`fixture with ${count} mounted cards`, (current) =>
       current.snapshot?.renderer === "webgl"
@@ -448,8 +449,8 @@ export async function runDragPerformanceScenario({ command }) {
     return measurement(count, "existing-motion", sample);
   }
 
-  async function measureDrag(count) {
-    const fixture = await configureFixture(count);
+  async function measureDrag(count, cohortSize = 1) {
+    const fixture = await configureFixture(count, cohortSize);
     const points = await coordinates(fixture.primaryCardId);
     await installProbe(fixture.primaryCardId);
     await evaluate(`(() => {
@@ -465,17 +466,20 @@ export async function runDragPerformanceScenario({ command }) {
       await mouseRelease().catch(() => {});
     }
     const sample = await endProbe();
-    const landed = await waitFor("pointer drag to finish in Workbench", (current) =>
+    const landed = await waitFor("complete cohort to finish in Ocean", (current) =>
       current.snapshot?.interaction?.sessions?.length === 0
       && !current.snapshot?.settling
-      && current.snapshot?.desired?.zones?.find((zone) => zone.id === "workbench")?.cardIds?.includes(fixture.primaryCardId));
+      && fixture.cohortIds.every((id) => current.snapshot?.desired?.zones
+        ?.find((zone) => zone.id === "workbench")?.cardIds?.includes(id)));
     const sampled = await waitFor("lab drag diagnostic sample", (current) =>
       current.diagnostics?.lab?.dragCapture?.lastSample?.cardId === fixture.primaryCardId
       && current.diagnostics?.lab?.dragCapture?.lastSample?.pointerType === "mouse");
     return {
       ...measurement(count, "pointer-drag", sample),
+      cohortSize,
       transfer: {
         cardId: fixture.primaryCardId,
+        cardIds: fixture.cohortIds,
         toZoneId: landed.snapshot.desired.zones.find((zone) => zone.id === "workbench")?.id ?? null,
       },
       labDragSample: sampled.diagnostics.lab.dragCapture.lastSample,
@@ -492,6 +496,7 @@ export async function runDragPerformanceScenario({ command }) {
         || details.pointerMoves > 0 && details.observedMotionFrames > 0
           && details.transfer?.toZoneId === "workbench"
           && details.labDragSample?.cardCount === details.cards
+          && details.labDragSample?.cohortCount === details.cohortSize
           && details.labDragSample?.browser?.version
           && details.labDragSample?.outcome === "accepted"
           && Number.isFinite(details.labDragSample?.fps)
@@ -515,6 +520,10 @@ export async function runDragPerformanceScenario({ command }) {
       await record(`${count}-card rest frame sample`, () => measureRest(count));
       await record(`${count}-card existing-motion frame sample`, () => measureMotion(count));
       await record(`${count}-card real pointer-drag sample`, () => measureDrag(count));
+      if (count > 1) {
+        const cohortSize = count === 10 ? 5 : 10;
+        await record(`${count} mounted cards, ${cohortSize}-card cohort drag sample`, () => measureDrag(count, cohortSize));
+      }
     }
   } finally {
     try {

@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
 const inputScenarios = {
+  batch: async (options) => (await import("./chrome-batch-scenario.mjs")).runBatchScenario(options),
   "mobile-scale": async (options) => (await import("./chrome-mobile-scale.mjs")).runMobileScaleScenario(options),
   drag: async (options) => (await import("./chrome-drag-scenario.mjs")).runDragScenario(options),
   "drag-geometry": async (options) => (await import("./chrome-drag-geometry.mjs")).runDragGeometryScenario(options),
@@ -162,7 +163,7 @@ const elementScenario = String.raw`(async () => {
     elements: [...document.querySelectorAll("#element-list .element-row")].map((row) => ({
       name: row.querySelector(".element-name")?.textContent,
       visible: row.querySelector("input[type=checkbox]")?.checked,
-      content: row.querySelector("input[type=text]")?.value,
+      content: row.querySelector("input[type=text], input[type=number]")?.value,
       mode: row.querySelectorAll("select")[0]?.value,
       policy: row.querySelectorAll("select")[1]?.value,
     })),
@@ -175,6 +176,10 @@ const elementScenario = String.raw`(async () => {
   const setValue = (selector, value, eventName = "change") => {
     const element = document.querySelector(selector);
     if (!element) throw new Error("Missing " + selector);
+    setValueToElement(element, value, eventName);
+  };
+  const setValueToElement = (element, value, eventName = "change") => {
+    if (!element) throw new Error("Missing element");
     const prototype = element instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLSelectElement.prototype;
     Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, String(value));
     element.dispatchEvent(new Event(eventName, { bubbles: true }));
@@ -193,7 +198,16 @@ const elementScenario = String.raw`(async () => {
 
   await sleep(700);
   record("baseline WebGL lab", (current) => current.renderer.includes("Three.js WebGL")
-    && current.shells === 1 && current.elements.length === 3 && current.fps.includes("FPS:")
+    && current.shells === 1 && current.elements.length >= 5
+    && ["title", "image", "flavour"].every((id) => current.elements.some((element) => element.name?.startsWith(id)))
+    && (current.elements.find((element) => element.name?.startsWith("flavour"))?.content?.length ?? 0) > 0
+    && (current.elements.find((element) => element.name?.startsWith("flavour"))?.content?.length ?? Infinity) <= 40
+    && (() => {
+      const size = current.status.match(/size (\d+)×(\d+)/);
+      const ratio = size ? Number(size[1]) / Number(size[2]) : NaN;
+      return ratio >= 0.70 && ratio <= 0.73;
+    })()
+    && current.fps.includes("FPS:")
     && current.diagnostics.includes("devicePixelRatio") && current.diagnostics.includes("webgl"));
   await step("deselect all cards", () => click("#deselect-all"), (current) => current.selection === "0 of 1 selected");
   await step("select all cards", () => click("#select-all"), (current) => current.selection === "1 of 1 selected");
@@ -215,11 +229,11 @@ const elementScenario = String.raw`(async () => {
   });
   await step("hide image", () => click('#element-list input[aria-label="Show image"]'), (current) => {
     const image = current.elements.find((element) => element.name?.startsWith("image"));
-    return image?.visible === false && !current.text[0]?.includes("stylized red cardinal");
+    return image?.visible === false && !current.text[0]?.includes("majestic red cardinal");
   });
   await step("restore image", () => click('#element-list input[aria-label="Show image"]'), (current) => {
     const image = current.elements.find((element) => element.name?.startsWith("image"));
-    return image?.visible === true && current.text[0]?.includes("stylized red cardinal");
+    return image?.visible === true && current.text[0]?.includes("majestic red cardinal");
   });
   await step("remove flavour", () => row("flavour")?.querySelector("button:last-child")?.click(), (current) => {
     return !current.elements.some((element) => element.name?.startsWith("flavour"));
@@ -232,8 +246,13 @@ const elementScenario = String.raw`(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(editor, "Custom field");
     editor.dispatchEvent(new Event("change", { bubbles: true }));
   }, (current) => current.elements.some((element) => element.content === "Custom field"));
-  await step("reorder custom text", () => row("text-")?.querySelector("button:first-child")?.click(), (current) => {
-    return current.elements[1]?.name?.startsWith("text-");
+  let customTextIndex;
+  await step("reorder custom text", () => {
+    customTextIndex = state().elements.findIndex((element) => element.name?.startsWith("text-"));
+    row("text-")?.querySelector("button:first-child")?.click();
+  }, (current) => {
+    const nextIndex = current.elements.findIndex((element) => element.name?.startsWith("text-"));
+    return nextIndex >= 0 && nextIndex < customTextIndex;
   });
   await step("overlay and preserve-space", () => {
     const selects = row("text-")?.querySelectorAll("select");
@@ -249,6 +268,17 @@ const elementScenario = String.raw`(async () => {
     row("text-")?.querySelector("input[type=checkbox]")?.click();
     row("text-")?.querySelector("button:last-child")?.click();
   }, (current) => !current.elements.some((element) => element.name?.startsWith("text-")));
+  await step("add adjustable white space", () => {
+    setValue("#element-type", "spacer");
+    click("#add-element");
+  }, (current) => current.elements.some((element) => element.name?.startsWith("spacer-") && element.content === "24"));
+  await step("resize adjustable white space", () => {
+    const editor = row("spacer-")?.querySelector("input[type=number]");
+    setValueToElement(editor, 48);
+  }, (current) => current.elements.some((element) => element.name?.startsWith("spacer-") && element.content === "48"));
+  await step("remove adjustable white space", () => row("spacer-")?.querySelector("button:last-child")?.click(), (current) => {
+    return !current.elements.some((element) => element.name?.startsWith("spacer-"));
+  });
   await step("add repeated image instances", () => {
     setValue("#element-type", "image");
     click("#add-element");

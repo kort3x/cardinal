@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createInputAdapter } from "../src/input.js";
+import { createSelection } from "../src/selection.js";
 
 class FakeEventTarget {
   constructor() {
@@ -223,16 +224,17 @@ test("a pending pointer drop does not lock an unrelated card out of a new gestur
   const stage = stageWithCard(firstShell);
   const calls = [];
   const sessions = new Map();
+  let selected = [];
   const scene = {
     snapshot: () => ({
-      selection: { cardIds: [] },
+      selection: { cardIds: selected },
       desired: {
         cards: [{ id: "card-1" }, { id: "card-2" }],
         zones: [{ id: "zone-a", cardIds: ["card-1", "card-2"] }],
       },
     }),
     clientToScene(point) { return point; },
-    select(ids) { calls.push(["select", ids]); },
+    select(ids) { selected = ids; calls.push(["select", ids]); },
     drag(request) {
       calls.push(["drag", request]);
       const state = { phase: "dragging" };
@@ -496,4 +498,220 @@ test("stationary camera-center dragging reprojects when pixel density changes", 
   } finally {
     adapter.destroy();
   }
+});
+
+// Exercise input against the real policy; the drag double only records the
+// boundary owned by the interaction module and freezes its supplied cohort.
+function selectionInput({ config, options } = {}) {
+  const shells = new Map(["a", "b", "c", "d"].map((id) => [id, cardShell(id)]));
+  const stage = stageWithCard(shells.get("a"));
+  stage.contains = (node) => [...shells.values()].includes(node);
+  stage.querySelector = (selector) => shells.get(selector.match(/data-card-id="([^"]+)"/)?.[1]);
+  const regions = [];
+  stage.append = (region) => regions.push(region);
+  stage.ownerDocument = { createElement: () => ({ style: {}, setAttribute() {}, remove() {} }) };
+  const desired = { cards: [...shells.keys()].map((id) => ({ id })), zones: [
+    { id: "lake", cardIds: ["a", "b", "c"] }, { id: "river", cardIds: ["d"] },
+  ] };
+  const visual = new Map([...shells.keys()].map((id) => [id, { visible: true }]));
+  const listeners = new Map();
+  const calls = [];
+  const emit = (type, detail) => { for (const callback of listeners.get(type) ?? []) callback(detail); };
+  const selection = createSelection({ config, state: () => ({ desired, visual }), onChange: (next) => emit("selection-change", next) });
+  let session;
+  const scene = {
+    snapshot: () => ({ selection: selection.snapshot(), desired }),
+    select: selection.select,
+    clientToScene: (point) => point,
+    on(type, callback) {
+      const callbacks = listeners.get(type) ?? new Set(); callbacks.add(callback); listeners.set(type, callbacks);
+      return () => callbacks.delete(callback);
+    },
+    drag(request) {
+      calls.push(["drag", structuredClone(request)]);
+      const data = { id: "batch", phase: "dragging", cardIds: [...request.cardIds], primaryCardId: request.primaryCardId, candidate: null };
+      session = {
+        snapshot: () => structuredClone(data),
+        update(change) {
+          calls.push(["update", change]);
+          if (change.toZoneId) data.candidate = { ...change, allowed: true };
+          return this.snapshot();
+        },
+        release() { calls.push(["release"]); data.phase = "pending"; return this.snapshot(); },
+        cancel(reason) { calls.push(["cancel", reason]); data.phase = "cancelled"; return this.snapshot(); },
+      };
+      return session;
+    },
+  };
+  const adapter = createInputAdapter({ element: stage, scene, options, selectionContext: selection.context });
+  const send = (type, id, properties = {}) => {
+    const input = event(type, { target: shells.get(id) ?? stage, ...properties });
+    stage.dispatchEvent(input);
+    return input;
+  };
+  const tap = (id, properties = {}) => { send("pointerdown", id, properties); return send("pointerup", id, properties); };
+  const pickup = (id, properties = {}) => {
+    send("pointerdown", id, properties);
+    send("pointermove", id, { ...properties, clientX: 40, clientY: 50 });
+  };
+  return { selection, stage, scene, calls, shells, regions, send, tap, pickup, adapter, session: () => session };
+}
+
+test("plain click collapses only on release; Ctrl/Cmd toggle and Shift selects logical ranges", (t) => {
+  const f = selectionInput(); t.after(() => f.adapter.destroy());
+  f.selection.select(["a", "b"]);
+  f.send("pointerdown", "a");
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "b"]);
+  f.send("pointerup", "a");
+  assert.deepEqual(f.selection.snapshot(), { cardIds: ["a"], primaryCardId: "a", anchorCardId: "a" });
+  f.tap("c", { shiftKey: true });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "b", "c"]);
+  f.tap("b", { ctrlKey: true });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "c"]);
+  f.tap("d", { metaKey: true });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "c", "d"]);
+});
+
+test("pickup preserves full selection and anchor, sets picked primary, and freezes the drag request", (t) => {
+  const f = selectionInput(); t.after(() => f.adapter.destroy());
+  f.selection.select(["a", "c", "d"], { primaryCardId: "d", anchorCardId: "a" });
+  f.pickup("c");
+  assert.deepEqual(f.calls[0], ["drag", { cardIds: ["a", "c", "d"], primaryCardId: "c", point: { x: 40, y: 50 } }]);
+  assert.deepEqual(f.selection.snapshot(), { cardIds: ["a", "c", "d"], primaryCardId: "c", anchorCardId: "a" });
+  f.selection.select(["b"]);
+  assert.deepEqual(f.session().snapshot().cardIds, ["a", "c", "d"]);
+  f.send("pointerup", "c");
+  assert.equal(f.calls.filter(([name]) => name === "release").length, 1);
+  assert.deepEqual(f.selection.snapshot().cardIds, ["b"]);
+});
+
+test("unselected pickup replaces, while modifier pickup adds without toggling selected members out", (t) => {
+  for (const [modifiers, expected] of [[{}, ["c"]], [{ ctrlKey: true }, ["a", "c"]], [{ metaKey: true }, ["a", "c"]], [{ shiftKey: true }, ["a", "b", "c"]]]) {
+    const f = selectionInput(); t.after(() => f.adapter.destroy());
+    f.selection.select(["a"]);
+    f.pickup("c", modifiers);
+    assert.deepEqual(f.session().snapshot().cardIds, expected);
+  }
+  const f = selectionInput(); t.after(() => f.adapter.destroy());
+  f.selection.select(["a", "b"]);
+  f.pickup("a", { ctrlKey: true });
+  assert.deepEqual(f.session().snapshot().cardIds, ["a", "b"]);
+});
+
+test("denied selection prevents pickup and announces the reason without changing the set", (t) => {
+  const f = selectionInput({ config: { max: 1 } }); t.after(() => f.adapter.destroy());
+  f.selection.select(["a"]);
+  f.pickup("b", { ctrlKey: true });
+  assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a"]);
+  assert.match(f.regions[0].textContent, /Selection unavailable.*maximum/);
+  assert.equal(f.stage.capturedPointers.size, 0);
+});
+
+test("idle keyboard navigation uses eligibility context and supports range, toggle, select-all and clear", (t) => {
+  const f = selectionInput({ config: { canSelect: ({ cardId }) => ({ allowed: cardId !== "b" }) } });
+  t.after(() => f.adapter.destroy());
+  f.send("keydown", "a", { key: "ArrowRight" });
+  assert.equal(f.shells.get("c").focusCalls.length, 1);
+  assert.deepEqual(f.selection.snapshot().cardIds, []);
+  f.send("keydown", "c", { key: "s" });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["c"]);
+  f.send("keydown", "c", { key: "S" });
+  assert.deepEqual(f.selection.snapshot().cardIds, []);
+  assert.equal(f.calls.length, 0);
+  f.send("keydown", "c", { key: "a", metaKey: true });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "c", "d"]);
+  f.send("keydown", "c", { key: "Escape" });
+  assert.deepEqual(f.selection.snapshot().cardIds, []);
+  const range = selectionInput(); t.after(() => range.adapter.destroy());
+  range.send("keydown", "a", { key: "ArrowRight", shiftKey: true });
+  assert.deepEqual(range.selection.snapshot(), { cardIds: ["a", "b"], primaryCardId: "b", anchorCardId: "a" });
+  range.send("keydown", "b", { key: "ArrowRight", shiftKey: true });
+  assert.deepEqual(range.selection.snapshot().cardIds, ["a", "b", "c"]);
+  range.send("keydown", "c", { key: "ArrowLeft", shiftKey: true });
+  assert.deepEqual(range.selection.snapshot().cardIds, ["a", "b"]);
+});
+
+test("keyboard select-all obeys scope and denies maximum overflow atomically", (t) => {
+  const f = selectionInput({ config: { scope: "zone" } }); t.after(() => f.adapter.destroy());
+  f.send("keydown", "d", { key: "a", ctrlKey: true });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["d"]);
+  const capped = selectionInput({ config: { max: 2 } }); t.after(() => capped.adapter.destroy());
+  capped.selection.select(["a"]);
+  capped.send("keydown", "a", { key: "a", metaKey: true });
+  assert.deepEqual(capped.selection.snapshot().cardIds, ["a"]);
+  assert.match(capped.regions[0].textContent, /maximum/);
+});
+
+test("keyboard cohort pickup uses post-removal source index and slot bounds, retaining pending Escape", (t) => {
+  const f = selectionInput(); t.after(() => f.adapter.destroy());
+  f.selection.select(["a", "c"]);
+  f.send("keydown", "c", { key: " " });
+  assert.deepEqual(f.calls.slice(0, 2), [
+    ["drag", { cardIds: ["a", "c"], primaryCardId: "c" }],
+    ["update", { toZoneId: "lake", index: 1 }],
+  ]);
+  f.send("keydown", "c", { key: "ArrowRight" });
+  assert.equal(f.calls.filter(([name]) => name === "update").length, 1);
+  f.send("keydown", "c", { key: "Tab" });
+  assert.deepEqual(f.calls.at(-1), ["update", { toZoneId: "river", index: 0 }]);
+  f.send("keydown", "c", { key: "Enter" });
+  assert.equal(f.send("keydown", "c", { key: "Tab" }).defaultPrevented, undefined);
+  f.send("keydown", "c", { key: "Escape" });
+  assert.deepEqual(f.calls.at(-1), ["cancel", "Escape"]);
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "c"]);
+});
+
+test("touch selection without touch dragging toggles taps and preserves native scrolling", (t) => {
+  const f = selectionInput({ options: { touchSelection: true } }); t.after(() => f.adapter.destroy());
+  f.tap("a", { pointerType: "touch" });
+  f.tap("c", { pointerType: "touch" });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "c"]);
+  f.tap("a", { pointerType: "touch" });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["c"]);
+  f.send("pointerdown", "b", { pointerType: "touch" });
+  const move = f.send("pointermove", "b", { pointerType: "touch", clientY: 60 });
+  f.send("pointerup", "b", { pointerType: "touch", clientY: 60 });
+  assert.equal(move.defaultPrevented, undefined);
+  assert.equal(f.stage.style.touchAction, undefined);
+  assert.equal(f.calls.length, 0);
+  assert.deepEqual(f.selection.snapshot().cardIds, ["c"]);
+});
+
+test("combined touch mode carries the selection without applying a tap toggle first", (t) => {
+  const f = selectionInput({ options: { touchDrag: true, touchSelection: true } }); t.after(() => f.adapter.destroy());
+  f.tap("a", { pointerType: "touch" });
+  f.tap("d", { pointerType: "touch" });
+  f.pickup("a", { pointerType: "touch" });
+  assert.equal(f.stage.style.touchAction, "none");
+  assert.deepEqual(f.session().snapshot().cardIds, ["a", "d"]);
+  f.send("pointerup", "a", { pointerType: "touch" });
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a", "d"]);
+});
+
+test("a second contact cancels a touch selection tap without preventing native input", (t) => {
+  const f = selectionInput({ options: { touchSelection: true } }); t.after(() => f.adapter.destroy());
+  f.send("pointerdown", "a", { pointerType: "touch" });
+  const second = f.send("pointerdown", "c", { pointerType: "touch", pointerId: 2, isPrimary: false });
+  f.send("pointerup", "a", { pointerType: "touch" });
+  assert.equal(second.defaultPrevented, undefined);
+  assert.deepEqual(f.selection.snapshot().cardIds, []);
+});
+
+test("handled pointer clicks are suppressed and embedded controls keep their keyboard behavior", (t) => {
+  const f = selectionInput(); t.after(() => f.adapter.destroy());
+  f.tap("a");
+  let stopped = false;
+  const click = f.send("click", "a", { detail: 1, stopImmediatePropagation() { stopped = true; } });
+  assert.equal(click.defaultPrevented, true);
+  assert.equal(stopped, true);
+  assert.equal(f.send("click", "a", { detail: 0 }).defaultPrevented, undefined);
+  const control = { closest: (selector) => selector === "[data-card-id]" ? f.shells.get("a") : control };
+  for (const key of [" ", "a", "ArrowRight", "Escape"]) {
+    const input = event("keydown", { target: control, key, ctrlKey: true });
+    f.stage.dispatchEvent(input);
+    assert.equal(input.defaultPrevented, undefined);
+  }
+  assert.deepEqual(f.selection.snapshot().cardIds, ["a"]);
+  assert.equal(f.calls.length, 0);
 });

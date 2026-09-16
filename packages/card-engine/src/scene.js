@@ -6,6 +6,8 @@ import { createWebGLRenderer } from "./renderers/webgl.js";
 import { resolveZones } from "./zones.js";
 import { createInteraction } from "./interaction.js";
 import { createInputAdapter } from "./input.js";
+import { createSelection } from "./selection.js";
+import { resolveBatchMove } from "./batch.js";
 
 const copy = (value) => structuredClone(value);
 
@@ -27,6 +29,7 @@ function spinChannel(axis) {
 
 const operationResultChannels = {
   move: () => 3,
+  moveBatch: () => 3,
   zone: () => 0,
   rotate: () => 1,
   scale: () => 1,
@@ -114,12 +117,6 @@ export function createCardScene(config = {}) {
   });
   const channels = new Map();
   const transitions = new Set();
-  const selectionConfig = {
-    multiple: true,
-    max: Infinity,
-    ...(config.selection ?? {}),
-  };
-  let selection = { cardIds: [], primaryCardId: null, anchorCardId: null };
   let targetSequence = 0;
   const targetSessions = new Set();
   let desired = null;
@@ -131,6 +128,16 @@ export function createCardScene(config = {}) {
   let interaction;
   let input;
   let interactionPositions = new Map();
+  const selection = createSelection({
+    config: config.selection,
+    state: () => ({ desired, visual }),
+    onChange: () => {
+      if (destroyed) return;
+      renderer.updateSelection?.(selection.snapshot());
+      emit("selection-change", selection.snapshot());
+      emit("change", snapshot());
+    },
+  });
 
   function clientToScene(point, depth = 0) {
     return renderer.clientToScene ? renderer.clientToScene(point, depth) : { x: point.x, y: point.y };
@@ -209,6 +216,7 @@ export function createCardScene(config = {}) {
       }
     }
     interaction?.reconcile();
+    selection.reconcile();
     renderAll({ render: false });
     renderer.render?.();
     ensureFrame();
@@ -241,39 +249,10 @@ export function createCardScene(config = {}) {
       && cardIds.indexOf(cardId) === index);
   }
 
-  function emitSelectionChange() {
-    emit("selection-change", copy(selection));
-    emit("change", snapshot());
-  }
-
   function select(cardIds, options = {}) {
     if (!desired) throw new Error("Call scene.apply before scene.select");
-    if (!Array.isArray(cardIds)) throw new TypeError("scene.select requires an array of card IDs");
-    const mode = options.mode ?? "replace";
-    if (!["replace", "add", "toggle", "remove"].includes(mode)) {
-      throw new TypeError(`Unknown selection mode: ${mode}`);
-    }
-    const requested = validCardIds(cardIds);
-    const current = [...selection.cardIds];
-    let next = mode === "replace" ? requested : current;
-    if (mode === "add") next = [...current, ...requested.filter((cardId) => !current.includes(cardId))];
-    if (mode === "remove") next = current.filter((cardId) => !requested.includes(cardId));
-    if (mode === "toggle") next = current.filter((cardId) => !requested.includes(cardId));
-    if (mode === "toggle") next.push(...requested.filter((cardId) => !current.includes(cardId)));
-    if (!selectionConfig.multiple) next = next.slice(-1);
-    if (next.length > selectionConfig.max) next = next.slice(0, selectionConfig.max);
-    const primaryCardId = options.primaryCardId === undefined
-      ? next[next.length - 1] ?? null
-      : next.includes(options.primaryCardId) ? options.primaryCardId : next[0] ?? null;
-    selection = {
-      cardIds: next,
-      primaryCardId,
-      anchorCardId: options.anchorCardId === undefined
-        ? selection.anchorCardId && next.includes(selection.anchorCardId) ? selection.anchorCardId : primaryCardId
-        : next.includes(options.anchorCardId) ? options.anchorCardId : primaryCardId,
-    };
-    emitSelectionChange();
-    return copy(selection);
+    if (destroyed) throw new Error("Scene is destroyed");
+    return selection.select(cardIds, options);
   }
 
   function hitTest(point) {
@@ -434,8 +413,8 @@ export function createCardScene(config = {}) {
     }
     if (needsRender) renderer.render?.();
     if (logicalFaceChanged && channels.size > 0) emit("change", snapshot());
-    if (channels.size > 0 && !frameId) frameId = clock.requestFrame(onFrame);
-    if (channels.size === 0) {
+    if ((channels.size > 0 || interaction?.needsFrame?.()) && frameId === null) frameId = clock.requestFrame(onFrame);
+    if (channels.size === 0 && !interaction?.needsFrame?.()) {
       if (frameId !== null) clock.cancelFrame(frameId);
       frameId = null;
       if (wasSettling) emit("change", snapshot());
@@ -446,10 +425,12 @@ export function createCardScene(config = {}) {
     frameId = null;
     if (destroyed) return;
     sample(time);
+    interaction?.tick?.();
+    ensureFrame();
   }
 
   function ensureFrame() {
-    if (!frameId && channels.size > 0) frameId = clock.requestFrame(onFrame);
+    if (!destroyed && frameId === null && (channels.size > 0 || interaction?.needsFrame?.())) frameId = clock.requestFrame(onFrame);
   }
 
   function cancelChannel(cardId, channelName, status = "superseded") {
@@ -588,16 +569,6 @@ export function createCardScene(config = {}) {
     }
     desired = next;
     resolvedZones = nextZones;
-    const availableIds = new Set(next.cards.map((card) => card.id));
-    const remainingSelection = selection.cardIds.filter((cardId) => availableIds.has(cardId));
-    if (remainingSelection.length !== selection.cardIds.length) {
-      selection = {
-        cardIds: remainingSelection,
-        primaryCardId: remainingSelection.includes(selection.primaryCardId) ? selection.primaryCardId : remainingSelection[0] ?? null,
-        anchorCardId: remainingSelection.includes(selection.anchorCardId) ? selection.anchorCardId : remainingSelection[0] ?? null,
-      };
-      emit("selection-change", copy(selection));
-    }
     visual = new Map([...poses].map(([cardId, pose]) => {
       const card = desired.cards.find((candidate) => candidate.id === cardId);
       const previousPose = previousVisual.get(cardId);
@@ -640,6 +611,8 @@ export function createCardScene(config = {}) {
     ensureFrame();
     trackGeometry();
     interaction?.reconcile();
+    selection.reconcile();
+    renderer.updateSelection?.(selection.snapshot());
     emit("change", snapshot());
   }
 
@@ -654,7 +627,9 @@ export function createCardScene(config = {}) {
       scheduling: true,
       moved: new Set(),
       immediate: Boolean(options.immediate),
-      results: operations.map((operation) => ({ type: operation.type, cardId: operation.cardId, status: "pending" })),
+      results: operations.map((operation) => ({ type: operation.type,
+        ...(operation.type === "moveBatch" ? { cardIds: copy(operation.cardIds) } : { cardId: operation.cardId }),
+        status: "pending" })),
       commits: new Map(),
       rollbacks: new Map(),
       resolve: null,
@@ -778,6 +753,14 @@ export function createCardScene(config = {}) {
     };
 
     for (const [operationIndex, operation] of operations.entries()) {
+      if (operation.type === "moveBatch") {
+        const { nextSnapshot } = resolveBatchMove(next, {
+          cardIds: operation.cardIds, toZoneId: operation.to, index: operation.index, validate: false,
+        });
+        for (const updated of nextSnapshot.zones) zones.get(updated.id).cardIds = [...updated.cardIds];
+        for (const id of operation.cardIds) delete cards.get(id).positionMode;
+        continue;
+      }
       if (operation.type === "zone") {
         const zone = zones.get(operation.zoneId);
         if (!zone) throw new Error(`Unknown zone: ${operation.zoneId}`);
@@ -805,8 +788,8 @@ export function createCardScene(config = {}) {
     const previous = desired;
     desired = next;
     resolvedZones = nextZones;
-    const affected = new Set(operations.map((operation) => operation.cardId).filter(Boolean));
-    if (operations.some((operation) => ["move", "zone", "resize", "thickness", "element"].includes(operation.type))) {
+    const affected = new Set(operations.flatMap((operation) => operation.cardIds ?? [operation.cardId]).filter(Boolean));
+    if (operations.some((operation) => ["move", "moveBatch", "zone", "resize", "thickness", "element"].includes(operation.type))) {
       for (const [cardId, targetPose] of targets) {
         const current = cardPose(cardId);
         if (current) affected.add(cardId);
@@ -818,9 +801,14 @@ export function createCardScene(config = {}) {
       if (!targetPose) throw new Error(`Card ${cardId} has no layout target`);
       const current = cardPose(cardId);
       const oldCard = previous.cards.find((candidate) => candidate.id === cardId);
-      const operationIndexes = operations.flatMap((operation, index) => operation.cardId === cardId ? [index] : []);
+      const operationIndexes = operations.flatMap((operation, index) => (operation.cardId === cardId || operation.cardIds?.includes(cardId)) ? [index] : []);
       const scheduleOperations = {
         move: (operationIndex) => {
+          schedule(cardId, "x", targetPose.x, transition, operationIndex);
+          schedule(cardId, "y", targetPose.y, transition, operationIndex);
+          schedule(cardId, "z", targetPose.z, transition, operationIndex);
+        },
+        moveBatch: (operationIndex) => {
           schedule(cardId, "x", targetPose.x, transition, operationIndex);
           schedule(cardId, "y", targetPose.y, transition, operationIndex);
           schedule(cardId, "z", targetPose.z, transition, operationIndex);
@@ -852,11 +840,11 @@ export function createCardScene(config = {}) {
         const operation = operations[operationIndex];
         scheduleOperations[operation.type](operationIndex);
       }
-      if (!operationIndexes.some((index) => operations[index].type === "move") && operations.some((op) => ["move", "zone", "resize", "element", "thickness"].includes(op.type))) {
+      if (!operationIndexes.some((index) => ["move", "moveBatch"].includes(operations[index].type)) && operations.some((op) => ["move", "moveBatch", "zone", "resize", "element", "thickness"].includes(op.type))) {
         for (const name of ["x", "y", "z"]) {
           const active = channels.get(cardId)?.[name];
           if (active && Math.abs(active.to - targetPose[name]) < 0.0001) continue;
-          const owner = operationIndexes[0] ?? operations.findIndex((op) => ["move", "zone", "resize", "element", "thickness"].includes(op.type));
+          const owner = operationIndexes[0] ?? operations.findIndex((op) => ["move", "moveBatch", "zone", "resize", "element", "thickness"].includes(op.type));
           schedule(cardId, name, targetPose[name], transition, owner);
         }
       }
@@ -879,6 +867,8 @@ export function createCardScene(config = {}) {
     renderAll({ render: false });
     renderer.render?.();
     interaction?.reconcile();
+    selection.reconcile();
+    renderer.updateSelection?.(selection.snapshot());
     emit("change", snapshot());
     return { finished: transition.finished };
   }
@@ -890,8 +880,8 @@ export function createCardScene(config = {}) {
       desired: copy(desired ?? { cards: [], zones: [] }),
       zones: copy([...resolvedZones.values()]),
       visual: [...visual.entries()].map(([cardId, pose]) => ({ cardId, pose: copy(pose), physicalSide: physicalSide(pose) })),
-      selection: copy(selection),
-      settling: channels.size > 0,
+      selection: selection.snapshot(),
+      settling: channels.size > 0 || Boolean(interaction?.needsFrame?.()),
       spinning,
       renderer: renderer.type ?? "custom",
       rendererReason: rendererReason ?? renderer.reason ?? null,
@@ -928,7 +918,7 @@ export function createCardScene(config = {}) {
     transitions.clear();
     for (const session of targetSessions) session.cancel();
     targetSessions.clear();
-    selection = { cardIds: [], primaryCardId: null, anchorCardId: null };
+    selection.clear();
     renderer.destroy();
     listeners.clear();
   }
@@ -940,14 +930,38 @@ export function createCardScene(config = {}) {
     refresh: refreshGeometry,
     takePosition: (id) => { for (const name of ['x', 'y', 'z']) cancelChannel(id, name); },
     present: presentInteraction,
-    commit: (operations) => { interactionPositions = new Map(); return transact(operations); },
+    commit: (operations) => {
+      const previousPositions = interactionPositions;
+      interactionPositions = new Map();
+      try {
+        return transact(operations);
+      } catch (error) {
+        interactionPositions = previousPositions;
+        throw error;
+      }
+    },
     emit,
     rules: config.interaction?.rules,
     toClient: sceneToClient,
     fromClient: clientToScene,
+    isSelectable: selection.isSelectable,
+    now: () => clock.now(),
+    reducedMotion: () => reducedMotion,
+    requestFrame: ensureFrame,
+    defaultPresentation: config.interaction?.dragPresentation,
   });
+  function drag(request) {
+    if (!desired) throw new Error("Call scene.apply before scene.drag");
+    return interaction.drag({ ...request, cardIds: selection.order(request?.cardIds, request?.order ?? "source") });
+  }
+  function invalidateRules() {
+    // Cancel an ineligible frozen cohort before exposing its pruned selection.
+    interaction.invalidateRules();
+    selection.reconcile();
+  }
   const api = { apply, transact, spin, stopSpin, select, hitTest, target, setMotion, snapshot, viewport, refreshGeometry, on, destroy,
-    clientToScene, sceneToClient, drag: interaction.drag, resolveDrop: interaction.resolveDrop, invalidateRules: interaction.invalidateRules };
-  if (config.element && config.interaction) input = createInputAdapter({ element: config.element, scene: api, options: config.interaction });
+    clientToScene, sceneToClient, drag, resolveDrop: interaction.resolveDrop, invalidateRules };
+  if (config.element && config.interaction) input = createInputAdapter({ element: config.element, scene: api, options: config.interaction,
+    selectionContext: (focusedCardId) => selection.context(focusedCardId) });
   return api;
 }

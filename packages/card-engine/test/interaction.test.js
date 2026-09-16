@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createCardScene } from "../src/index.js";
+import { createInteraction } from "../src/interaction.js";
+import { resolveBatchMove } from "../src/batch.js";
+import { solveAllPoses } from "../src/layout.js";
+import { normalizeSnapshot } from "../src/model.js";
 
 function clock() {
   let time = 0;
@@ -103,9 +107,11 @@ test("missing interaction rules deny pickup and denied canStart leaves no live s
   denied.scene.destroy();
 });
 
-test("multiple-card requests are explicitly rejected until cohort dragging exists", () => {
+test("multiple-card requests retain all requested members", () => {
   const { scene } = sceneWith({ rules: permissiveRules() });
-  assertDeniedStart(scene, { cardIds: ["a", "b"], primaryCardId: "a", point: { x: 40, y: 50 } });
+  const session = start(scene, ['a', 'b']);
+  assert.deepEqual(session.snapshot().cardIds, ['a', 'b']);
+  session.cancel();
   scene.destroy();
 });
 
@@ -551,5 +557,468 @@ test("authoritative same-zone reorder cancels an active drag", () => {
   scene.apply(next);
   assert.equal(drag.snapshot().phase, "cancelled");
   assert.equal(drag.release(), null);
+  scene.destroy();
+});
+
+function threeZones() {
+  return { cards: ['a', 'b', 'c', 'd', 'e'].map((id) => card(id)), zones: [
+    zone('lake', ['a', 'b']), zone('river', ['c', 'd'], 400), zone('ocean', ['e'], 800),
+  ] };
+}
+
+function assertResting(scene) {
+  const expected = createCardScene({ motion: { reducedMotion: true } });
+  expected.apply(scene.snapshot().desired);
+  for (const { cardId, pose: rest } of expected.snapshot().visual) {
+    const actual = pose(scene, cardId);
+    for (const key of ['x', 'y', 'z']) assert.equal(actual[key], rest[key], `${cardId}.${key}`);
+  }
+  expected.destroy();
+}
+
+test('cohort and source order freeze at pickup despite subsequent selection and request edits', () => {
+  const { scene } = sceneWith({ rules: permissiveRules() });
+  scene.apply(threeZones());
+  scene.select(['d', 'b']);
+  const request = { cardIds: ['d', 'b'], primaryCardId: 'd', order: 'provided', point: { x: 530, y: 50 } };
+  const session = scene.drag(request);
+  request.cardIds.push('a');
+  scene.select(['a']);
+  const snapshot = session.snapshot();
+  assert.deepEqual(snapshot.cardIds, ['d', 'b']);
+  assert.deepEqual(snapshot.sources, [{ cardId: 'd', zoneId: 'river', index: 1 }, { cardId: 'b', zoneId: 'lake', index: 1 }]);
+  snapshot.cardIds.reverse();
+  snapshot.sources[0].index = 100;
+  assert.deepEqual(session.snapshot().cardIds, ['d', 'b']);
+  session.update({ toZoneId: 'ocean', index: 1 });
+  const intent = session.release();
+  assert.deepEqual(intent.cardIds, ['d', 'b']);
+  assert.equal(intent.sources[0].index, 1);
+  scene.resolveDrop(intent.id, { accepted: true });
+  assert.deepEqual(scene.snapshot().desired.zones[2].cardIds, ['e', 'd', 'b']);
+  assert.deepEqual(scene.snapshot().selection.cardIds, ['a']);
+  scene.destroy();
+});
+
+test('all-member previews and a single immutable intent agree with atomic same-zone landing', async () => {
+  const { scene } = sceneWith({ rules: permissiveRules() });
+  scene.apply(input({ source: ['a', 'b', 'c', 'd', 'e'], cards: ['a', 'b', 'c', 'd', 'e'] }));
+  scene.transact(['b', 'd'].map((cardId, index) => ({ type: 'move', cardId, position: { x: 10 + index * 80, y: 200 } })));
+  scene.select(['b', 'd']);
+  const before = scene.snapshot().desired;
+  const events = [];
+  scene.on('drop', (intent) => events.push(intent));
+  const session = start(scene, ['b', 'd']);
+  const preview = session.update({ toZoneId: 'source', index: 3 });
+  assert.equal(preview.candidate.index, 3);
+  assert.deepEqual(Object.keys(preview.targetPoses), ['b', 'd']);
+  assert.deepEqual(preview.targetPose, preview.targetPoses.b);
+  assert.deepEqual(scene.snapshot().desired, before);
+  const expected = resolveBatchMove(before, { cardIds: ['b', 'd'], toZoneId: 'source', index: 3 });
+  const solved = solveAllPoses(expected.nextSnapshot, { projection: 'orthographic' });
+  assert.deepEqual(preview.targetPoses.b, solved.get('b'));
+  assert.deepEqual(preview.targetPoses.d, solved.get('d'));
+  const intent = session.release();
+  assert.equal(events.length, 1);
+  assert.equal(session.release(), null);
+  assert.throws(() => events[0].cardIds.push('a'), TypeError);
+  assert.throws(() => intent.sources[0].index = 50, TypeError);
+  assert.deepEqual(scene.snapshot().desired, before);
+  const result = scene.resolveDrop(intent.id, { accepted: true });
+  assert.equal(result.status, 'accepted');
+  await result.finished;
+  assert.equal((await session.finished).phase, 'accepted');
+  assert.deepEqual(scene.snapshot().desired.zones[0].cardIds, ['a', 'c', 'e', 'b', 'd']);
+  assert.deepEqual(scene.snapshot().selection.cardIds, ['b', 'd']);
+  for (const id of ['b', 'd']) assert.equal(scene.snapshot().desired.cards.find((card) => card.id === id).positionMode, undefined);
+  assertResting(scene);
+  assert.equal(scene.resolveDrop(intent.id, { accepted: true }).status, 'stale');
+  scene.destroy();
+});
+
+test('full-batch permission and capacity reject without silently dropping a member', () => {
+  const requests = [];
+  const rules = permissiveRules({ canDrop(request) { requests.push(request); return { allowed: !request.cardIds.includes('d'), reason: 'd is locked' }; } });
+  const { scene } = sceneWith({ rules });
+  scene.apply(threeZones());
+  const before = scene.snapshot().desired;
+  const session = start(scene, ['b', 'd']);
+  const denied = session.update({ toZoneId: 'ocean', index: 1 });
+  assert.equal(denied.candidate.allowed, false);
+  assert.equal(denied.targetPoses, null);
+  assert.deepEqual(requests.at(-1).cardIds, ['b', 'd']);
+  assert.deepEqual(requests.at(-1).sources.map(({ zoneId }) => zoneId), ['lake', 'river']);
+  assert.equal(session.release(), null);
+  assert.deepEqual(scene.snapshot().desired, before);
+  assertResting(scene);
+  scene.destroy();
+
+  const permitted = sceneWith({ rules: permissiveRules() }).scene;
+  const snapshot = threeZones();
+  snapshot.zones[2].capacity = 2;
+  permitted.apply(snapshot);
+  const batch = start(permitted, ['b', 'd']);
+  const full = batch.update({ toZoneId: 'ocean', index: 0 });
+  assert.equal(full.candidate.allowed, false);
+  assert.match(full.candidate.reason, /capacity/);
+  assert.equal(full.targetPoses, null);
+  assert.equal(batch.release(), null);
+  assertResting(permitted);
+  permitted.destroy();
+});
+
+test('batch rejection returns every source and displaced neighbor to live resized arrangements', () => {
+  const { scene } = sceneWith({ rules: permissiveRules() });
+  scene.apply(threeZones());
+  const session = start(scene, ['b', 'd']);
+  session.update({ toZoneId: 'ocean', index: 0 });
+  const intent = session.release();
+  scene.transact([
+    { type: 'zone', zoneId: 'lake', changes: { geometry: { x: 100, y: 100, width: 350, height: 400, depth: 20 } } },
+    { type: 'resize', cardId: 'd', dimensions: { width: 140, height: 160 } },
+    { type: 'rotate', cardId: 'd', angle: 30 },
+  ]);
+  assert.equal(session.snapshot().phase, 'pending');
+  assert.equal(session.snapshot().targetPoses.d.width, 140);
+  scene.resolveDrop(intent.id, { accepted: false });
+  assertResting(scene);
+  assert.equal(pose(scene, 'd').angle, 30);
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), [['a', 'b'], ['c', 'd'], ['e']]);
+  scene.destroy();
+});
+
+test('secondary removal, reorder, authored position, visibility and batch moves cancel the entire cohort', () => {
+  const mutations = {
+    removal(scene) {
+      const next = scene.snapshot().desired;
+      next.cards = next.cards.filter(({ id }) => id !== 'd');
+      next.zones[1].cardIds = ['c'];
+      scene.apply(next);
+    },
+    reorder(scene) {
+      const next = scene.snapshot().desired;
+      next.zones[1].cardIds = ['d', 'c'];
+      scene.apply(next);
+    },
+    position(scene) { scene.transact([{ type: 'move', cardId: 'd', position: { x: 100, y: 100 } }]); },
+    hidden(scene) { scene.transact([{ type: 'zone', zoneId: 'river', changes: { visible: false } }]); },
+    batch(scene) { scene.transact([{ type: 'moveBatch', cardIds: ['d'], to: 'ocean', index: 0 }]); },
+  };
+  for (const pending of [false, true]) for (const [label, mutate] of Object.entries(mutations)) {
+    const { scene } = sceneWith({ rules: permissiveRules() });
+    scene.apply(threeZones());
+    const session = start(scene, ['b', 'd']);
+    session.update({ toZoneId: 'ocean', index: 0 });
+    const id = pending ? session.release().id : session.snapshot().id;
+    mutate(scene);
+    assert.equal(session.snapshot().phase, 'cancelled', `${label}, pending=${pending}`);
+    const latest = scene.snapshot().desired;
+    assert.equal(scene.resolveDrop(id, { accepted: true }).status, 'stale');
+    assert.deepEqual(scene.snapshot().desired, latest);
+    assertResting(scene);
+    scene.destroy();
+  }
+});
+
+test('selection eligibility loss cancels the full cohort while unrelated selection changes do not', () => {
+  let denied = false;
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() },
+    selection: { canSelect: ({ cardId }) => ({ allowed: !(denied && cardId === 'd') }) } });
+  scene.apply(threeZones());
+  const session = start(scene, ['b', 'd']);
+  scene.select(['a']);
+  assert.equal(session.snapshot().phase, 'dragging');
+  denied = true;
+  scene.invalidateRules();
+  assert.equal(session.snapshot().phase, 'cancelled');
+  assertResting(scene);
+  assert.throws(() => start(scene, ['b', 'd']), /available|eligible/);
+  scene.destroy();
+});
+
+test('preserve mode reprojects each frozen screen offset at its own depth through camera changes', () => {
+  let zoom = 1;
+  let pan = 0;
+  const project = ({ x, y, z = 0 }) => ({ x: x * zoom / (1 + z / 1000) + pan, y: y * zoom / (1 + z / 1000) });
+  const unproject = ({ x, y }, z = 0) => ({ x: (x - pan) * (1 + z / 1000) / zoom, y: y * (1 + z / 1000) / zoom });
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() }, renderer: () => ({
+    update() {}, remove() {}, destroy() {}, sceneToClient: project, clientToScene: unproject,
+  }) });
+  const snapshot = threeZones();
+  snapshot.zones[1].geometry.depth = 200;
+  scene.apply(snapshot);
+  const before = new Map(['b', 'd'].map((id) => [id, pose(scene, id)]));
+  const primary = project(before.get('d'));
+  const secondary = project(before.get('b'));
+  const pointer = { x: primary.x + 7, y: primary.y - 9 };
+  const session = scene.drag({ cardIds: ['b', 'd'], primaryCardId: 'd', point: unproject(pointer) });
+  for (const id of ['b', 'd']) for (const key of ['x', 'y', 'z']) assert.ok(Math.abs(pose(scene, id)[key] - before.get(id)[key]) < 1e-9);
+  zoom = 1.7; pan = 60;
+  const moved = { x: pointer.x + 100, y: pointer.y + 70 };
+  session.update({ point: unproject(moved) });
+  const p = project(pose(scene, 'd'));
+  const s = project(pose(scene, 'b'));
+  assert.ok(Math.abs(p.x - (moved.x - 7)) < 1e-9);
+  assert.ok(Math.abs(p.y - (moved.y + 9)) < 1e-9);
+  assert.ok(Math.abs((s.x - p.x) - (secondary.x - primary.x)) < 1e-9);
+  assert.ok(Math.abs((s.y - p.y) - (secondary.y - primary.y)) < 1e-9);
+  for (const id of ['b', 'd']) assert.equal(pose(scene, id).z, before.get(id).z);
+  session.cancel();
+  assertResting(scene);
+  scene.destroy();
+});
+
+test('compact carry animates on the engine clock and pending uses actual destination slots', () => {
+  const timer = clock();
+  const scene = createCardScene({ motion: { clock: timer, duration: 100 }, interaction: { rules: permissiveRules(), dragPresentation: 'compact' } });
+  scene.apply(threeZones());
+  const original = pose(scene, 'd').x - pose(scene, 'b').x;
+  const session = scene.drag({ cardIds: ['b', 'd'], primaryCardId: 'b', point: { x: 137, y: 41 } });
+  assert.equal(pose(scene, 'd').x - pose(scene, 'b').x, original);
+  timer.tick(90);
+  const middle = pose(scene, 'd').x - pose(scene, 'b').x;
+  assert.ok(middle > 18 && middle < original);
+  timer.tick(90);
+  assert.equal(pose(scene, 'd').x - pose(scene, 'b').x, 18);
+  assert.equal(pose(scene, 'b').x, 130);
+  assert.equal(pose(scene, 'b').y, 50);
+  session.update({ point: { x: 870, y: 120 } });
+  const intent = session.release();
+  assert.equal(session.snapshot().phase, 'pending');
+  timer.tick(100);
+  const targets = session.snapshot().targetPoses;
+  for (const id of ['b', 'd']) for (const key of ['x', 'y', 'z']) assert.equal(pose(scene, id)[key], targets[id][key]);
+  assert.notEqual(targets.d.x - targets.b.x, 18);
+  scene.resolveDrop(intent.id, { accepted: false });
+  timer.tick(100);
+  assertResting(scene);
+  scene.destroy();
+  assert.equal(timer.pending(), 0);
+});
+
+test('compact reduced motion settles immediately and preserve overrides a compact default', () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules(), dragPresentation: 'compact' } });
+  scene.apply(threeZones());
+  const original = pose(scene, 'd').x - pose(scene, 'b').x;
+  const preserve = scene.drag({ cardIds: ['b', 'd'], presentation: 'preserve' });
+  assert.equal(pose(scene, 'd').x - pose(scene, 'b').x, original);
+  preserve.cancel();
+  const compact = scene.drag({ cardIds: ['b', 'd'] });
+  assert.equal(pose(scene, 'd').x - pose(scene, 'b').x, 18);
+  compact.cancel();
+  assertResting(scene);
+  scene.destroy();
+});
+
+// A small injected boundary exercises lifecycle hooks independently: a scene
+// update normally invokes both beforeCommit and reconcile, so testing only that
+// path would miss a guard that works in just one of the two hooks.
+function interactionBoundary({ commitError = false } = {}) {
+  let desired = normalizeSnapshot(threeZones());
+  let visual = solveAllPoses(desired, { projection: 'orthographic' });
+  let previous = new Map();
+  const commits = [];
+  const events = [];
+  const calls = { solve: 0, canDrop: 0 };
+  const interaction = createInteraction({
+    state: () => ({ desired, visual, zones: desired.zones }),
+    solve: (next) => { calls.solve += 1; return solveAllPoses(next, { projection: 'orthographic' }); },
+    sample() {}, refresh() {}, takePosition() {},
+    toClient: ({ x, y }) => ({ x, y }), fromClient: ({ x, y }) => ({ x, y }),
+    present(positions, detail, resting) {
+      for (const id of new Set([...previous.keys(), ...positions.keys()])) {
+        if (!visual.has(id)) continue;
+        visual.set(id, { ...visual.get(id), ...(positions.get(id)?.pose ?? resting.get(id)) });
+      }
+      previous = positions;
+    },
+    commit(operations) {
+      commits.push(operations);
+      if (commitError) throw new Error('commit failed');
+      const operation = operations[0];
+      desired = resolveBatchMove(desired, { cardIds: operation.cardIds, toZoneId: operation.to, index: operation.index }).nextSnapshot;
+      return { finished: Promise.resolve() };
+    },
+    emit(name, detail) { events.push([name, detail]); },
+    rules: permissiveRules({ canDrop() { calls.canDrop += 1; return { allowed: true }; } }),
+  });
+  return { interaction, commits, events, calls, model: () => desired, visual: () => visual,
+    replace(next) { desired = normalizeSnapshot(next); visual = solveAllPoses(desired, { projection: 'orthographic' }); } };
+}
+
+test('beforeCommit and reconcile independently detect every secondary-member conflict', () => {
+  const changes = {
+    removed(next) { next.cards = next.cards.filter(({ id }) => id !== 'd'); next.zones[1].cardIds.pop(); },
+    moved(next) { next.zones[1].cardIds.pop(); next.zones[2].cardIds.push('d'); },
+    reordered(next) { next.zones[1].cardIds.reverse(); },
+    authored(next) { next.cards.find(({ id }) => id === 'd').pose.x += 30; },
+  };
+  for (const hook of ['beforeCommit', 'reconcile']) for (const [name, change] of Object.entries(changes)) {
+    const boundary = interactionBoundary();
+    const session = boundary.interaction.drag({ cardIds: ['b', 'd'], primaryCardId: 'b' });
+    session.update({ toZoneId: 'ocean', index: 0 });
+    const intent = session.release();
+    const next = structuredClone(boundary.model());
+    change(next);
+    if (hook === 'beforeCommit') boundary.interaction.beforeCommit(next);
+    else { boundary.replace(next); boundary.interaction.reconcile(); }
+    assert.equal(session.snapshot().phase, 'cancelled', `${hook}: ${name}`);
+    assert.equal(boundary.interaction.resolveDrop(intent.id, { accepted: true }).status, 'stale');
+    assert.equal(boundary.commits.length, 0);
+    boundary.interaction.destroy();
+  }
+});
+
+test('approval makes exactly one complete moveBatch call and failed commits settle cancellation', async () => {
+  for (const commitError of [false, true]) {
+    const boundary = interactionBoundary({ commitError });
+    const before = structuredClone(boundary.model());
+    const session = boundary.interaction.drag({ cardIds: ['d', 'b'], primaryCardId: 'b' });
+    session.update({ toZoneId: 'ocean', index: 0 });
+    const intent = session.release();
+    if (commitError) {
+      assert.throws(() => boundary.interaction.resolveDrop(intent.id, { accepted: true }), /commit failed/);
+      assert.equal((await session.finished).phase, 'cancelled');
+      assert.deepEqual(boundary.model(), before);
+      assert.deepEqual(boundary.visual(), solveAllPoses(before, { projection: 'orthographic' }));
+    } else {
+      assert.equal(boundary.interaction.resolveDrop(intent.id, { accepted: true }).status, 'accepted');
+      assert.equal((await session.finished).phase, 'accepted');
+    }
+    assert.deepEqual(boundary.commits, [[{ type: 'moveBatch', cardIds: ['d', 'b'], to: 'ocean', index: 0 }]]);
+    assert.equal(boundary.events.filter(([name]) => name === 'drop').length, 1);
+    assert.equal(boundary.interaction.resolveDrop(intent.id, { accepted: true }).status, 'stale');
+    boundary.interaction.destroy();
+  }
+});
+
+test('batch approval revalidates denied rules and a capacity loss without partial commit', () => {
+  for (const kind of ['rules', 'capacity', 'destination-order']) {
+    let allowed = true;
+    const { scene } = sceneWith({ rules: permissiveRules({ canDrop: () => ({ allowed }) }) });
+    const snapshot = threeZones();
+    snapshot.zones[2].capacity = 3;
+    scene.apply(snapshot);
+    const session = start(scene, ['b', 'd']);
+    session.update({ toZoneId: 'ocean', index: 0 });
+    const intent = session.release();
+    if (kind === 'rules') allowed = false;
+    else if (kind === 'capacity') scene.transact([{ type: 'zone', zoneId: 'ocean', changes: { capacity: 2 } }]);
+    else scene.transact([{ type: 'move', cardId: 'a', to: 'ocean', index: 0 }]);
+    const latest = scene.snapshot().desired;
+    assert.equal(scene.resolveDrop(intent.id, { accepted: true }).status, 'stale', kind);
+    assert.equal(session.snapshot().phase, 'cancelled');
+    assert.deepEqual(scene.snapshot().desired, latest);
+    assertResting(scene);
+    scene.destroy();
+  }
+});
+
+test('every moving cohort member keeps independent rotation, scale and spin on pickup', async () => {
+  const timer = clock();
+  const { scene } = sceneWith({ rules: permissiveRules(), timer, reducedMotion: false });
+  scene.apply(threeZones());
+  const movement = scene.transact([{ type: 'moveBatch', cardIds: ['b', 'd'], to: 'ocean', index: 0 }]);
+  scene.transact([{ type: 'rotate', cardId: 'b', angle: 45 }, { type: 'scale', cardId: 'd', factor: 1.5 }]);
+  scene.spin('b', { axis: 'x', speed: 120 });
+  scene.spin('d', { axis: 'y', speed: 180 });
+  timer.tick(40);
+  const before = new Map(['b', 'd'].map((id) => [id, pose(scene, id)]));
+  const session = scene.drag({ cardIds: ['b', 'd'], primaryCardId: 'b', point: before.get('b') });
+  for (const id of ['b', 'd']) for (const key of ['x', 'y', 'z', 'angle', 'scale', 'flipX', 'flipY']) {
+    assert.equal(pose(scene, id)[key], before.get(id)[key]);
+  }
+  timer.tick(100);
+  assert.equal(pose(scene, 'b').angle, 45);
+  assert.equal(pose(scene, 'd').scale, 1.5);
+  assert.notEqual(pose(scene, 'b').flipX, before.get('b').flipX);
+  assert.notEqual(pose(scene, 'd').flipY, before.get('d').flipY);
+  assert.equal((await movement.finished)[0].status, 'superseded');
+  session.cancel();
+  assert.equal(scene.snapshot().spinning, true);
+  scene.destroy();
+  assert.equal(timer.pending(), 0);
+});
+
+test('supersession and disposal settle the entire compact or pending cohort', async () => {
+  const timer = clock();
+  const scene = createCardScene({ motion: { clock: timer, duration: 100 }, interaction: { rules: permissiveRules(), dragPresentation: 'compact' } });
+  scene.apply(threeZones());
+  const first = scene.drag({ cardIds: ['b', 'd'], primaryCardId: 'b' });
+  timer.tick(30);
+  const second = scene.drag({ cardIds: ['a'], primaryCardId: 'a' });
+  assert.equal((await first.finished).phase, 'cancelled');
+  assert.deepEqual(scene.snapshot().interaction.sessions.map(({ cardIds }) => cardIds), [['a']]);
+  second.update({ toZoneId: 'ocean', index: 0 });
+  const intent = second.release();
+  scene.destroy();
+  assert.equal((await second.finished).phase, 'cancelled');
+  assert.equal(scene.resolveDrop(intent.id, { accepted: true }).status, 'stale');
+  assert.equal(timer.pending(), 0);
+});
+
+test('unchanged pointer candidates reuse batch layouts and project decisions', () => {
+  const { interaction, calls } = interactionBoundary();
+  const session = interaction.drag({ cardIds: ['b', 'd'], primaryCardId: 'b', point: { x: 130, y: 50 } });
+  session.update({ point: { x: 860, y: 80 } });
+  const before = { ...calls };
+  session.update({ point: { x: 861, y: 81 } });
+  session.update({ point: { x: 862, y: 82 } });
+  assert.deepEqual(calls, before);
+  interaction.invalidateRules();
+  assert.equal(calls.solve, before.solve);
+  assert.equal(calls.canDrop, before.canDrop + 1);
+  interaction.destroy();
+});
+
+test('invalid cohort requests leave an already active gesture intact', () => {
+  const { interaction } = interactionBoundary();
+  const active = interaction.drag({ cardIds: ['b', 'd'], primaryCardId: 'b' });
+  for (const request of [
+    { cardIds: [] }, { cardIds: ['b', 'b'] }, { cardIds: ['b', 'missing'] },
+    { cardIds: ['b', 'd'], primaryCardId: 'a' }, { cardIds: ['b'], presentation: 'unknown' },
+    { cardIds: ['b'], point: { x: NaN, y: 0 } },
+  ]) {
+    assert.throws(() => interaction.drag(request));
+    assert.equal(active.snapshot().phase, 'dragging');
+  }
+  interaction.destroy();
+});
+
+test('a single compact card needs no bundle animation frames', () => {
+  const timer = clock();
+  const scene = createCardScene({ motion: { clock: timer }, interaction: { rules: permissiveRules(), dragPresentation: 'compact' } });
+  scene.apply({ cards: [card('a')], zones: [zone('source', ['a'])] });
+  const session = start(scene);
+  assert.equal(timer.pending(), 0);
+  assert.equal(scene.snapshot().settling, false);
+  session.cancel();
+  scene.destroy();
+});
+
+test('batch acceptance preserves mounted shell identities and each card face and pivot', () => {
+  const shells = new Map();
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() },
+    renderer: () => ({
+      update(card) { if (!shells.has(card.id)) shells.set(card.id, { id: card.id }); },
+      remove(id) { shells.delete(id); }, destroy() {},
+    }) });
+  const next = threeZones();
+  next.cards[1].faceUp = false;
+  next.cards[1].pose = { pivotX: 0.2, pivotY: 0.3, angle: 35, scale: 1.2 };
+  next.cards[3].pose = { pivotX: 0.8, pivotY: 0.9, angle: -25, scale: 0.8 };
+  scene.apply(next);
+  scene.select(['b', 'd']);
+  const originalShells = new Map(shells);
+  const originals = scene.snapshot().desired.cards;
+  const session = start(scene, ['b', 'd']);
+  session.update({ toZoneId: 'ocean', index: 0 });
+  const intent = session.release();
+  scene.resolveDrop(intent.id, { accepted: true });
+  for (const card of scene.snapshot().desired.cards) {
+    assert.equal(shells.get(card.id), originalShells.get(card.id));
+    assert.deepEqual(card, originals.find(({ id }) => id === card.id));
+  }
+  assert.deepEqual(scene.snapshot().selection.cardIds, ['b', 'd']);
   scene.destroy();
 });

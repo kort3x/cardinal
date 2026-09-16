@@ -1,4 +1,16 @@
+import { resolveBatchMove } from './batch.js';
+
 const copy = (value) => structuredClone(value);
+const COMPACT_DURATION = 180;
+const COMPACT_STEP = 18;
+const authoredPosition = (card) => JSON.stringify([card.positionMode, card.pose?.x, card.pose?.y, card.pose?.z]);
+function immutable(value) {
+  if (value && typeof value === 'object') {
+    Object.values(value).forEach(immutable);
+    Object.freeze(value);
+  }
+  return value;
+}
 const terminal = (phase) => !['dragging', 'pending'].includes(phase);
 function point(value) {
   if (!value || !Number.isFinite(value.x) || !Number.isFinite(value.y)) throw new TypeError('Drag point requires finite x and y');
@@ -6,7 +18,8 @@ function point(value) {
 }
 
 // Gesture state and hypothetical layouts never mutate committed membership.
-export function createInteraction({ state, solve, sample, refresh, takePosition, present, commit, emit, rules, toClient, fromClient }) {
+export function createInteraction({ state, solve, sample, refresh, takePosition, present, commit, emit, rules, toClient, fromClient,
+  isSelectable = () => true, now = () => 0, reducedMotion = () => false, requestFrame = () => {}, defaultPresentation = 'preserve' }) {
   const sessions = new Map();
   let sequence = 0;
   let revision = 0;
@@ -25,11 +38,13 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     return restingPoses;
   }
   const snapshot = () => ({ sessions: [...sessions.values()].map((session) => copy(session.data)) });
-  const sourcesFor = (id) => state().desired.zones.flatMap((zone) => zone.cardIds.includes(id)
+  const sourcesFor = (id, model = state().desired) => model.zones.flatMap((zone) => zone.cardIds.includes(id)
     ? [{ cardId: id, zoneId: zone.id, index: zone.cardIds.indexOf(id) }] : []);
-  const membershipKey = (session) => JSON.stringify([
-    session.data.sources[0].zoneId, session.data.candidate?.toZoneId,
-  ].map((id) => [id, state().desired.zones.find((zone) => zone.id === id)?.cardIds]));
+  const membershipKey = (session, model = state().desired, includeDestination = true) => JSON.stringify(
+    [...new Set([...session.data.sources.map(({ zoneId }) => zoneId),
+      ...(includeDestination ? [session.data.candidate?.toZoneId] : [])])]
+      .map((id) => [id, model.zones.find((zone) => zone.id === id)?.cardIds]));
+  const targetFor = (session, id) => session.data.targetPoses?.[id];
   const requestFor = (session) => ({ cardIds: [...session.data.cardIds], primaryCardId: session.data.primaryCardId,
     sources: copy(session.data.sources), toZoneId: session.data.candidate?.toZoneId, index: session.data.candidate?.index, revision });
   function decision(name, request) {
@@ -46,24 +61,8 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     }
     const key = JSON.stringify([zoneId, index]);
     if (session.layouts.has(key)) return session.layouts.get(key);
-    const id = session.data.primaryCardId;
-    // The desired snapshot is already normalized and solve() is read-only.
-    // Clone only the affected card and membership arrays; deep-cloning every
-    // card for every insertion slot made the first drag update scale poorly.
-    const next = {
-      cards: model.cards.map((card) => card.id === id ? { ...card, positionMode: undefined } : card),
-      zones: model.zones.map((candidate) => ({
-        ...candidate,
-        cardIds: candidate.cardIds.filter((cardId) => cardId !== id),
-      })),
-    };
-    const zone = next.zones.find((candidate) => candidate.id === zoneId);
-    if (!zone) throw new Error('Destination was removed');
-    zone.cardIds.splice(Math.min(index, zone.cardIds.length), 0, id);
-    if (zone.cardIds.length > (zone.capacity ?? Infinity)) {
-      throw new RangeError(`Zone ${zone.id} exceeds capacity`);
-    }
-    const poses = solve(next);
+    const { nextSnapshot } = resolveBatchMove(model, { cardIds: session.data.cardIds, toZoneId: zoneId, index });
+    const poses = solve(nextSnapshot);
     session.layouts.set(key, poses);
     return poses;
   }
@@ -82,7 +81,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     const hit = hits[0];
     if (!hit) return null;
     // Every candidate slot is solved by the same layout used for commit.
-    const count = hit.zone.cardIds.filter((id) => id !== session.data.primaryCardId).length;
+    const count = hit.zone.cardIds.filter((id) => !session.cohort.has(id)).length;
     let index = 0;
     let closest = Infinity;
     for (let slot = 0; slot <= count; slot += 1) {
@@ -100,8 +99,9 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     const hit = candidateAt(session);
     session.preview = null;
     session.data.targetPose = null;
+    session.data.targetPoses = null;
     if (!hit) { session.data.candidate = null; return; }
-    const max = hit.zone.cardIds.filter((id) => id !== session.data.primaryCardId).length;
+    const max = hit.zone.cardIds.filter((id) => !session.cohort.has(id)).length;
     const index = Math.min(hit.index, max);
     session.data.candidate = { toZoneId: hit.zone.id, index, geometry: copy(hit.zone.geometry), allowed: false };
     let preview;
@@ -116,6 +116,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     if (session.data.candidate.allowed) {
       session.preview = preview;
       session.data.targetPose = copy(preview.get(session.data.primaryCardId));
+      session.data.targetPoses = Object.fromEntries(session.data.cardIds.map((id) => [id, copy(preview.get(id))]));
     }
   }
   function publish() {
@@ -126,18 +127,42 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
         const rest = restPoses.get(id);
         if (rest && ['x', 'y', 'z'].some((key) => rest[key] !== pose[key])) positions.set(id, { pose, direct: false });
       }
-      const id = session.data.primaryCardId;
-      if (session.data.phase === 'dragging' && !session.explicit) {
-        const center = { x: session.client.x - session.offset.x, y: session.client.y - session.offset.y };
-        const p = fromClient(center, session.depth);
-        if (p) positions.set(id, { pose: { ...p, z: session.depth }, direct: true });
-      } else if (session.data.targetPose || session.keyboardPose) {
-        positions.set(id, { pose: session.data.targetPose ?? session.keyboardPose, direct: false });
+      if (session.data.phase === 'dragging' && (!session.explicit || session.data.candidate?.allowed)) {
+        const primaryTarget = session.explicit ? session.data.targetPose : null;
+        const center = primaryTarget ? toClient(primaryTarget)
+          : { x: session.client.x - session.offset.x, y: session.client.y - session.offset.y };
+        const progress = compactProgress(session);
+        session.compactSettled = progress === 1;
+        for (const [id, member] of session.members) {
+          const offset = session.data.presentation === 'compact' ? {
+            x: member.offset.x + (member.compact.x - member.offset.x) * progress,
+            y: member.offset.y + (member.compact.y - member.offset.y) * progress,
+          } : member.offset;
+          const depth = primaryTarget ? primaryTarget.z + member.depth - session.members.get(session.data.primaryCardId).depth : member.depth;
+          const p = fromClient({ x: center.x + offset.x, y: center.y + offset.y }, depth);
+          if (p) positions.set(id, { pose: { ...p, z: depth }, direct: !session.explicit });
+        }
+      } else {
+        for (const id of session.data.cardIds) {
+          const target = session.data.phase === 'pending' ? targetFor(session, id) : session.keyboardPoses?.get(id);
+          if (target) positions.set(id, { pose: target, direct: false });
+        }
       }
     }
     present(positions, snapshot(), restPoses);
     emit('interaction-change', snapshot());
+    if (needsFrame()) requestFrame();
   }
+  function compactProgress(session) {
+    if (session.data.presentation !== 'compact' || !session.compactChanges || reducedMotion()) return 1;
+    const progress = Math.min(1, Math.max(0, (now() - session.startedAt) / COMPACT_DURATION));
+    return progress * progress * (3 - 2 * progress);
+  }
+  function needsFrame() {
+    return !disposed && [...sessions.values()].some((session) => session.data.phase === 'dragging'
+      && (!session.explicit || session.data.candidate?.allowed) && session.data.presentation === 'compact' && !session.compactSettled);
+  }
+  function tick() { if (needsFrame()) publish(); }
   function finish(session, phase, reason) {
     session.data.phase = phase;
     session.data.reason = reason;
@@ -156,37 +181,39 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     reconciling = true;
     try {
       for (const session of [...sessions.values()]) {
-        const id = session.data.primaryCardId;
         const current = state();
-        const card = current.desired.cards.find((card) => card.id === id);
-        const source = sourcesFor(id);
-        const old = session.data.sources[0];
         const previousDestination = session.data.candidate?.toZoneId;
         const destination = previousDestination && current.zones.find((zone) => zone.id === previousDestination);
         if (session.data.phase === 'pending' && session.pendingMembership !== membershipKey(session)) {
           finish(session, 'cancelled', 'Source or destination order changed'); continue;
         }
-        if (!card || source[0]?.zoneId !== old.zoneId || current.visual.get(id)?.visible === false
+        if (cohortChanged(session, current.desired) || session.data.cardIds.some((id) =>
+          current.visual.get(id)?.visible === false || !isSelectable(id))
           || (previousDestination && (!destination || destination.visible === false || destination.dropTarget === 'transparent'))
-          || card.positionMode !== session.positionMode || JSON.stringify(card.pose && [card.pose.x, card.pose.y, card.pose.z]) !== session.authoredPosition
           || !decision('canStart', requestFor(session)).allowed) {
           finish(session, 'cancelled', 'Card or source changed'); continue;
         }
-        session.data.sources = source;
         evaluate(session, true);
         if (session.data.phase === 'pending' && !session.data.candidate?.allowed) finish(session, 'cancelled', 'Destination is no longer permitted');
       }
       publish();
     } finally { reconciling = false; }
   }
+  function cohortChanged(session, model) {
+    return session.sourceMembership !== membershipKey(session, model, false)
+      || session.data.sources.some((source) => {
+        const card = model.cards.find((card) => card.id === source.cardId);
+        const current = sourcesFor(source.cardId, model);
+        return !card || current.length !== 1 || current[0].zoneId !== source.zoneId || current[0].index !== source.index
+          || authoredPosition(card) !== session.members.get(source.cardId).authored;
+      });
+  }
   function beforeCommit(next, operations = []) {
     for (const session of [...sessions.values()]) {
-      const id = session.data.primaryCardId;
-      const source = session.data.sources[0];
-      const card = next.cards.find((card) => card.id === id);
-      const zone = next.zones.find((zone) => zone.cardIds.includes(id));
-      if (!card || zone?.id !== source.zoneId || zone.cardIds.indexOf(id) !== source.index
-        || operations.some((op) => op.type === 'move' && op.cardId === id)) {
+      if (cohortChanged(session, next)
+        || (session.data.phase === 'pending' && session.pendingMembership !== membershipKey(session, next))
+        || operations.some((op) => op.type === 'move' && session.cohort.has(op.cardId)
+          || op.type === 'moveBatch' && op.cardIds?.some((id) => session.cohort.has(id)))) {
         cancel(session, 'Superseded by an authoritative move');
       }
     }
@@ -194,25 +221,40 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
   function drag(request) {
     if (disposed) throw new Error('Scene is destroyed');
     if (!state().desired) throw new Error('Call scene.apply before scene.drag');
-    if (!Array.isArray(request?.cardIds) || request.cardIds.length !== 1) throw new TypeError('This slice requires exactly one drag card');
-    const id = request.cardIds[0];
-    if (request.primaryCardId !== undefined && request.primaryCardId !== id) throw new TypeError('Primary card must belong to drag');
+    if (!Array.isArray(request?.cardIds) || request.cardIds.length === 0
+      || request.cardIds.some((id) => typeof id !== 'string' || !id)
+      || new Set(request.cardIds).size !== request.cardIds.length) throw new TypeError('Drag requires unique card IDs');
+    const cardIds = [...request.cardIds];
+    const id = request.primaryCardId ?? cardIds[0];
+    if (!cardIds.includes(id)) throw new TypeError('Primary card must belong to drag');
+    const presentation = request.presentation ?? defaultPresentation;
+    if (!['preserve', 'compact'].includes(presentation)) throw new TypeError('Unknown drag presentation');
     const current = state();
-    const card = current.desired.cards.find((card) => card.id === id);
-    if (!card || current.visual.get(id)?.visible === false) throw new Error('Card is not available for dragging');
-    const data = { id: `drag-${++sequence}`, phase: 'dragging', cardIds: [id], primaryCardId: id, sources: sourcesFor(id), candidate: null, targetPose: null, revision };
+    if (cardIds.some((id) => !current.desired.cards.some((card) => card.id === id)
+      || !current.visual.get(id) || current.visual.get(id).visible === false || !isSelectable(id))) throw new Error('Card is not available for dragging');
+    const data = { id: `drag-${++sequence}`, phase: 'dragging', cardIds, primaryCardId: id,
+      sources: cardIds.flatMap((id) => sourcesFor(id)), presentation, candidate: null, targetPose: null, targetPoses: null, revision };
     const allowed = decision('canStart', data);
     if (!allowed.allowed) throw new Error(allowed.reason);
     const startPoint = request.point === undefined ? null : point(request.point);
     sample();
     // A new gesture supersedes older gesture previews, without locking other cards.
     for (const previous of [...sessions.values()]) finish(previous, 'cancelled', 'Superseded by a newer gesture');
-    takePosition(id);
+    for (const cardId of cardIds) takePosition(cardId);
     const pose = state().visual.get(id);
     const center = toClient(pose);
     const client = startPoint ? toClient({ ...startPoint, z: 0 }) : center;
-    const session = { data, client, offset: { x: client.x - center.x, y: client.y - center.y }, depth: pose.z,
-      positionMode: card.positionMode, authoredPosition: JSON.stringify(card.pose && [card.pose.x, card.pose.y, card.pose.z]), ruleKey: null };
+    const members = new Map(cardIds.map((cardId, index) => {
+      const memberPose = state().visual.get(cardId);
+      const projected = toClient(memberPose);
+      const offset = COMPACT_STEP * (index - cardIds.indexOf(id));
+      return [cardId, { depth: memberPose.z, offset: { x: projected.x - center.x, y: projected.y - center.y },
+        compact: { x: offset, y: offset }, authored: authoredPosition(current.desired.cards.find((card) => card.id === cardId)) }];
+    }));
+    const session = { data, client, members, cohort: new Set(cardIds), startedAt: now(), compactSettled: false,
+      offset: { x: client.x - center.x, y: client.y - center.y }, ruleKey: null };
+    session.compactChanges = [...members.values()].some(({ offset, compact }) => offset.x !== compact.x || offset.y !== compact.y);
+    session.sourceMembership = membershipKey(session, current.desired, false);
     const finished = new Promise((resolve) => { session.resolve = resolve; });
     sessions.set(data.id, session);
     evaluate(session);
@@ -225,7 +267,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
         if (change.point !== undefined) { session.client = toClient({ ...point(change.point), z: 0 }); session.explicit = null; }
         else if (change.toZoneId !== undefined) {
           if (!Number.isInteger(change.index ?? 0) || (change.index ?? 0) < 0) throw new RangeError('Drag index must be non-negative');
-          session.keyboardPose = copy(data.targetPose ?? state().visual.get(id));
+          session.keyboardPoses = new Map(cardIds.map((id) => [id, copy(state().visual.get(id))]));
           session.explicit = { toZoneId: change.toZoneId, index: change.index ?? 0 };
         }
         evaluate(session); publish(); return copy(data);
@@ -233,6 +275,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       release() {
         if (data.phase !== 'dragging') return null;
         refresh();
+        reconcile();
         if (data.phase !== 'dragging') return null;
         evaluate(session, true);
         if (!data.candidate?.allowed) { cancel(session, 'Invalid drop'); return null; }
@@ -240,7 +283,9 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
         data.phase = 'pending'; data.revision = revision;
         session.pendingMembership = membershipKey(session);
         const intent = { ...requestFor(session), id: data.id };
-        publish(); emit('drop', copy(intent)); return copy(intent);
+        publish();
+        if (data.phase !== 'pending') return null;
+        emit('drop', immutable(copy(intent))); return immutable(copy(intent));
       },
       cancel: (reason) => cancel(session, reason),
     };
@@ -259,7 +304,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     sessions.delete(id);
     let result;
     try {
-      result = commit([{ type: 'move', cardId: session.data.primaryCardId, to: candidate.toZoneId, index: candidate.index }]);
+      result = commit([{ type: 'moveBatch', cardIds: [...session.data.cardIds], to: candidate.toZoneId, index: candidate.index }]);
     } catch (error) {
       finish(session, 'cancelled', 'Drop commit failed');
       publish();
@@ -270,7 +315,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     return { status: 'accepted', finished: result.finished };
   }
   return {
-    drag, snapshot, reconcile, resolveDrop, beforeCommit,
+    drag, snapshot, reconcile, resolveDrop, beforeCommit, tick, needsFrame,
     invalidateRules() {
       revision += 1;
       for (const session of [...sessions.values()]) if (session.data.phase === 'pending') finish(session, 'cancelled', 'Rules changed');

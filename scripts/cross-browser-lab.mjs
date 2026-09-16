@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { runBatchAcceptance } from "./batch-scenario.mjs";
 
 const labUrl = process.env.CARDINAL_LAB_URL ?? "http://127.0.0.1:4173/";
 const browsers = process.argv.slice(2).filter((name) => name === "firefox" || name === "safari");
@@ -109,7 +110,7 @@ function interactionSession(state) {
   return state.interaction?.sessions?.at(-1) ?? null;
 }
 
-async function acceptance(name, evaluate, navigate, actions, prepareScene, touchActions = actions) {
+async function acceptance(name, evaluate, navigate, actions, prepareScene, touchActions = actions, evaluateBatch = evaluate) {
   await navigate(labUrl);
   await delay(1000);
   await prepareScene();
@@ -278,13 +279,17 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   await evaluate(setExpression("#drag-denied-zone", "", "change"));
   const touchCardPoint = await cardPoint();
   const touchArchivePoint = await archivePoint();
-  await touchActions.dragStart(touchCardPoint, touchArchivePoint, 240);
-  await touchActions.up();
-  await touchActions.release();
-  await delay(850);
-  state = await evaluate(stateExpression);
-  record("touch drag allowed transfer", state, (value) => zoneContainsCard(value, "archive", cardId)
-    && value.interaction.sessions.length === 0);
+  if (touchActions.supported === false) {
+    checks.push({ label: "touch drag allowed transfer", pass: false, skipped: true, status: touchActions.unsupportedReason });
+  } else {
+    await touchActions.dragStart(touchCardPoint, touchArchivePoint, 240);
+    await touchActions.up();
+    await touchActions.release();
+    await delay(850);
+    state = await evaluate(stateExpression);
+    record("touch drag allowed transfer", state, (value) => zoneContainsCard(value, "archive", cardId)
+      && value.interaction.sessions.length === 0);
+  }
 
   await navigate(labUrl);
   await delay(1000);
@@ -312,12 +317,31 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   record("keyboard transfer uses the allowed destination", state, (value) => zoneContainsCard(value, "archive", cardId)
     && value.interaction.sessions.length === 0);
 
-  return { browser: name, ok: checks.every((check) => check.pass), checks };
+  const batch = await runBatchAcceptance({
+    evaluate: evaluateBatch,
+    navigate,
+    pointer: actions,
+    keyboard: actions,
+    touch: touchActions,
+    label: `${name} batch acceptance`,
+    labUrl,
+  });
+  checks.push(...batch.results.map((result) => ({
+    label: result.label,
+    pass: result.pass,
+    skipped: result.skipped,
+    status: result.pass ? "batch case passed" : result.error,
+    ...(result.pass ? {} : { detail: result.diagnostic }),
+  })));
+  return { browser: name, ok: checks.every((check) => check.pass || check.skipped), checks, batch, environment: batch.environment };
 }
 
 function createWebDriverActions(perform, release, pointerType = "mouse") {
   const pointerId = `cardinal-pointer-${pointerType}`;
   const keyboardId = "cardinal-keyboard";
+  let pickupPoint;
+  const modifier = process.platform === "darwin" ? "\uE03D" : "\uE009";
+  const shiftKeyValue = "\uE008";
   const pointer = (action) => perform([{
     type: "pointer",
     id: pointerId,
@@ -335,12 +359,76 @@ function createWebDriverActions(perform, release, pointerType = "mouse") {
     id: keyboardId,
     actions,
   }]);
+  const modifierKey = ({ toggle = false, shift = false, shiftKey = false } = {}) => [
+    ...(toggle ? [modifier] : []),
+    ...(shift || shiftKey ? [shiftKeyValue] : []),
+  ];
+  const withModifiers = (value, options = {}) => {
+    const keys = modifierKey(options);
+    return [
+      ...keys.map((key) => ({ type: "keyDown", value: key })),
+      { type: "keyDown", value },
+      { type: "keyUp", value },
+      ...keys.reverse().map((key) => ({ type: "keyUp", value: key })),
+    ];
+  };
+  const releasePointer = async () => {
+    try { await pointer({ type: "pointerUp", button: 0 }); }
+    finally { await release(); }
+  };
   return {
     dragStart(from, to, duration = 0) {
       return pointerSequence([
         { type: "pointerMove", x: Math.round(from.x), y: Math.round(from.y), duration: 0, origin: "viewport" },
         { type: "pointerDown", button: 0 },
         { type: "pointerMove", x: Math.round(to.x), y: Math.round(to.y), duration, origin: "viewport" },
+      ]);
+    },
+    drag(from, to, { steps = 1 } = {}) {
+      // Cross the pickup threshold in one known event. Timed WebDriver moves
+      // interpolate extra events, so their endpoint is not the pickup point.
+      pickupPoint = { x: Math.round(from.x + 8), y: Math.round(from.y) };
+      const actions = [
+        { type: "pointerMove", x: Math.round(from.x), y: Math.round(from.y), duration: 0, origin: "viewport" },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerMove", ...pickupPoint, duration: 0, origin: "viewport" },
+      ];
+      for (let index = 1; index <= steps; index += 1) {
+        actions.push({
+          type: "pointerMove",
+          x: Math.round(from.x + (to.x - from.x) * index / steps),
+          y: Math.round(from.y + (to.y - from.y) * index / steps),
+          duration: Math.max(1, Math.round(240 / steps)),
+          origin: "viewport",
+        });
+      }
+      return pointerSequence(actions);
+    },
+    get pickupPoint() {
+      return pickupPoint;
+    },
+    click(point, options = {}) {
+      const keys = modifierKey(options);
+      if (!keys.length) {
+        return pointerSequence([
+          { type: "pointerMove", x: Math.round(point.x), y: Math.round(point.y), duration: 0, origin: "viewport" },
+          { type: "pointerDown", button: 0 },
+          { type: "pointerUp", button: 0 },
+        ]);
+      }
+      return perform([
+        { type: "key", id: keyboardId, actions: [
+          ...keys.map((key) => ({ type: "keyDown", value: key })),
+          { type: "pause", duration: 0 },
+          { type: "pause", duration: 0 },
+          ...keys.reverse().map((key) => ({ type: "keyUp", value: key })),
+        ] },
+        { type: "pointer", id: pointerId, parameters: { pointerType }, actions: [
+          { type: "pointerMove", x: Math.round(point.x), y: Math.round(point.y), duration: 0, origin: "viewport" },
+          { type: "pointerDown", button: 0 },
+          { type: "pointerUp", button: 0 },
+          { type: "pause", duration: 0 },
+        ] },
       ]);
     },
     move(point, duration = 0) {
@@ -361,7 +449,25 @@ function createWebDriverActions(perform, release, pointerType = "mouse") {
     keyPress(value) {
       return keyboard([{ type: "keyDown", value }, { type: "keyUp", value }]);
     },
-    release,
+    press(value, options = {}) {
+      const key = { Tab: "\uE004", Enter: "\uE007", Escape: "\uE00C", ArrowLeft: "\uE012",
+        ArrowUp: "\uE013", ArrowRight: "\uE014", ArrowDown: "\uE015" }[value] ?? value;
+      return keyboard(withModifiers(key, options));
+    },
+    tap(point) {
+      return pointerSequence([
+        { type: "pointerMove", x: Math.round(point.x), y: Math.round(point.y), duration: 0, origin: "viewport" },
+        { type: "pointerDown", button: 0 },
+        { type: "pointerUp", button: 0 },
+      ]);
+    },
+    releasePoint(point) {
+      return pointer({
+        type: "pointerMove", x: Math.round(point.x), y: Math.round(point.y), duration: 0, origin: "viewport",
+      }).then(() => this.up());
+    },
+    cleanup: releasePointer,
+    release: releasePointer,
   };
 }
 
@@ -410,7 +516,13 @@ async function runFirefox() {
       "touch",
     );
     const navigate = (url) => command("browsingContext.navigate", { context, url, wait: "complete" });
-    const report = await acceptance("Firefox 155.0.1", evaluate, navigate, actions, () => evaluate(getSceneSetupExpression), touchActions);
+    const evaluateBatch = async (expression) => {
+      // BiDi remote objects are typed entries, not ordinary JS objects. Use the
+      // existing JSON decoder and await the shared scenario's async expressions.
+      const result = await evaluate(`(async () => JSON.stringify({ value: await (${expression}) }))()`);
+      return result.value;
+    };
+    const report = await acceptance("Firefox 155.0.1", evaluate, navigate, actions, () => evaluate(getSceneSetupExpression), touchActions, evaluateBatch);
     await command("session.end").catch(() => {});
     socket.close();
     return report;
@@ -460,7 +572,9 @@ async function runSafari() {
       "touch",
     );
     const navigate = (url) => command("/url", { method: "POST", body: JSON.stringify({ url }) });
-    return await acceptance("Safari 26.6.2", evaluate, navigate, actions, () => evaluateAsync(getSceneSetupExpression), touchActions);
+    touchActions.supported = false;
+    touchActions.unsupportedReason = "Desktop SafariDriver emits mouse events for the touch source; physical Safari touch requires device verification.";
+    return await acceptance("Safari 26.6.2", evaluate, navigate, actions, () => evaluateAsync(getSceneSetupExpression), touchActions, evaluateAsync);
   } finally {
     if (session) {
       await request(`/session/${session}`, { method: "DELETE" }).catch(() => {});
@@ -475,11 +589,12 @@ async function run() {
     for (const browser of requestedBrowsers) {
       const report = browser === "firefox" ? await runFirefox() : await runSafari();
       for (const check of report.checks) {
-        const detail = check.pass ? "" : ` — ${JSON.stringify(check.detail ?? { status: check.status })}`;
-        console.log(`${check.pass ? "PASS" : "FAIL"} ${report.browser}: ${check.label}${detail}`);
+        const detail = check.pass ? "" : ` — ${JSON.stringify({ status: check.status, detail: check.detail })}`;
+        console.log(`${check.skipped ? "SKIP" : check.pass ? "PASS" : "FAIL"} ${report.browser}: ${check.label}${detail}`);
       }
+      if (report.batch) console.log(`${report.browser} batch measurements: ${JSON.stringify(report.batch.measurements)}`);
       if (!report.ok) throw new Error(`${report.browser} acceptance failed`);
-      console.log(`${report.browser} acceptance passed (${report.checks.length} checks)`);
+      console.log(`${report.browser} acceptance passed (${report.checks.filter((check) => check.pass).length} passed, ${report.checks.filter((check) => check.skipped).length} skipped)`);
     }
   } finally {
     if (server) server.kill("SIGTERM");
