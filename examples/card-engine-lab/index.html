@@ -37,8 +37,10 @@
       .lab-title h1 { position: relative; top: 10px; }
       .lab-title p { position: relative; top: 10px; margin: 0; }
       h1 { margin: 0; }
-      .zones-link { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 6px 10px; border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); color: var(--lab-focus); background: var(--lab-panel); font-size: 0.82rem; text-decoration: none; }
-      .zones-link:hover, .zones-link:focus-visible { border-color: var(--lab-focus); color: #d7ecff; background: #303946; outline: none; }
+      .header-links { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+      .header-link { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; padding: 6px 10px; border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); color: var(--lab-focus); background: var(--lab-panel); font-size: 0.82rem; text-decoration: none; }
+      .header-link:hover, .header-link:focus-visible { border-color: var(--lab-focus); color: #d7ecff; background: #303946; outline: none; }
+      .github-link svg { width: 16px; height: 16px; fill: currentColor; }
       p { color: var(--lab-muted); }
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
       button, label, select { border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); padding: 9px 12px; color: var(--lab-text); background: var(--lab-panel); font: inherit; }
@@ -140,7 +142,7 @@
       .scene-column > .motion-actions { margin: 0 0 4px; }
       .stage-actions { position: absolute; top: 0; right: 0; z-index: 2; display: flex; justify-content: flex-end; min-height: 0; margin: 0; }
       #stage { position: relative; width: 100%; height: min(1100px, calc(100vh - 330px)); min-height: 500px; margin: 0; border: 1px solid var(--lab-border); border-radius: 8px; background: radial-gradient(circle at 50% 35%, #323842, var(--lab-bg-deep) 70%); overflow: hidden; }
-      .lab-zone-anchor { position: absolute; z-index: 1; box-sizing: border-box; border: 1px dashed; border-radius: 3px; pointer-events: none; }
+      .lab-zone-anchor { position: absolute; z-index: 1; box-sizing: border-box; border: 1px solid; border-radius: 14px; pointer-events: none; }
       .lab-zone-anchor span { position: absolute; left: 8px; bottom: 8px; display: inline-block; padding: 2px 5px; background: rgb(33 37 43 / 88%); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
       #zone-archive { inset: 18px auto 18px 18px; width: 30%; border-color: rgb(86 182 194 / 68%); background: transparent; }
       #zone-archive span { color: var(--lab-zone-archive); }
@@ -202,7 +204,15 @@
             <p>True 3D WebGL cards · composable motion · dynamic faces and elements · responsive zones · multi-card control</p>
           </div>
         </div>
-        <a class="zones-link" href="/examples/card-engine-lab/zones.html">Zones lab <span aria-hidden="true">↗</span></a>
+        <nav class="header-links" aria-label="Lab links">
+          <a class="header-link" href="/examples/card-engine-lab/zones.html">Zones lab <span aria-hidden="true">↗</span></a>
+          <a class="header-link github-link" href="https://github.com/kort3x/cardinal" target="_blank" rel="noreferrer" aria-label="Cardinal GitHub repository">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.084-.729.084-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.809 1.304 3.495.997.108-.776.418-1.305.762-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23a11.5 11.5 0 0 1 3.003-.404c1.02.005 2.045.138 3.003.404 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.435.375.81 1.096.81 2.21 0 1.595-.015 2.875-.015 3.265 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+            </svg>
+            GitHub
+          </a>
+        </nav>
       </div>
       <div class="toolbar motion-actions" aria-label="Animated card actions">
         <button id="move" type="button" aria-pressed="false">Move</button>
