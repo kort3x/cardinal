@@ -308,9 +308,9 @@ const elementScenario = String.raw`(async () => {
     && !current.status.includes("animating"));
   await step("set physical back background", () => {
     setValue("#background-side", "back");
-    click('[data-background-preset="science-fiction"]');
+    click('[data-background-preset="b4"]');
   }, (current) => current.backgroundSide === "back"
-    && current.backgroundImage.endsWith("science-fiction-space.jpg"));
+    && current.backgroundImage.endsWith("b4.png"));
 
   return { ok: results.every((result) => result.pass), results };
 })()`;
@@ -510,9 +510,9 @@ const layoutScenario = String.raw`(async () => {
   record("background presets are available", () => {
     const buttons = [...document.querySelectorAll("[data-background-preset]")];
     const side = document.querySelector("#background-side");
-    return buttons.length === 5
+    return buttons.length === 6
       && [...(side?.options ?? [])].some((option) => option.value === "back")
-      && buttons.map((button) => button.textContent.trim()).join(",") === "Modern,Fantasy,Science fiction,Simple,None";
+      && buttons.map((button) => button.textContent.trim()).join(",") === "B1 · Ember,B2 · Azure,B3 · Grove,B4 · Circuit,B5 · Parchment,None";
   });
   record("background URL editor matches element editors", () => {
     const editor = document.querySelector("#background-image");

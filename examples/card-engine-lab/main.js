@@ -72,10 +72,11 @@ const backgroundImageInput = document.querySelector("#background-image");
 const backgroundFit = document.querySelector("#background-fit");
 const applyBackgroundButton = document.querySelector("#apply-background");
 const backgroundPresets = Object.freeze({
-  modern: { src: "/examples/card-engine-lab/assets/backgrounds/modern-abstract.jpg", fit: "cover" },
-  fantasy: { src: "/examples/card-engine-lab/assets/backgrounds/fantasy-forest.jpg", fit: "cover" },
-  "science-fiction": { src: "/examples/card-engine-lab/assets/backgrounds/science-fiction-space.jpg", fit: "cover" },
-  simple: { src: "/examples/card-engine-lab/assets/backgrounds/simple-paper.jpg", fit: "cover" },
+  b1: { src: "/examples/card-engine-lab/assets/backgrounds/b1.png", fit: "cover" },
+  b2: { src: "/examples/card-engine-lab/assets/backgrounds/b2.png", fit: "cover" },
+  b3: { src: "/examples/card-engine-lab/assets/backgrounds/b3.png", fit: "cover" },
+  b4: { src: "/examples/card-engine-lab/assets/backgrounds/b4.png", fit: "cover" },
+  b5: { src: "/examples/card-engine-lab/assets/backgrounds/b5.png", fit: "cover" },
 });
 const LAB_CAMERA_CENTER = Object.freeze({ x: 450, y: 250 });
 const LAB_CAMERA_UNITS_PER_PIXEL = 1;
@@ -366,6 +367,7 @@ const logicalFaceDefinitions = [
       },
     ],
     background: "#17212b",
+    backgroundImage: { src: "/examples/card-engine-lab/assets/backgrounds/b4.png", fit: "cover" },
     textColor: "#f7f4e9",
     mutedTextColor: "#d7dee8",
   },
@@ -422,6 +424,7 @@ const baseCard = {
       { id: "flavour", type: "text", content: { text: "Turn the card to explore another logical face." }, style: { variant: "flavour", color: "#bdcbd0", font: "500 13px system-ui, sans-serif", lineHeight: 18 }, layout: { mode: "flow", order: 2 } },
     ],
     background: "#17212b",
+    backgroundImage: { src: "/examples/card-engine-lab/assets/backgrounds/b4.png", fit: "cover" },
     textColor: "#f7f4e9",
     mutedTextColor: "#bdcbd0",
   },
