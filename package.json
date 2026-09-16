@@ -11,6 +11,7 @@
     "test:chrome:movement": "node scripts/chrome-lab.mjs --headless --scenario movement",
     "test:chrome:random": "node scripts/chrome-lab.mjs --headless --scenario random",
     "test:chrome:spin-state": "node scripts/chrome-lab.mjs --headless --scenario spin-state",
+    "test:chrome:demo-toggles": "node scripts/chrome-lab.mjs --headless --scenario demo-toggles",
     "test:chrome:performance": "node scripts/chrome-lab.mjs --headless --scenario performance",
     "test:chrome:random-performance": "node scripts/chrome-lab.mjs --headless --scenario random-performance",
     "test:chrome:diagnostics": "node scripts/chrome-lab.mjs --headless --scenario diagnostics",

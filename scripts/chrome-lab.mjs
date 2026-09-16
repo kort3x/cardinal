@@ -27,7 +27,7 @@ if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid Chrome port: 
 if (typeof WebSocket !== "function") {
   throw new Error("Chrome automation requires Node 22+ with the built-in WebSocket API");
 }
-if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "performance", "random-performance", "diagnostics", "zones", "main-zones", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
+if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -138,7 +138,7 @@ const elementScenario = String.raw`(async () => {
   const results = [];
   const state = () => ({
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
-    status: document.querySelector("#status")?.textContent ?? "",
+    status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
     fps: document.querySelector("#fps-status")?.textContent ?? "",
     diagnostics: document.querySelector("#diagnostics-report")?.textContent ?? "",
     selection: document.querySelector("#selection-status")?.textContent ?? "",
@@ -186,7 +186,7 @@ const elementScenario = String.raw`(async () => {
   await step("select all cards", () => click("#select-all"), (current) => current.selection === "1 of 1 selected");
   await step("track pointer coordinates", () => {
     const stage = document.querySelector("#stage");
-    const dimensions = document.querySelector("#status").textContent.match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
+    const dimensions = document.querySelector("#status").getAttribute("aria-label").match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
     const scale = Number(dimensions?.[3] ?? 1);
     stage.scrollIntoView({ block: "center", inline: "center" });
     const rect = document.querySelector("#zone-reserve").getBoundingClientRect();
@@ -277,7 +277,7 @@ const acceptanceScenario = String.raw`(async () => {
   const results = [];
   const state = () => ({
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
-    status: document.querySelector("#status")?.textContent ?? "",
+    status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
     shells: document.querySelectorAll(".cardinal-webgl-card").length,
     text: [...document.querySelectorAll(".cardinal-webgl-card")].map((card) => card.textContent),
   });
@@ -309,9 +309,9 @@ const acceptanceScenario = String.raw`(async () => {
   const landingDeltaPx = Math.abs(readX(moved.status) - 760);
   record("move lands at target", (current) => readX(current.status) === 760 && current.status.includes("stable"));
 
-  click("#rotate");
+  click('button[data-rotate="45"]');
   record("rotate settles", (await waitForStable()).status.includes("angle 45°"));
-  click("#scale");
+  setValue("#scale-slider", 1.25);
   record("scale settles", (await waitForStable()).status.includes("scale 1.25"));
   click('button[data-scale="2"]');
   await sleep(80);
@@ -323,7 +323,7 @@ const acceptanceScenario = String.raw`(async () => {
     record(label + " scale settles with content", (await waitForStable()).status.includes("scale " + value.toFixed(2))
       && state().text[0]?.includes("The Cardinal"));
   }
-  click("#flip");
+  click('button[data-flip="1"]');
   record("flip settles on back", (await waitForStable()).status.includes("physical back"));
 
   setValue("#flip-x-slider", 60);
@@ -347,6 +347,61 @@ const acceptanceScenario = String.raw`(async () => {
   };
 })()`;
 
+const demoTogglesScenario = String.raw`(async () => {
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const results = [];
+  const module = await import([...document.querySelectorAll('script[type="module"]')].at(-1).src);
+  const scene = () => module.getScene()?.snapshot();
+  const pose = () => scene()?.visual?.[0]?.pose;
+  const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
+  const click = (selector) => document.querySelector(selector)?.click();
+  await sleep(700);
+
+  const beforeMove = pose();
+  click("#move");
+  await sleep(350);
+  const afterMove = pose();
+  record("move toggle starts continuous bounded motion", () => document.querySelector("#move")?.getAttribute("aria-pressed") === "true"
+    && (Math.abs(afterMove.x - beforeMove.x) > 1 || Math.abs(afterMove.y - beforeMove.y) > 1));
+  click("#move");
+  record("move toggle stops", () => document.querySelector("#move")?.getAttribute("aria-pressed") === "false");
+
+  const beforeRotate = pose()?.angle;
+  click("#rotate");
+  await sleep(250);
+  const afterRotate = pose()?.angle;
+  record("rotate toggle continuously changes angle", () => document.querySelector("#rotate")?.getAttribute("aria-pressed") === "true"
+    && Math.abs(afterRotate - beforeRotate) > 1);
+  click("#rotate");
+
+  const beforeScale = pose()?.scale;
+  click("#scale");
+  await sleep(350);
+  const afterScale = pose()?.scale;
+  record("scale toggle continuously changes size", () => document.querySelector("#scale")?.getAttribute("aria-pressed") === "true"
+    && Math.abs(afterScale - beforeScale) > 0.01);
+  click("#scale");
+
+  click("#flip");
+  await sleep(500);
+  record("flip toggle repeatedly changes the physical face", () => document.querySelector("#flip")?.getAttribute("aria-pressed") === "true"
+    && scene()?.visual?.[0]?.physicalSide === "back");
+  click("#flip");
+
+  click("#move");
+  click("#rotate");
+  click("#scale");
+  click("#flip");
+  await sleep(150);
+  record("demo toggles compose independently", () => ["move", "rotate", "scale", "flip"]
+    .every((id) => document.querySelector("#" + id)?.getAttribute("aria-pressed") === "true"));
+  click("#move");
+  click("#rotate");
+  click("#scale");
+  click("#flip");
+  return { ok: results.every((result) => result.pass), results };
+})()`;
+
 const layoutScenario = String.raw`(async () => {
   const results = [];
   const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
@@ -368,6 +423,13 @@ const layoutScenario = String.raw`(async () => {
   const stage = document.querySelector("#stage");
   const rows = [...document.querySelectorAll("#element-list .element-row")];
   record("WebGL lab is visible", () => document.querySelector("#renderer-status")?.textContent.includes("Three.js WebGL"));
+  record("renderer and FPS share a status row", () => document.querySelector("#renderer-status")?.parentElement === document.querySelector("#fps-status")?.parentElement);
+  record("status uses a plain inline sentence with literal dividers", () => {
+    const status = document.querySelector("#status");
+    return Boolean(status?.textContent.includes(" · ")
+      && getComputedStyle(status).whiteSpace === "nowrap"
+      && status.querySelectorAll(".status-unit, .status-separator").length === 0);
+  });
   record("cards render above zone guides", () => getComputedStyle(document.querySelector("#stage > .cardinal-webgl-canvas"))?.zIndex === "2"
     && getComputedStyle(document.querySelector("#zone-archive"))?.zIndex === "1");
   record("expanded rails use the side space", () => stage.clientWidth >= 1600);
@@ -517,10 +579,10 @@ const layoutScenario = String.raw`(async () => {
   await new Promise((resolve) => setTimeout(resolve, 10200));
   record("ten-second animation test settles", () => document.querySelector("#animation-test")?.disabled === false
     && document.querySelector("#animation-test")?.textContent === "Test"
-    && document.querySelector("#status")?.textContent.includes("x 450 · y 250")
-    && document.querySelector("#status")?.textContent.includes("angle 0°")
-    && document.querySelector("#status")?.textContent.includes("scale 1.00")
-    && document.querySelector("#status")?.textContent.includes("stable"));
+    && document.querySelector("#status")?.getAttribute("aria-label")?.includes("x 450 · y 250")
+    && document.querySelector("#status")?.getAttribute("aria-label")?.includes("angle 0°")
+    && document.querySelector("#status")?.getAttribute("aria-label")?.includes("scale 1.00")
+    && document.querySelector("#status")?.getAttribute("aria-label")?.includes("stable"));
   return { ok: results.every((result) => result.pass), results };
 })()`;
 
@@ -530,7 +592,7 @@ const resizeScenario = String.raw`(async () => {
   const stage = document.querySelector("#stage");
   const state = () => ({
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
-    status: document.querySelector("#status")?.textContent ?? "",
+    status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
     pointer: document.querySelector("#pointer-status")?.dataset.pointerState
       ? JSON.parse(document.querySelector("#pointer-status").dataset.pointerState)
       : null,
@@ -544,7 +606,7 @@ const resizeScenario = String.raw`(async () => {
   };
   const centerPointer = () => {
     const zone = document.querySelector("#zone-reserve").getBoundingClientRect();
-    const dimensions = document.querySelector("#status").textContent.match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
+    const dimensions = document.querySelector("#status").getAttribute("aria-label").match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
     const scale = Number(dimensions?.[3] ?? 1);
     stage.dispatchEvent(new PointerEvent("pointermove", {
       bubbles: true,
@@ -623,7 +685,7 @@ const movementScenario = String.raw`(async () => {
     x: { min: moveX?.min, max: moveX?.max },
     y: { min: moveY?.min, max: moveY?.max },
     visible: visibleWorld(),
-    status: document.querySelector("#status")?.textContent,
+    status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim(),
   }});
   const setRange = (input, value) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, String(value));
@@ -643,13 +705,13 @@ const movementScenario = String.raw`(async () => {
   document.querySelector('button[data-move-preset="right"]')?.click();
   await new Promise((resolve) => setTimeout(resolve, 450));
   fastSnapshot = liveScene();
-  record("fast target movement reaches its target", () => document.querySelector("#status")?.textContent.includes("stable")
+  record("fast target movement reaches its target", () => document.querySelector("#status")?.getAttribute("aria-label")?.includes("stable")
     && Math.abs((fastSnapshot?.visual?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) < 1);
   setRange(motionSpeed, 0.25);
   document.querySelector('button[data-move-preset="left"]')?.click();
   await new Promise((resolve) => setTimeout(resolve, 450));
   const slowSnapshot = liveScene();
-  record("slow target movement remains animated longer", () => document.querySelector("#status")?.textContent.includes("animating")
+  record("slow target movement remains animated longer", () => document.querySelector("#status")?.getAttribute("aria-label")?.includes("animating")
     && Math.abs((slowSnapshot?.desired?.cards?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) < 1
     && Math.abs((slowSnapshot?.visual?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) > 1);
   return { ok: results.every((result) => result.pass), results };
@@ -658,7 +720,7 @@ const movementScenario = String.raw`(async () => {
 const randomScenario = String.raw`(async () => {
   const results = [];
   const randomButton = document.querySelector("#random");
-  const status = () => document.querySelector("#status")?.textContent ?? "";
+  const status = () => document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent.replace(/\s+/g, " ").trim() ?? "";
   const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
   await new Promise((resolve) => setTimeout(resolve, 700));
   Math.random = () => 0.75;
@@ -677,7 +739,7 @@ const spinStateScenario = String.raw`(async () => {
   const results = [];
   const spinButton = document.querySelector("#spin");
   const randomButton = document.querySelector("#random");
-  const status = () => document.querySelector("#status")?.textContent ?? "";
+  const status = () => document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent.replace(/\s+/g, " ").trim() ?? "";
   const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
   await new Promise((resolve) => setTimeout(resolve, 700));
   Math.random = () => 0.75;
@@ -740,7 +802,7 @@ const performanceScenario = String.raw`(async () => {
     medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
     p95FrameMs: Number(percentile(sorted, 0.95).toFixed(1)),
     missedFramesOver20Ms: intervals.filter((interval) => interval > 20).length,
-    status: document.querySelector("#status")?.textContent ?? "",
+    status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
   };
   record("200-card cohort mounts", () => details.cards === 200 && details.shells === 200, details);
@@ -797,7 +859,7 @@ const randomPerformanceScenario = String.raw`(async () => {
     medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
     p95FrameMs: Number(percentile(sorted, 0.95).toFixed(1)),
     missedFramesOver20Ms: intervals.filter((interval) => interval > 20).length,
-    status: document.querySelector("#status")?.textContent ?? "",
+    status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
   };
   results.push({
@@ -992,6 +1054,7 @@ async function run() {
         const evaluation = await connection.command("Runtime.evaluate", {
           expression: scenario === "elements" ? elementScenario
             : scenario === "layout" ? layoutScenario
+              : scenario === "demo-toggles" ? demoTogglesScenario
               : scenario === "resize" ? resizeScenario
                   : scenario === "movement" ? movementScenario
                   : scenario === "random" ? randomScenario

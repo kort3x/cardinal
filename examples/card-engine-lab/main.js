@@ -42,6 +42,10 @@ const scaleSlider = document.querySelector("#scale-slider");
 const flipXSlider = document.querySelector("#flip-x-slider");
 const flipYSlider = document.querySelector("#flip-y-slider");
 const flipAxis = document.querySelector("#flip-axis");
+const moveButton = document.querySelector("#move");
+const rotateButton = document.querySelector("#rotate");
+const scaleButton = document.querySelector("#scale");
+const flipButton = document.querySelector("#flip");
 const spinButton = document.querySelector("#spin");
 const randomButton = document.querySelector("#random");
 const animationTestButton = document.querySelector("#animation-test");
@@ -310,7 +314,7 @@ async function runDiagnosticsBenchmark() {
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   try {
     stopRandomMotion();
-    stopContinuousFlip();
+    stopDemoAnimations();
     const source = structuredClone(originalCards[0] ?? initialCards()[0]);
     for (const count of [1, 5, 10]) {
       const cards = [];
@@ -362,7 +366,7 @@ async function runDiagnosticsBenchmark() {
     diagnosticsStatus.textContent = `Benchmark failed: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
     stopRandomMotion();
-    stopContinuousFlip();
+    stopDemoAnimations();
     selectedCardIds = new Set(originalSelection);
     applyLabCards(originalCards);
     runDiagnosticsBenchmarkButton.disabled = false;
@@ -709,8 +713,248 @@ let spinning = false;
 let randomTimer;
 let randomGeneration = 0;
 let randomMotion = false;
+let demoFrame;
+let demoFrameTime;
+let demoTransaction = false;
+let moveAnimation;
+let rotateAnimation;
+let scaleAnimation;
+let flipAnimation;
+let flipGeneration = 0;
 let animationTestGeneration = 0;
 let animationTestRunning = false;
+
+function activeMotionLabels() {
+  return [
+    moveAnimation && "move",
+    rotateAnimation && "rotate",
+    scaleAnimation && "scale",
+    flipAnimation && "flip",
+    spinning && "spin",
+    randomMotion && "random motion",
+  ].filter(Boolean);
+}
+
+function updateDemoButtons() {
+  const buttons = [
+    [moveButton, moveAnimation, "Move"],
+    [rotateButton, rotateAnimation, "Rotate"],
+    [scaleButton, scaleAnimation, "Scale"],
+    [flipButton, flipAnimation, "Flip"],
+  ];
+  for (const [button, active, label] of buttons) {
+    button.textContent = active ? "Stop" : label;
+    button.setAttribute("aria-pressed", String(Boolean(active)));
+  }
+}
+
+function stopDemoFrame() {
+  if (demoFrame !== undefined) cancelAnimationFrame(demoFrame);
+  demoFrame = undefined;
+  demoFrameTime = undefined;
+}
+
+function stopMoveAnimation() {
+  moveAnimation = undefined;
+  updateDemoButtons();
+  if (!rotateAnimation && !scaleAnimation) stopDemoFrame();
+}
+
+function stopRotateAnimation() {
+  rotateAnimation = undefined;
+  updateDemoButtons();
+  if (!moveAnimation && !scaleAnimation) stopDemoFrame();
+}
+
+function stopScaleAnimation() {
+  scaleAnimation = undefined;
+  updateDemoButtons();
+  if (!moveAnimation && !rotateAnimation) stopDemoFrame();
+}
+
+function stopDemoAnimations() {
+  stopMoveAnimation();
+  stopRotateAnimation();
+  stopScaleAnimation();
+  stopFlipAnimation();
+}
+
+function bouncePosition(value, velocity, minimum, maximum) {
+  if (maximum <= minimum) return { value: minimum, velocity: 0 };
+  let nextValue = value;
+  let nextVelocity = velocity;
+  while (nextValue < minimum || nextValue > maximum) {
+    if (nextValue < minimum) {
+      nextValue = minimum + (minimum - nextValue);
+      nextVelocity = Math.abs(nextVelocity);
+    } else if (nextValue > maximum) {
+      nextValue = maximum - (nextValue - maximum);
+      nextVelocity = -Math.abs(nextVelocity);
+    }
+  }
+  return { value: nextValue, velocity: nextVelocity };
+}
+
+function movementBounds(card, pose) {
+  const width = (card.dimensions?.width ?? 180) * (pose.scale ?? 1);
+  const height = (card.dimensions?.height ?? 250) * (pose.scale ?? 1);
+  const angle = (pose.angle ?? 0) * Math.PI / 180;
+  const halfWidth = (Math.abs(Math.cos(angle) * width) + Math.abs(Math.sin(angle) * height)) / 2;
+  const halfHeight = (Math.abs(Math.sin(angle) * width) + Math.abs(Math.cos(angle) * height)) / 2;
+  const stageBounds = visibleWorldBounds();
+  return {
+    left: Math.min(stageBounds.right, stageBounds.left + halfWidth),
+    right: Math.max(stageBounds.left, stageBounds.right - halfWidth),
+    top: Math.min(stageBounds.bottom, stageBounds.top + halfHeight),
+    bottom: Math.max(stageBounds.top, stageBounds.bottom - halfHeight),
+  };
+}
+
+function ensureDemoFrame() {
+  if (demoFrame !== undefined) return;
+  demoFrameTime = performance.now();
+  demoFrame = requestAnimationFrame(runDemoFrame);
+}
+
+function runDemoFrame(time) {
+  demoFrame = undefined;
+  if (!scene || (!moveAnimation && !rotateAnimation && !scaleAnimation)) return;
+  const elapsed = Math.min(0.05, Math.max(0, (time - (demoFrameTime ?? time)) / 1000));
+  demoFrameTime = time;
+  const state = scene.snapshot();
+  const operations = [];
+  const live = (cardId) => state.visual.find(({ cardId: visualCardId }) => visualCardId === cardId)?.pose;
+
+  if (moveAnimation) {
+    for (const [cardId, velocity] of moveAnimation.cards) {
+      const card = state.desired.cards.find(({ id }) => id === cardId);
+      const pose = live(cardId);
+      if (!card || !pose) {
+        moveAnimation.cards.delete(cardId);
+        continue;
+      }
+      const bounds = movementBounds(card, pose);
+      const x = bouncePosition(pose.x + velocity.x * elapsed, velocity.x, bounds.left, bounds.right);
+      const y = bouncePosition(pose.y + velocity.y * elapsed, velocity.y, bounds.top, bounds.bottom);
+      velocity.x = x.velocity;
+      velocity.y = y.velocity;
+      operations.push({ type: "move", cardId, position: { x: x.value, y: y.value } });
+    }
+    if (moveAnimation.cards.size === 0) stopMoveAnimation();
+  }
+  if (rotateAnimation) {
+    for (const cardId of rotateAnimation) {
+      const pose = live(cardId);
+      if (!pose) {
+        rotateAnimation.delete(cardId);
+        continue;
+      }
+      operations.push({ type: "rotate", cardId, angle: normalizeAngle(pose.angle + 120 * elapsed * Number(motionSpeedSlider.value)) });
+    }
+    if (rotateAnimation.size === 0) stopRotateAnimation();
+  }
+  if (scaleAnimation) {
+    for (const [cardId, direction] of scaleAnimation) {
+      const pose = live(cardId);
+      if (!pose) {
+        scaleAnimation.delete(cardId);
+        continue;
+      }
+      const nextScale = pose.scale + direction * elapsed * 0.5 * Number(motionSpeedSlider.value);
+      if (nextScale >= 1.5) {
+        scaleAnimation.set(cardId, -1);
+        operations.push({ type: "scale", cardId, factor: 1.5 });
+      } else if (nextScale <= 0.75) {
+        scaleAnimation.set(cardId, 1);
+        operations.push({ type: "scale", cardId, factor: 0.75 });
+      } else {
+        operations.push({ type: "scale", cardId, factor: nextScale });
+      }
+    }
+    if (scaleAnimation.size === 0) stopScaleAnimation();
+  }
+  if (operations.length > 0) {
+    demoTransaction = true;
+    try {
+      scene.transact(operations, { immediate: true });
+    } finally {
+      demoTransaction = false;
+    }
+  }
+  if (moveAnimation || rotateAnimation || scaleAnimation) ensureDemoFrame();
+}
+
+function startMoveAnimation() {
+  const state = scene.snapshot();
+  const cards = selectedVisualEntries(state);
+  if (cards.length === 0) return false;
+  moveAnimation = { cards: new Map(cards.map(({ card }) => {
+    const direction = randomBetween(0, Math.PI * 2);
+    const speed = randomBetween(130, 210);
+    return [card.id, { x: Math.cos(direction) * speed, y: Math.sin(direction) * speed }];
+  })) };
+  updateDemoButtons();
+  ensureDemoFrame();
+  return true;
+}
+
+function startRotateAnimation() {
+  const cards = selectedCardIdsArray();
+  if (cards.length === 0) return false;
+  rotateAnimation = new Set(cards);
+  updateDemoButtons();
+  ensureDemoFrame();
+  return true;
+}
+
+function startScaleAnimation() {
+  const cards = selectedVisualEntries();
+  if (cards.length === 0) return false;
+  scaleAnimation = new Map(cards.map(({ card, visual }) => [
+    card.id,
+    visual.pose.scale >= 1.5 ? -1 : 1,
+  ]));
+  updateDemoButtons();
+  ensureDemoFrame();
+  return true;
+}
+
+function startFlipAnimation() {
+  const cards = selectedCardIdsArray();
+  if (cards.length === 0) return false;
+  const generation = ++flipGeneration;
+  flipAnimation = { generation, cardIds: cards };
+  updateDemoButtons();
+  runFlipCycle(generation);
+  return true;
+}
+
+async function runFlipCycle(generation) {
+  if (!flipAnimation || flipAnimation.generation !== generation || !scene) return;
+  const state = scene.snapshot();
+  const operations = flipAnimation.cardIds
+    .filter((cardId) => state.desired.cards.some(({ id }) => id === cardId))
+    .map((cardId) => toggleFaceOperation(cardId, state, flipAxis.value));
+  if (operations.length === 0) {
+    stopFlipAnimation();
+    return;
+  }
+  try {
+    await scene.transact(operations).finished;
+  } catch {
+    return;
+  }
+  if (flipAnimation?.generation === generation) {
+    flipAnimation.timer = setTimeout(() => runFlipCycle(generation), 700 / Number(motionSpeedSlider.value));
+  }
+}
+
+function stopFlipAnimation() {
+  if (flipAnimation?.timer) clearTimeout(flipAnimation.timer);
+  flipGeneration += 1;
+  flipAnimation = undefined;
+  updateDemoButtons();
+}
 
 function updateRandomButton() {
   randomButton.textContent = randomMotion ? "Stop" : "Random";
@@ -779,6 +1023,7 @@ function toggleRandomMotion() {
     stopRandomMotion();
     return;
   }
+  stopDemoAnimations();
   randomGeneration += 1;
   randomMotion = true;
   updateRandomButton();
@@ -789,10 +1034,10 @@ async function runAnimationTest() {
   if (animationTestRunning || !scene) return;
   const cardIds = selectedCardIdsArray();
   if (cardIds.length === 0) {
-    status.textContent = "Animation test needs at least one selected card";
+    showStatusMessage("Animation test needs at least one selected card");
     return;
   }
-  stopContinuousFlip();
+  stopDemoAnimations();
   stopRandomMotion();
   const generation = ++animationTestGeneration;
   const started = performance.now();
@@ -910,7 +1155,7 @@ async function runAnimationTest() {
     }
   } catch (error) {
     if (generation === animationTestGeneration) {
-      status.textContent = `Animation test failed: ${error instanceof Error ? error.message : String(error)}`;
+      showStatusMessage(`Animation test failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   } finally {
     if (generation === animationTestGeneration) {
@@ -1071,6 +1316,7 @@ function respondToDrop(sceneInstance, lifecycle, intent) {
 
 function startScene(cards = sceneCards()) {
   disposeInteractionLifecycle();
+  stopDemoAnimations();
   scene?.destroy();
   if (spinTimer) clearTimeout(spinTimer);
   stopRandomMotion();
@@ -1265,7 +1511,7 @@ function applyElementOperation(operation) {
     run(operations);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    status.textContent = `Element update failed: ${message}`;
+    showStatusMessage(`Element update failed: ${message}`);
     console.error("Cardinal element update failed", error);
   }
 }
@@ -1407,13 +1653,14 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
     interaction = state.interaction;
   }
   syncSpinState(state);
+  presentationOnly ||= demoTransaction;
   if (!presentationOnly) {
     updateMoveControlBounds(state);
     renderCardList();
     renderZones(state);
     renderElementList(state);
   }
-  updateCardListDepth(state);
+  if (!demoTransaction) updateCardListDepth(state);
   const card = currentCard(state);
   const visual = card && state.visual.find(({ cardId }) => cardId === card.id);
   const pose = visual?.pose;
@@ -1428,10 +1675,45 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
     : "";
   rendererStatus.textContent = `Renderer: ${rendererLabel}${projectionLabel}${viewportLabel}${state.rendererReason && state.rendererReason !== "css" ? ` — ${state.rendererReason}` : ""}`;
   const physicalSide = visual?.physicalSide ?? "unknown";
-  status.textContent = pose
-    ? `${state.desired.cards.length} cards · ${selectedCardIds.size} selected · x ${pose.x.toFixed(0)} · y ${pose.y.toFixed(0)} · z ${pose.z.toFixed(1)} · size ${pose.width.toFixed(0)}×${pose.height.toFixed(0)} · depth ${pose.thickness.toFixed(1)} · angle ${pose.angle.toFixed(0)}° · scale ${pose.scale.toFixed(2)} · logical ${card.activeFaceId.replace("face-", "").toUpperCase()} · physical ${physicalSide} · ${state.settling ? "animating" : "stable"}${randomMotion ? " · random motion" : ""}`
-    : `${state.desired.cards.length} cards · 0 selected`;
+  const summaryText = `${state.desired.cards.length} cards`;
+  const selectionText = `${selectedCardIds.size} selected`;
+  const statusParts = [summaryText, selectionText];
+  if (pose) {
+    const poseParts = {
+      x: pose.x.toFixed(0),
+      y: pose.y.toFixed(0),
+      z: pose.z.toFixed(1),
+      size: `${pose.width.toFixed(0)}×${pose.height.toFixed(0)}`,
+      depth: pose.thickness.toFixed(1),
+      angle: `${pose.angle.toFixed(0)}°`,
+      scale: pose.scale.toFixed(2),
+      logical: card.activeFaceId.replace("face-", "").toUpperCase(),
+      physical: physicalSide,
+      motion: state.settling
+        ? "animating"
+        : activeMotionLabels().length > 0 ? `${activeMotionLabels().join("+")} active` : "stable",
+    };
+    statusParts.push(
+      `x ${poseParts.x}`,
+      `y ${poseParts.y}`,
+      `z ${poseParts.z}`,
+      `size ${poseParts.size}`,
+      `depth ${poseParts.depth}`,
+      `angle ${poseParts.angle}`,
+      `scale ${poseParts.scale}`,
+      `logical ${poseParts.logical}`,
+      `physical ${poseParts.physical}`,
+      poseParts.motion,
+    );
+  }
+  status.textContent = statusParts.join(" · ");
+  status.setAttribute("aria-label", status.textContent);
   selectionStatus.textContent = `${selectedCardIds.size} of ${state.desired.cards.length} selected`;
+}
+
+function showStatusMessage(message) {
+  status.textContent = message;
+  status.setAttribute("aria-label", message);
 }
 
 function run(operations, options) {
@@ -1456,6 +1738,7 @@ function syncSpinState(state) {
 }
 
 function stopContinuousFlip() {
+  stopFlipAnimation();
   if (spinTimer) clearTimeout(spinTimer);
   spinTimer = undefined;
   if (!spinning) return;
@@ -1685,55 +1968,32 @@ function applyPresetControl(channel) {
   if (operations.length > 0) run(operations);
 }
 
-document.querySelector("#move").addEventListener("click", () => {
-  const state = scene.snapshot();
-  const visual = currentVisual(state);
-  if (!visual) return;
-  const bounds = visibleWorldBounds();
-  const preset = visual.pose.x > bounds.centerX ? "left" : "right";
-  const position = movePresetPosition(preset);
-  setControls(position);
-  run(moveSelectedAsGroup(preset, state));
+moveButton.addEventListener("click", () => {
+  if (moveAnimation) stopMoveAnimation();
+  else startMoveAnimation();
 });
 
-document.querySelector("#rotate").addEventListener("click", () => {
-  const state = scene.snapshot();
-  const visual = currentVisual(state);
-  if (!visual) return;
-  const angle = normalizeAngle(visual.pose.angle + 45);
-  setControls({ angle });
-  run(selectedVisualEntries(state).map(({ card, visual: current }) => ({
-    type: "rotate",
-    cardId: card.id,
-    angle: normalizeAngle(current.pose.angle + 45),
-  })));
+rotateButton.addEventListener("click", () => {
+  if (rotateAnimation) stopRotateAnimation();
+  else startRotateAnimation();
 });
 
-document.querySelector("#scale").addEventListener("click", () => {
-  const state = scene.snapshot();
-  const visual = currentVisual(state);
-  if (!visual) return;
-  const factor = visual.pose.scale > 1 ? 1 : 1.25;
-  setControls({ scale: factor });
-  run(selectedVisualEntries(state).map(({ card }) => ({ type: "scale", cardId: card.id, factor })));
+scaleButton.addEventListener("click", () => {
+  if (scaleAnimation) stopScaleAnimation();
+  else startScaleAnimation();
 });
 
 document.querySelectorAll("[data-scale]").forEach((button) => {
   button.addEventListener("click", () => {
+    stopScaleAnimation();
     setControls({ scale: Number(button.dataset.scale) });
     queueControl("scale", { immediate: false });
   });
 });
 
-document.querySelector("#flip").addEventListener("click", () => {
-  stopContinuousFlip();
-  const state = scene.snapshot();
-  const operations = flipSelectedOperations(state);
-  if (operations.length === 0) return;
-  const primaryCardId = currentVisual(state)?.cardId;
-  const primary = operations.find(({ cardId }) => cardId === primaryCardId) ?? operations[0];
-  setControls({ faceUp: primary.face === "faceUp" });
-  run(operations);
+flipButton.addEventListener("click", () => {
+  if (flipAnimation) stopFlipAnimation();
+  else startFlipAnimation();
 });
 
 spinButton.addEventListener("click", () => {
@@ -1741,6 +2001,7 @@ spinButton.addEventListener("click", () => {
     stopContinuousFlip();
     return;
   }
+  stopFlipAnimation();
   spinHandles = new Map(selectedCardIdsArray().map((cardId) => [
     cardId,
     scene.spin(cardId, { axis: flipAxis.value, direction: 1, speed: 180 }),
@@ -1752,12 +2013,21 @@ spinButton.addEventListener("click", () => {
 randomButton.addEventListener("click", toggleRandomMotion);
 animationTestButton.addEventListener("click", runAnimationTest);
 
-[moveXSlider, moveYSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("move")));
+[moveXSlider, moveYSlider].forEach((slider) => slider.addEventListener("input", () => {
+  stopMoveAnimation();
+  queueControl("move");
+}));
 motionSpeedSlider.addEventListener("input", updateMotionSpeed);
 [cardWidthSlider, cardHeightSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("resize")));
 cardThicknessSlider.addEventListener("input", () => queueControl("thickness"));
-rotateSlider.addEventListener("input", () => queueControl("rotate"));
-scaleSlider.addEventListener("input", () => queueControl("scale"));
+rotateSlider.addEventListener("input", () => {
+  stopRotateAnimation();
+  queueControl("rotate");
+});
+scaleSlider.addEventListener("input", () => {
+  stopScaleAnimation();
+  queueControl("scale");
+});
 [flipXSlider, flipYSlider].forEach((slider) => slider.addEventListener("input", () => {
   stopContinuousFlip();
   queueControl("flip");
@@ -1812,7 +2082,7 @@ function transferCardsTo(destination) {
       index: start + index,
     })));
   } catch (error) {
-    status.textContent = `Zone transfer failed: ${error instanceof Error ? error.message : String(error)}`;
+    showStatusMessage(`Zone transfer failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -1829,7 +2099,7 @@ function toggleZone(zoneId) {
   } catch (error) {
     zoneVisibility.set(zoneId, !visible);
     if (anchor) anchor.hidden = visible;
-    status.textContent = `Zone update failed: ${error instanceof Error ? error.message : String(error)}`;
+    showStatusMessage(`Zone update failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -1853,12 +2123,14 @@ deselectAllButton.addEventListener("click", () => {
 
 document.querySelectorAll("[data-move-preset]").forEach((button) => {
   button.addEventListener("click", () => {
+    stopMoveAnimation();
     setControls(movePresetPosition(button.dataset.movePreset));
     applyPresetControl("move");
   });
 });
 document.querySelectorAll("[data-rotate]").forEach((button) => {
   button.addEventListener("click", () => {
+    stopRotateAnimation();
     setControls({ angle: Number(button.dataset.rotate) });
     applyPresetControl("rotate");
   });
@@ -1892,7 +2164,7 @@ document.querySelectorAll("[data-background-preset]").forEach((button) => {
 });
 
 document.querySelector("#combined").addEventListener("click", () => {
-  stopContinuousFlip();
+  stopDemoAnimations();
   const state = scene.snapshot();
   const primary = currentVisual(state);
   if (!primary) return;

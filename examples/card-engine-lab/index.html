@@ -146,11 +146,11 @@
       .lab-zone-anchor[hidden] { display: none; }
       #stage > .cardinal-webgl-canvas { z-index: 2; }
       #full-window-control { background: rgb(33 37 43 / 90%); }
-      #renderer-status, #status, #fps-status, #pointer-status { margin: 7px 0 0; min-height: 1.4em; }
-      #renderer-status { color: var(--lab-muted); font-size: 0.82rem; }
-      #status { color: var(--lab-accent); }
-      #fps-status { color: var(--lab-muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
-      #pointer-status { min-height: 1.5em; margin: 0; color: var(--lab-text); font-variant-numeric: tabular-nums; }
+      .status-meta { display: flex; align-items: baseline; gap: 12px; min-width: 0; margin-top: 7px; min-height: 1.4em; }
+      #renderer-status { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--lab-muted); font-size: 0.82rem; text-overflow: ellipsis; white-space: nowrap; }
+      #fps-status { flex: 0 0 5.5em; margin: 0; color: var(--lab-muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+      #status { margin: 7px 0 0; min-height: 1.4em; overflow: hidden; color: var(--lab-accent); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+      #pointer-status { min-height: 1.5em; margin: 0; color: var(--lab-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; opacity: 0.72; }
       #diagnostics-panel { margin-top: 10px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); background: var(--lab-bg-deep); }
       #diagnostics-panel summary { padding: 8px 10px; color: var(--lab-accent); cursor: pointer; font-weight: 700; }
       .diagnostics-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; }
@@ -168,9 +168,8 @@
       body.stage-full-window .elements-sidebar,
       body.stage-full-window .scene-column > .motion-actions,
       body.stage-full-window .stage-actions,
-      body.stage-full-window #renderer-status,
+      body.stage-full-window .status-meta,
       body.stage-full-window #status,
-      body.stage-full-window #fps-status,
       body.stage-full-window #pointer-status,
       body.stage-full-window #diagnostics-panel { display: none; }
       body.stage-full-window .scene-column { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100vh; }
@@ -196,16 +195,16 @@
           <img class="lab-logo" src="/examples/card-engine-lab/lab-logo.png" alt="Cardinal Card Engine lab logo">
           <div class="lab-title">
             <h1>Cardinal Card Lab</h1>
-            <p>Persistent card shells · independent motion channels · separate or multi-card control</p>
+            <p>True 3D WebGL cards · composable motion · dynamic faces and elements · responsive zones · multi-card control</p>
           </div>
         </div>
         <a class="zones-link" href="/examples/card-engine-lab/zones.html">Zones lab <span aria-hidden="true">↗</span></a>
       </div>
       <div class="toolbar motion-actions" aria-label="Animated card actions">
-        <button id="move">Move</button>
-        <button id="rotate">Rotate</button>
-        <button id="scale">Scale</button>
-        <button id="flip">Flip</button>
+        <button id="move" type="button" aria-pressed="false">Move</button>
+        <button id="rotate" type="button" aria-pressed="false">Rotate</button>
+        <button id="scale" type="button" aria-pressed="false">Scale</button>
+        <button id="flip" type="button" aria-pressed="false">Flip</button>
         <button id="spin" type="button" aria-pressed="false">Spin</button>
         <button id="combined">Demo</button>
         <button id="random" type="button" aria-pressed="false">Random</button>
@@ -432,9 +431,11 @@
           </details>
         </aside>
         <div class="scene-column">
-          <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
+          <div class="status-meta" aria-label="Renderer and frame rate">
+            <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
+            <p id="fps-status" aria-live="off">FPS: detecting…</p>
+          </div>
           <p id="status" aria-live="polite"></p>
-          <p id="fps-status" aria-live="off">FPS: detecting…</p>
           <p id="pointer-status" data-pointer-state='{"status":"not-observed"}'>Pointer: not observed yet</p>
           <details id="diagnostics-panel">
             <summary>Performance diagnostics</summary>
@@ -524,6 +525,7 @@
       const stage = document.querySelector("#stage");
       const rendererStatus = document.querySelector("#renderer-status");
       const status = document.querySelector("#status");
+      const statusMeta = document.querySelector(".status-meta");
       const fpsStatus = document.querySelector("#fps-status");
       const pointerStatus = document.querySelector("#pointer-status");
       const diagnosticsPanel = document.querySelector("#diagnostics-panel");
@@ -540,7 +542,7 @@
       });
       sceneColumn.prepend(toolbar);
       toolbar.prepend(motionSpeedControl);
-      sceneColumn.append(stage, rendererStatus, status, fpsStatus, pointerStatus, diagnosticsPanel);
+      sceneColumn.append(stage, statusMeta, status, pointerStatus, diagnosticsPanel);
       controlPanel.remove();
     </script>
     <script type="importmap">

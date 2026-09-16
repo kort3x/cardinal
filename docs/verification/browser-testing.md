@@ -31,6 +31,7 @@ is necessary only when extending or diagnosing them.
 | Rails, controls, full-window layout | `layout` |
 | Camera/stage resizing and movement bounds | `resize`, `movement` |
 | Composed motion, flipping, scale, reduced motion | `acceptance` |
+| Continuous Move/Rotate/Scale/Flip demo toggles | `demo-toggles` |
 | Random movement and spin toggle state | `random`, `spin-state` |
 | Responsive zone geometry / integrated lab zone controls | `zones` / `main-zones` |
 | Dragging, rules, pending approval, input cancellation | `drag` |
