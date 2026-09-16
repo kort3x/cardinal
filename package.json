@@ -21,6 +21,9 @@
     "test:chrome:drag-geometry": "node scripts/chrome-lab.mjs --headless --scenario drag-geometry",
     "test:chrome:drag-performance": "node scripts/chrome-lab.mjs --headless --scenario drag-performance",
     "test:chrome:mobile-scale": "node scripts/chrome-lab.mjs --headless --scenario mobile-scale",
+    "test:edge": "node scripts/chrome-lab.mjs --headless --browser edge --scenario acceptance",
+    "test:edge:drag": "node scripts/chrome-lab.mjs --headless --browser edge --scenario drag",
+    "test:edge:drag-performance": "node scripts/chrome-lab.mjs --headless --browser edge --scenario drag-performance",
     "build:pages": "node scripts/build-pages.mjs",
     "test:cross-browser": "node scripts/cross-browser-lab.mjs",
     "show:chrome": "node scripts/chrome-lab.mjs --show"

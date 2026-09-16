@@ -16,6 +16,9 @@ const inputScenarios = {
 const args = new Set(process.argv.slice(2));
 const scenarioIndex = process.argv.indexOf("--scenario");
 const scenario = scenarioIndex === -1 ? "elements" : process.argv[scenarioIndex + 1];
+const browserIndex = process.argv.indexOf("--browser");
+const browser = browserIndex === -1 ? "chrome" : process.argv[browserIndex + 1];
+const browserLabel = browser === "edge" ? "Edge" : "Chrome";
 const port = Number(process.env.CARDINAL_CHROME_PORT ?? 9222);
 const labUrl = process.env.CARDINAL_LAB_URL ?? "http://localhost:4173/";
 const headless = args.has("--headless");
@@ -23,11 +26,12 @@ const minimumFps = Number(process.env.CARDINAL_MIN_FPS ?? 0);
 const deviceScaleFactor = Number(process.env.CARDINAL_DEVICE_SCALE_FACTOR ?? (headless ? 1 : 0));
 const keepOpen = args.has("--show");
 
-if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid Chrome port: ${port}`);
+if (!new Set(["chrome", "edge"]).has(browser)) throw new Error(`Unknown Chromium browser: ${browser}`);
+if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid ${browserLabel} port: ${port}`);
 if (typeof WebSocket !== "function") {
-  throw new Error("Chrome automation requires Node 22+ with the built-in WebSocket API");
+  throw new Error(`${browserLabel} automation requires Node 22+ with the built-in WebSocket API`);
 }
-if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown Chrome lab scenario: ${scenario}`);
+if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown ${browserLabel} lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -35,7 +39,7 @@ async function fetchJson(url, options) {
   return response.json();
 }
 
-async function chromeTargets() {
+async function chromiumTargets() {
   return fetchJson(`http://127.0.0.1:${port}/json/list`);
 }
 
@@ -67,34 +71,43 @@ async function ensureLabServer() {
   throw new Error(`Cardinal lab server did not become ready at ${labUrl}`);
 }
 
-async function waitForChrome(timeout = 10000) {
+async function waitForBrowser(timeout = 10000) {
   const started = Date.now();
   let lastError;
   while (Date.now() - started < timeout) {
     try {
-      const targets = await chromeTargets();
+      const targets = await chromiumTargets();
       if (targets.some((target) => target.type === "page")) return targets;
     } catch (error) {
       lastError = error;
     }
     await delay(100);
   }
-  throw lastError ?? new Error("Chrome did not expose a page target");
+  throw lastError ?? new Error(`${browserLabel} did not expose a page target`);
 }
 
-function chromeExecutable() {
-  if (process.env.CHROME_BIN) return process.env.CHROME_BIN;
-  if (process.platform === "darwin") return "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  if (process.platform === "win32") return "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-  return "google-chrome";
+function browserExecutable() {
+  const explicit = browser === "edge" ? process.env.EDGE_BIN : process.env.CHROME_BIN;
+  if (explicit) return explicit;
+  if (process.platform === "darwin") {
+    return browser === "edge"
+      ? "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+      : "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  }
+  if (process.platform === "win32") {
+    return browser === "edge"
+      ? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      : "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+  }
+  return browser === "edge" ? "microsoft-edge" : "google-chrome";
 }
 
-async function ensureChrome() {
+async function ensureBrowser() {
   try {
-    return { targets: await chromeTargets(), process: undefined };
+    return { targets: await chromiumTargets(), process: undefined };
   } catch {
-    const profile = await mkdtemp(join(tmpdir(), "cardinal-chrome-"));
-    const chrome = spawn(chromeExecutable(), [
+    const profile = await mkdtemp(join(tmpdir(), `cardinal-${browser}-`));
+    const chromium = spawn(browserExecutable(), [
       `--remote-debugging-port=${port}`,
       `--user-data-dir=${profile}`,
       "--no-first-run",
@@ -102,8 +115,8 @@ async function ensureChrome() {
       ...(headless ? ["--headless=new"] : []),
       "about:blank",
     ], { detached: keepOpen, stdio: "ignore" });
-    if (keepOpen) chrome.unref();
-    return { targets: await waitForChrome(), process: chrome };
+    if (keepOpen) chromium.unref();
+    return { targets: await waitForBrowser(), process: chromium };
   }
 }
 
@@ -1029,14 +1042,14 @@ const mainZonesScenario = String.raw`(async () => {
 
 async function run() {
   const server = await ensureLabServer();
-  let chrome;
+  let chromium;
   let connection;
   try {
-    chrome = await ensureChrome();
-    const target = chrome.targets.find((candidate) => candidate.type === "page");
-    if (!target) throw new Error("Chrome did not expose a page target");
+    chromium = await ensureBrowser();
+    const target = chromium.targets.find((candidate) => candidate.type === "page");
+    if (!target) throw new Error(`${browserLabel} did not expose a page target`);
     connection = connect(target);
-    if (headless && chrome.process) {
+    if (headless && chromium.process) {
       await connection.command("Emulation.setDeviceMetricsOverride", {
         width: 2515,
         height: 1322,
@@ -1068,7 +1081,7 @@ async function run() {
           awaitPromise: true,
           returnByValue: true,
         });
-        if (evaluation.exceptionDetails) throw new Error(evaluation.exceptionDetails.text ?? "Chrome lab scenario threw");
+        if (evaluation.exceptionDetails) throw new Error(evaluation.exceptionDetails.text ?? `${browserLabel} lab scenario threw`);
         return evaluation.result?.value;
       })();
     for (const result of report?.results ?? []) {
@@ -1079,33 +1092,33 @@ async function run() {
       if (result.skipped && result.details?.reason) console.log(`  reason: ${result.details.reason}`);
     }
     if (inputScenarios[scenario] && report?.environment) {
-      console.log(`Chrome ${scenario} environment: ${JSON.stringify(report.environment)}`);
+      console.log(`${browserLabel} ${scenario} environment: ${JSON.stringify(report.environment)}`);
     }
     if (inputScenarios[scenario] && report?.measurementNotes) {
-      console.log(`Chrome ${scenario} measurement notes: ${JSON.stringify(report.measurementNotes)}`);
+      console.log(`${browserLabel} ${scenario} measurement notes: ${JSON.stringify(report.measurementNotes)}`);
     }
     if (inputScenarios[scenario] && report?.measurements) {
-      console.log(`Chrome ${scenario} measurements: ${JSON.stringify(report.measurements)}`);
+      console.log(`${browserLabel} ${scenario} measurements: ${JSON.stringify(report.measurements)}`);
     }
-    if (!report || report.ok !== true) throw new Error("Chrome lab scenario failed");
-    if (report.measurements?.inputLatencyMs !== undefined) console.log(`Chrome measurements: input latency ${report.measurements.inputLatencyMs.toFixed(2)} ms · landing delta ${report.measurements.landingDeltaPx.toFixed(0)} px`);
+    if (!report || report.ok !== true) throw new Error(`${browserLabel} lab scenario failed`);
+    if (report.measurements?.inputLatencyMs !== undefined) console.log(`${browserLabel} measurements: input latency ${report.measurements.inputLatencyMs.toFixed(2)} ms · landing delta ${report.measurements.landingDeltaPx.toFixed(0)} px`);
     if (scenario === "performance" && report.measurements) {
       const measurements = report.measurements;
-      console.log(`Chrome performance: ${measurements.cards} cards · setup ${measurements.setupMs.toFixed(1)} ms · handler ${measurements.actionHandlerMs.toFixed(1)} ms · ${measurements.frames} frames · first frame ${measurements.firstFrameDelayMs.toFixed(1)} ms · median ${measurements.medianFrameMs.toFixed(1)} ms · p95 ${measurements.p95FrameMs.toFixed(1)} ms · missed >20 ms ${measurements.missedFramesOver20Ms}`);
+      console.log(`${browserLabel} performance: ${measurements.cards} cards · setup ${measurements.setupMs.toFixed(1)} ms · handler ${measurements.actionHandlerMs.toFixed(1)} ms · ${measurements.frames} frames · first frame ${measurements.firstFrameDelayMs.toFixed(1)} ms · median ${measurements.medianFrameMs.toFixed(1)} ms · p95 ${measurements.p95FrameMs.toFixed(1)} ms · missed >20 ms ${measurements.missedFramesOver20Ms}`);
     }
     if (scenario === "random-performance" && report.measurements) {
       const measurements = report.measurements;
-      console.log(`Chrome random performance: ${measurements.cards} cards · ${measurements.fps.toFixed(1)} FPS · median ${measurements.medianFrameMs.toFixed(1)} ms · p95 ${measurements.p95FrameMs.toFixed(1)} ms · missed >20 ms ${measurements.missedFramesOver20Ms}`);
+      console.log(`${browserLabel} random performance: ${measurements.cards} cards · ${measurements.fps.toFixed(1)} FPS · median ${measurements.medianFrameMs.toFixed(1)} ms · p95 ${measurements.p95FrameMs.toFixed(1)} ms · missed >20 ms ${measurements.missedFramesOver20Ms}`);
     }
-    console.log(`Chrome lab scenario '${scenario}' passed (${report.results.length} checks)`);
+    console.log(`${browserLabel} lab scenario '${scenario}' passed (${report.results.length} checks)`);
   } finally {
     connection?.socket.close();
-    if (chrome?.process && !keepOpen) chrome.process.kill("SIGTERM");
+    if (chromium?.process && !keepOpen) chromium.process.kill("SIGTERM");
     if (server && !keepOpen) server.kill("SIGTERM");
   }
 }
 
 run().catch((error) => {
-  console.error(`Chrome lab scenario failed: ${error.message}`);
+  console.error(`${browserLabel} lab scenario failed: ${error.message}`);
   process.exitCode = 1;
 });

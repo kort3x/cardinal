@@ -14,6 +14,9 @@ skill is required. Run commands from the repository root.
 | Chrome drag geometry | `npm run test:chrome:drag-geometry` | Mesh picking, overlap precedence and perspective drag fixtures |
 | Chrome drag timing | `npm run test:chrome:drag-performance` | Isolated rest/motion/drag samples with 1, 10 and 50 cards |
 | Show the user a Chrome scenario | `npm run show:chrome -- --scenario drag` | Visible Chrome; substitute the relevant scenario below |
+| Edge acceptance | `npm run test:edge` | Headless Edge Chromium acceptance flow |
+| Edge drag verification | `npm run test:edge:drag` | Real mouse, keyboard and emulated touch input |
+| Edge drag timing | `npm run test:edge:drag-performance` | Isolated rest/motion/drag samples with 1, 10 and 50 cards |
 | Safari only | `npm run test:cross-browser -- safari` | Safari acceptance, including interaction checks |
 | Firefox only | `npm run test:cross-browser -- firefox` | Firefox acceptance, including interaction checks |
 | Both additional browsers | `npm run test:cross-browser` | Firefox, then Safari; excludes Chrome and stops on failure |
@@ -40,15 +43,17 @@ is necessary only when extending or diagnosing them.
 | Mobile responsive scale and touch-capability defaults | `mobile-scale` |
 | Cohort rendering / random-motion performance / report collection | `performance` / `random-performance` / `diagnostics` |
 
-For any listed scenario, use
-`node scripts/chrome-lab.mjs --headless --scenario <name>` for a repeatable run,
-or the `show:chrome` command for a visible demonstration. `zones` uses the separate
-zones lab; the other scenarios use the main lab. `package.json` and runner
-assertions are the source of truth for supported names and exact coverage.
+For any listed Chromium scenario, use
+`node scripts/chrome-lab.mjs --headless --scenario <name>` for Chrome, or add
+`--browser edge` for Edge. Use the `show:chrome` command for a visible Chrome
+demonstration. `zones` uses the separate zones lab; the other scenarios use the
+main lab. `package.json` and runner assertions are the source of truth for
+supported names and exact coverage.
 
 Select the changed feature's scenario plus relevant regressions; `test:chrome`
-does not run all Chrome scenarios. Cross-browser acceptance is its own suite,
-not a promise that every Chrome scenario has Firefox/Safari parity.
+does not run all Chrome scenarios, and `test:edge` is the Edge acceptance flow.
+Cross-browser acceptance is its own suite, not a promise that every Chromium
+scenario has Firefox/Safari parity.
 
 Run `drag-performance` after other browser work has finished. Its local browser
 timings are measurements, not a supported-device guarantee; report the actual
@@ -84,8 +89,11 @@ latency.
 1. Confirm Node 22+ (`node --version`) and dependencies. On a fresh checkout,
    run `npm --prefix packages/card-engine ci`; the engine owns the dependency
    lockfile. Both runners use Node's built-in WebSocket/fetch APIs.
-2. Check the requested browser is installed. Chrome supports `CHROME_BIN`; its
-   default macOS path is `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
+2. Check the requested browser is installed. Chrome supports `CHROME_BIN`; Edge
+   supports `EDGE_BIN`. The default macOS paths are
+   `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` and
+   `/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge`; the default
+   Windows Edge path is `C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe`.
    The current cross-browser runner is macOS-specific: Firefox is expected at
    `/Applications/Firefox.app/Contents/MacOS/firefox` and SafariDriver at
    `/System/Cryptexes/App/usr/bin/safaridriver`. An absent executable is a setup
@@ -99,10 +107,11 @@ latency.
    `CARDINAL_LAB_URL` overrides the URL for either runner; it must point to a
    reachable compatible lab. To keep the lab running independently, use
    `npm --prefix examples/card-engine-lab start` in a separate terminal.
-5. Reserve the browser session before parallel work. Chrome's debug port defaults
-   to 9222 and may belong to the user's visible browser. Use a separate unused
-   port for isolated checks, for example
-   `CARDINAL_CHROME_PORT=9333 npm run test:chrome:drag`.
+5. Reserve the browser session before parallel work. Chrome and Edge use the
+   Chromium debug protocol; their debug port defaults to 9222 and may belong to
+   a visible browser. Use a separate unused port for isolated checks, for example
+   `CARDINAL_CHROME_PORT=9333 npm run test:chrome:drag` or
+   `CARDINAL_CHROME_PORT=9334 npm run test:edge:drag`.
    Check ownership with `lsof -nP -iTCP:9333 -sTCP:LISTEN` on macOS; no output means
    no listener was found. Never navigate the same debug session from two workers.
    Firefox and Safari use fixed ports 9231 and 9523 respectively: serialize runs
