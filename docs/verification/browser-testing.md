@@ -71,12 +71,13 @@ is incomplete:
    unavailable.
 
 The report includes the actual browser/device identity, viewport and DPR, the
-input type, pointer event counts, observed animation frames, frame-interval
+card count, browser/version, input type, accepted/rejected outcome, approximate
+drag FPS, pointer event counts, observed animation frames, frame-interval
 summary, missed frames over 20 ms, and pointer-event-to-next-observed-rAF
-latency. The rAF measurements describe page-side observation, not paint or
-end-to-end display latency. Include the report, card count, input type and
-whether the drag was accepted or rejected when attaching physical-device
-evidence to an issue.
+latency. Desktop browsers commonly hide the exact Windows device model; the
+report records it when the browser exposes it and otherwise uses `null`. The
+rAF measurements describe page-side observation, not paint or end-to-end display
+latency.
 
 ## Prepare and protect the session
 

@@ -491,6 +491,10 @@ export async function runDragPerformanceScenario({ command }) {
       const inputObserved = details.condition !== "pointer-drag"
         || details.pointerMoves > 0 && details.observedMotionFrames > 0
           && details.transfer?.toZoneId === "workbench"
+          && details.labDragSample?.cardCount === details.cards
+          && details.labDragSample?.browser?.version
+          && details.labDragSample?.outcome === "accepted"
+          && Number.isFinite(details.labDragSample?.fps)
           && details.labDragSample?.pointerMoves > 0
           && details.labDragSample?.observedMotionFrames > 0;
       results.push({ label, pass: details.frames > 0 && inputObserved, status: "sampled", details });

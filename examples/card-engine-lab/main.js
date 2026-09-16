@@ -126,6 +126,19 @@ function diagnosticsDistribution(values) {
   };
 }
 
+function detectedBrowser() {
+  const userAgent = navigator.userAgent;
+  const brands = navigator.userAgentData?.brands ?? [];
+  const brand = brands.find(({ brand: name }) => !/Not A Brand/i.test(name));
+  const match = userAgent.match(/(?:Edg|OPR|Firefox|FxiOS|Version|HeadlessChrome|Chrome|CriOS)\/([\d.]+)/);
+  let name = brand?.brand ?? "Unknown";
+  if (/Edg\//.test(userAgent)) name = "Microsoft Edge";
+  else if (/Firefox|FxiOS/.test(userAgent)) name = "Firefox";
+  else if (/Safari/.test(userAgent) && /Version\//.test(userAgent)) name = "Safari";
+  else if (/Chrome|CriOS|HeadlessChrome/.test(userAgent)) name = "Chrome";
+  return { name, version: match?.[1] ?? brand?.version ?? null };
+}
+
 function dragDiagnosticPose(cardId) {
   const visual = scene?.snapshot?.().visual?.find(({ cardId: id }) => id === cardId);
   const pose = visual?.pose;
@@ -154,17 +167,35 @@ function finishDragDiagnostic(reason) {
   capture.endedAt = performance.now();
   capture.endReason = reason;
   const frameIntervals = capture.frameTimes.slice(1).map((time, index) => time - capture.frameTimes[index]);
+  const frameElapsedMs = capture.frameTimes.length > 1
+    ? capture.frameTimes.at(-1) - capture.frameTimes[0]
+    : 0;
   const finalState = scene?.snapshot?.();
   const finalSession = finalState?.interaction?.sessions?.find(({ primaryCardId }) => primaryCardId === capture.cardId);
   const finalZone = finalState?.desired?.zones?.find(({ cardIds = [] }) => cardIds.includes(capture.cardId));
+  const outcomeText = interactionStatus.textContent ?? "";
+  const outcome = outcomeText.startsWith("Drop accepted")
+    ? "accepted"
+    : outcomeText.startsWith("Drop rejected")
+      ? "rejected"
+      : outcomeText.startsWith("Drop cancelled") || outcomeText.startsWith("Drag cancelled")
+        ? "cancelled"
+        : null;
   lastDragDiagnosticSample = {
     capturedAt: new Date().toISOString(),
     cardId: capture.cardId,
+    cardCount: finalState?.desired?.cards?.length ?? null,
+    browser: detectedBrowser(),
+    deviceModel: navigator.userAgentData?.model || null,
     pointerType: capture.pointerType,
+    sourceZoneId: capture.sourceZoneId,
+    outcome,
+    accepted: outcome === "accepted" ? true : outcome === "rejected" ? false : null,
     durationMs: Number((capture.endedAt - capture.startedAt).toFixed(1)),
     pointerEvents: capture.pointerEvents,
     pointerMoves: capture.pointerMoves,
     frames: capture.frameTimes.length,
+    fps: Number((frameElapsedMs > 0 ? (capture.frameTimes.length - 1) * 1000 / frameElapsedMs : 0).toFixed(1)),
     observedMotionFrames: capture.observedMotionFrames,
     frameIntervals: diagnosticsDistribution(frameIntervals),
     missedFramesOver20Ms: frameIntervals.filter((interval) => interval > 20).length,
@@ -385,6 +416,7 @@ async function collectDiagnostics() {
     device: {
       hardwareConcurrency: navigator.hardwareConcurrency ?? null,
       deviceMemoryGiB: navigator.deviceMemory ?? null,
+      model: highEntropy?.model || uaData?.model || null,
       devicePixelRatio: globalThis.devicePixelRatio ?? 1,
       screen: {
         width: globalThis.screen?.width ?? null,
@@ -2365,6 +2397,7 @@ for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"])
         pointerId: event.pointerId,
         pointerType: event.pointerType ?? "unknown",
         startedAt: performance.now(),
+        sourceZoneId: scene?.snapshot?.().desired?.zones?.find(({ cardIds = [] }) => cardIds.includes(cardId))?.id ?? null,
         pointerEvents: 0,
         pointerMoves: 0,
         frameTimes: [],
