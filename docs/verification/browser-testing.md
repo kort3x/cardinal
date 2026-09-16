@@ -37,7 +37,7 @@ is necessary only when extending or diagnosing them.
 | Dragging, rules, pending approval, input cancellation | `drag` |
 | Drag projection, shape hit regions and overlap precedence | `drag-geometry` |
 | Single-card dragging with increasing mounted population | `drag-performance` |
-| Mobile responsive defaults for card scale and touch drag | `mobile-scale` |
+| Mobile responsive scale and touch-capability defaults | `mobile-scale` |
 | Cohort rendering / random-motion performance / report collection | `performance` / `random-performance` / `diagnostics` |
 
 For any listed scenario, use
@@ -55,6 +55,28 @@ timings are measurements, not a supported-device guarantee; report the actual
 fixture, sample size and environment, and distinguish frame/handler timing from
 end-to-end display latency. The Surface and physical touch devices require their
 own measurements.
+
+### Physical drag report
+
+For a Surface, phone, tablet or other physical touch/pen device, the lab detects
+touch capability and enables its touch-drag mode by default. Use the built-in
+report instead of inferring performance from the visible FPS label. The explicit
+**Touch drag** control remains available if browser/device capability detection
+is incomplete:
+
+1. Open **Performance diagnostics** and click **Record next drag**.
+2. Drag one card across the stage with the physical input being evaluated.
+3. Wait for **Drag sample captured; report refreshed.**
+4. Click **Copy report**, or copy the report text manually if clipboard access is
+   unavailable.
+
+The report includes the actual browser/device identity, viewport and DPR, the
+input type, pointer event counts, observed animation frames, frame-interval
+summary, missed frames over 20 ms, and pointer-event-to-next-observed-rAF
+latency. The rAF measurements describe page-side observation, not paint or
+end-to-end display latency. Include the report, card count, input type and
+whether the drag was accepted or rejected when attaching physical-device
+evidence to an issue.
 
 ## Prepare and protect the session
 

@@ -89,6 +89,16 @@ const setExpression = (selector, value, event = "input") => `(() => {
   return true;
 })()`;
 
+const setCheckboxExpression = (selector, checked) => `(() => {
+  const element = document.querySelector(${JSON.stringify(selector)});
+  if (!(element instanceof HTMLInputElement) || element.type !== "checkbox") {
+    throw new Error("Missing checkbox " + ${JSON.stringify(selector)});
+  }
+  element.checked = Boolean(${JSON.stringify(checked)});
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`;
+
 const clickExpression = (selector) => `document.querySelector(${JSON.stringify(selector)})?.click(); true`;
 
 function zoneContainsCard(state, zoneId, cardId) {
@@ -99,10 +109,19 @@ function interactionSession(state) {
   return state.interaction?.sessions?.at(-1) ?? null;
 }
 
-async function acceptance(name, evaluate, navigate, actions, prepareScene) {
+async function acceptance(name, evaluate, navigate, actions, prepareScene, touchActions = actions) {
   await navigate(labUrl);
   await delay(1000);
   await prepareScene();
+  const waitForStable = async (timeout = 2000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      const current = await evaluate(stateExpression);
+      if (current.status.includes("stable")) return current;
+      await delay(50);
+    }
+    throw new Error(`${name} scene did not settle before interaction`);
+  };
   const checks = [];
   const record = (label, value, predicate) => {
     const pass = Boolean(predicate(value));
@@ -123,12 +142,12 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene) {
   state = await evaluate(stateExpression);
   record("move settles at visible target", state, (value) => value.status.includes(`x ${moveTarget}`) && value.status.includes("stable"));
 
-  await evaluate(clickExpression("#rotate"));
+  await evaluate(clickExpression('button[data-rotate="45"]'));
   await delay(850);
   state = await evaluate(stateExpression);
   record("rotate settles", state, (value) => value.status.includes("angle 45°") && value.status.includes("stable"));
 
-  await evaluate(clickExpression("#scale"));
+  await evaluate(setExpression("#scale-slider", 1.25));
   await delay(850);
   state = await evaluate(stateExpression);
   record("scale settles", state, (value) => value.status.includes("scale 1.25") && value.status.includes("stable"));
@@ -138,7 +157,7 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene) {
   state = await evaluate(stateExpression);
   record("200% scale keeps content", state, (value) => value.status.includes("scale 2.00") && value.text[0]?.includes("The Cardinal"));
 
-  await evaluate(clickExpression("#flip"));
+  await evaluate(clickExpression('button[data-flip="1"]'));
   await delay(850);
   state = await evaluate(stateExpression);
   record("face-down settles", state, (value) => value.status.includes("physical back") && value.shells === 1);
@@ -218,7 +237,7 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene) {
   await navigate(labUrl);
   await delay(1000);
   await prepareScene();
-  await delay(250);
+  await waitForStable();
   state = await evaluate(stateExpression);
   const cardId = state.zones.flatMap(({ cardIds }) => cardIds ?? [])[0] ?? "cardinal-demo";
   const cardPoint = () => evaluate(scenePointExpression("card"));
@@ -226,7 +245,9 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene) {
   const workbenchPoint = () => evaluate(scenePointExpression("zone", "workbench"));
 
   await evaluate(setExpression("#drag-denied-zone", "", "change"));
-  await actions.dragStart(await cardPoint(), await archivePoint(), 240);
+  const firstCardPoint = await cardPoint();
+  const firstArchivePoint = await archivePoint();
+  await actions.dragStart(firstCardPoint, firstArchivePoint, 240);
   await actions.up();
   await actions.release();
   await delay(850);
@@ -251,7 +272,24 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene) {
   await navigate(labUrl);
   await delay(1000);
   await prepareScene();
-  await delay(250);
+  await waitForStable();
+  await evaluate(setCheckboxExpression("#drag-touch", true));
+  await waitForStable();
+  await evaluate(setExpression("#drag-denied-zone", "", "change"));
+  const touchCardPoint = await cardPoint();
+  const touchArchivePoint = await archivePoint();
+  await touchActions.dragStart(touchCardPoint, touchArchivePoint, 240);
+  await touchActions.up();
+  await touchActions.release();
+  await delay(850);
+  state = await evaluate(stateExpression);
+  record("touch drag allowed transfer", state, (value) => zoneContainsCard(value, "archive", cardId)
+    && value.interaction.sessions.length === 0);
+
+  await navigate(labUrl);
+  await delay(1000);
+  await prepareScene();
+  await waitForStable();
   await evaluate(setExpression("#drag-denied-zone", "", "change"));
   if (!await evaluate(focusCardExpression(cardId))) throw new Error("Keyboard card shell did not receive focus");
   await actions.keyPress(" ");
@@ -277,19 +315,19 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene) {
   return { browser: name, ok: checks.every((check) => check.pass), checks };
 }
 
-function createWebDriverActions(perform, release) {
-  const pointerId = "cardinal-pointer";
+function createWebDriverActions(perform, release, pointerType = "mouse") {
+  const pointerId = `cardinal-pointer-${pointerType}`;
   const keyboardId = "cardinal-keyboard";
   const pointer = (action) => perform([{
     type: "pointer",
     id: pointerId,
-    parameters: { pointerType: "mouse" },
+    parameters: { pointerType },
     actions: [action],
   }]);
   const pointerSequence = (actions) => perform([{
     type: "pointer",
     id: pointerId,
-    parameters: { pointerType: "mouse" },
+    parameters: { pointerType },
     actions,
   }]);
   const keyboard = (actions) => perform([{
@@ -366,8 +404,13 @@ async function runFirefox() {
       (sources) => command("input.performActions", { context, actions: sources }),
       () => command("input.releaseActions", { context }),
     );
+    const touchActions = createWebDriverActions(
+      (sources) => command("input.performActions", { context, actions: sources }),
+      () => command("input.releaseActions", { context }),
+      "touch",
+    );
     const navigate = (url) => command("browsingContext.navigate", { context, url, wait: "complete" });
-    const report = await acceptance("Firefox 155.0.1", evaluate, navigate, actions, () => evaluate(getSceneSetupExpression));
+    const report = await acceptance("Firefox 155.0.1", evaluate, navigate, actions, () => evaluate(getSceneSetupExpression), touchActions);
     await command("session.end").catch(() => {});
     socket.close();
     return report;
@@ -411,8 +454,13 @@ async function runSafari() {
       (sources) => command("/actions", { method: "POST", body: JSON.stringify({ actions: sources }) }),
       () => request(`/session/${session}/actions`, { method: "DELETE" }),
     );
+    const touchActions = createWebDriverActions(
+      (sources) => command("/actions", { method: "POST", body: JSON.stringify({ actions: sources }) }),
+      () => request(`/session/${session}/actions`, { method: "DELETE" }),
+      "touch",
+    );
     const navigate = (url) => command("/url", { method: "POST", body: JSON.stringify({ url }) });
-    return await acceptance("Safari 26.6.2", evaluate, navigate, actions, () => evaluateAsync(getSceneSetupExpression));
+    return await acceptance("Safari 26.6.2", evaluate, navigate, actions, () => evaluateAsync(getSceneSetupExpression), touchActions);
   } finally {
     if (session) {
       await request(`/session/${session}`, { method: "DELETE" }).catch(() => {});

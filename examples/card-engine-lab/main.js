@@ -7,6 +7,7 @@ const fpsStatus = document.querySelector("#fps-status");
 const pointerStatus = document.querySelector("#pointer-status");
 const collectDiagnosticsButton = document.querySelector("#collect-diagnostics");
 const runDiagnosticsBenchmarkButton = document.querySelector("#run-diagnostics-benchmark");
+const recordDragButton = document.querySelector("#record-drag");
 const copyDiagnosticsButton = document.querySelector("#copy-diagnostics");
 const diagnosticsStatus = document.querySelector("#diagnostics-status");
 const diagnosticsReport = document.querySelector("#diagnostics-report");
@@ -83,11 +84,17 @@ function isMobileViewport() {
   return matchMedia("(max-width: 640px)").matches;
 }
 
+function isTouchCapable() {
+  return (navigator.maxTouchPoints ?? 0) > 0
+    || "ontouchstart" in globalThis
+    || matchMedia("(pointer: coarse)").matches;
+}
+
 function defaultCardScale() {
   return isMobileViewport() ? 0.5 : 1;
 }
 scaleSlider.value = String(defaultCardScale());
-touchDrag.checked = isMobileViewport();
+touchDrag.checked = isTouchCapable();
 const LAB_ZONE_DEFINITIONS = Object.freeze([
   { id: "archive", label: "Lake", anchor: "#zone-archive", arrangement: { type: "grid", gap: 16 } },
   { id: "workbench", label: "Ocean", anchor: "#zone-workbench", arrangement: { type: "grid", gap: 16 } },
@@ -102,8 +109,121 @@ syncSpawnZoneColor();
 
 let fpsFrameCount = 0;
 let fpsWindowStart = performance.now();
+let dragDiagnosticArmed = false;
+let dragDiagnosticCapture;
+let lastDragDiagnosticSample = null;
+
+function diagnosticsDistribution(values) {
+  const finite = values.filter(Number.isFinite).sort((a, b) => a - b);
+  const percentile = (fraction) => finite.length
+    ? finite[Math.min(finite.length - 1, Math.floor((finite.length - 1) * fraction))]
+    : null;
+  return {
+    count: finite.length,
+    medianMs: percentile(0.5) === null ? null : Number(percentile(0.5).toFixed(1)),
+    p95Ms: percentile(0.95) === null ? null : Number(percentile(0.95).toFixed(1)),
+    maxMs: finite.length ? Number(finite.at(-1).toFixed(1)) : null,
+  };
+}
+
+function dragDiagnosticPose(cardId) {
+  const visual = scene?.snapshot?.().visual?.find(({ cardId: id }) => id === cardId);
+  const pose = visual?.pose;
+  return pose ? { x: pose.x, y: pose.y, z: pose.z ?? 0 } : null;
+}
+
+function dragDiagnosticCardAtPointer(event) {
+  try {
+    const point = scene?.clientToScene?.({ x: event.clientX, y: event.clientY });
+    return point ? scene?.hitTest?.(point)?.cardId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sameDragDiagnosticPose(first, second) {
+  return Boolean(first && second)
+    && first.x === second.x
+    && first.y === second.y
+    && first.z === second.z;
+}
+
+function finishDragDiagnostic(reason) {
+  const capture = dragDiagnosticCapture;
+  if (!capture) return;
+  capture.endedAt = performance.now();
+  capture.endReason = reason;
+  const frameIntervals = capture.frameTimes.slice(1).map((time, index) => time - capture.frameTimes[index]);
+  const finalState = scene?.snapshot?.();
+  const finalSession = finalState?.interaction?.sessions?.find(({ primaryCardId }) => primaryCardId === capture.cardId);
+  const finalZone = finalState?.desired?.zones?.find(({ cardIds = [] }) => cardIds.includes(capture.cardId));
+  lastDragDiagnosticSample = {
+    capturedAt: new Date().toISOString(),
+    cardId: capture.cardId,
+    pointerType: capture.pointerType,
+    durationMs: Number((capture.endedAt - capture.startedAt).toFixed(1)),
+    pointerEvents: capture.pointerEvents,
+    pointerMoves: capture.pointerMoves,
+    frames: capture.frameTimes.length,
+    observedMotionFrames: capture.observedMotionFrames,
+    frameIntervals: diagnosticsDistribution(frameIntervals),
+    missedFramesOver20Ms: frameIntervals.filter((interval) => interval > 20).length,
+    eventToNextObservedRaf: diagnosticsDistribution(capture.eventToNextObservedRaf),
+    unmatchedPointerMoves: capture.pointerMoves - capture.eventToNextObservedRaf.length,
+    endReason: capture.endReason,
+    finalInteractionPhase: finalSession?.phase ?? null,
+    finalZoneId: finalZone?.id ?? null,
+  };
+  dragDiagnosticCapture = undefined;
+  dragDiagnosticArmed = false;
+  recordDragButton.textContent = "Record next drag";
+  recordDragButton.setAttribute("aria-pressed", "false");
+  void refreshDiagnostics("Drag sample captured; report refreshed.");
+}
+
+function captureDragDiagnosticFrame(now) {
+  const capture = dragDiagnosticCapture;
+  if (!capture) return;
+  capture.frameTimes.push(now);
+  const pose = dragDiagnosticPose(capture.cardId);
+  if (pose && !sameDragDiagnosticPose(pose, capture.lastPose)) {
+    capture.observedMotionFrames += 1;
+    if (capture.pendingMoveAt !== null) {
+      capture.eventToNextObservedRaf.push(performance.now() - capture.pendingMoveAt);
+      capture.pendingMoveAt = null;
+    }
+  }
+  capture.lastPose = pose;
+}
+
+function observeDragDiagnosticPointer(event) {
+  const capture = dragDiagnosticCapture;
+  if (!capture || event.pointerId !== capture.pointerId) return;
+  capture.pointerEvents += 1;
+  if (event.type === "pointermove") {
+    capture.pointerMoves += 1;
+    capture.pendingMoveAt = performance.now();
+  }
+  if (event.type === "pointerup") {
+    capture.finishTimer = setTimeout(() => finishDragDiagnostic("pointerup"), 250);
+  } else if (event.type === "pointercancel") {
+    capture.finishTimer = setTimeout(() => finishDragDiagnostic("pointercancel"), 100);
+  }
+}
+
+function armDragDiagnostic() {
+  if (dragDiagnosticCapture) return;
+  dragDiagnosticArmed = !dragDiagnosticArmed;
+  recordDragButton.textContent = dragDiagnosticArmed ? "Waiting for drag…" : "Record next drag";
+  recordDragButton.setAttribute("aria-pressed", String(dragDiagnosticArmed));
+  diagnosticsStatus.textContent = dragDiagnosticArmed
+    ? "Ready: drag one card with a mouse, pen, or touch contact."
+    : "Drag capture cancelled.";
+}
+
 function updateFps(now) {
   fpsFrameCount += 1;
+  captureDragDiagnosticFrame(now);
   const elapsed = now - fpsWindowStart;
   if (elapsed >= 500) {
     const fps = fpsFrameCount * 1000 / elapsed;
@@ -288,6 +408,11 @@ async function collectDiagnostics() {
       selectedCards: selectedCardIds.size,
       currentFps: fpsStatus.dataset.fps ? Number(fpsStatus.dataset.fps) : null,
       currentFpsLabel: fpsStatus.textContent,
+      dragCapture: {
+        armed: dragDiagnosticArmed,
+        active: Boolean(dragDiagnosticCapture),
+        lastSample: lastDragDiagnosticSample,
+      },
       benchmark: lastDiagnosticsBenchmark,
     },
   };
@@ -2227,6 +2352,35 @@ copyDiagnosticsButton.addEventListener("click", async () => {
     diagnosticsStatus.textContent = "Clipboard access is unavailable; select and copy the report manually.";
   }
 });
+recordDragButton.addEventListener("click", armDragDiagnostic);
+
+for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
+  stage.addEventListener(type, (event) => {
+    if (type === "pointerdown") {
+      if (!dragDiagnosticArmed || dragDiagnosticCapture || event.isPrimary === false) return;
+      const cardId = dragDiagnosticCardAtPointer(event);
+      if (!cardId) return;
+      dragDiagnosticCapture = {
+        cardId,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType ?? "unknown",
+        startedAt: performance.now(),
+        pointerEvents: 0,
+        pointerMoves: 0,
+        frameTimes: [],
+        observedMotionFrames: 0,
+        eventToNextObservedRaf: [],
+        pendingMoveAt: null,
+        lastPose: dragDiagnosticPose(cardId),
+        finishTimer: null,
+      };
+      dragDiagnosticArmed = false;
+      recordDragButton.textContent = "Recording drag…";
+      recordDragButton.setAttribute("aria-pressed", "true");
+    }
+    observeDragDiagnosticPointer(event);
+  }, true);
+}
 updateControlLabels();
 startScene();
 void refreshDiagnostics("Initial report ready.");

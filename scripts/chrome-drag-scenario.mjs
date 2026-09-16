@@ -677,7 +677,10 @@ export async function runDragScenario({ command }) {
     await mouseRelease(points.destination);
     const pending = await waitFor("pending drop approval", (current) => session(current)?.phase === "pending"
       && current.pendingControls.rejectDisabled === false && current.pendingControls.rejectHidden === false);
-    await clickControl("#drag-reject");
+    // Approval is a project control, not the browser gesture under test. Use
+    // DOM activation after the real pointer release so capture cleanup cannot
+    // race the button click.
+    await evaluate(`document.querySelector("#drag-reject")?.click(); true`);
     const rejected = await waitFor("manual drop rejection", (current) => current.probe.drops.length === 1
       && current.snapshot.interaction.sessions.length === 0
       && zoneCards(current, "reserve").includes(cardId)
@@ -787,7 +790,7 @@ export async function runDragScenario({ command }) {
     }
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "immediate");
-    await clickControl("#drag-touch");
+    await setControl("#drag-touch", true);
     await waitFor("touch drag control", (current) => current.controls.touchDrag === true
       && current.snapshot?.renderer === "webgl");
     const cardId = await fixture();

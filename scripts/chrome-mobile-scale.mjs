@@ -31,6 +31,9 @@ export async function runMobileScaleScenario({ command }) {
           }
         };
         const expected = width <= 640 ? 0.5 : 1;
+        const expectedTouch = win.navigator.maxTouchPoints > 0
+          || "ontouchstart" in win
+          || win.matchMedia("(pointer: coarse)").matches;
         const touchEnabled = () => doc.querySelector('#drag-touch').checked;
         const scale = () => scene.snapshot().desired.cards[0].pose.scale;
         environment.fixtures.push({ width: win.innerWidth, height: win.innerHeight,
@@ -39,7 +42,7 @@ export async function runMobileScaleScenario({ command }) {
           win.innerWidth === width && scale() === expected
           && Number(doc.querySelector('#scale-slider').value) === expected
           && doc.querySelector('#scale-value').textContent === expected * 100 + '%'
-          && touchEnabled() === (width <= 640));
+          && touchEnabled() === expectedTouch);
         doc.querySelector('[data-scale="0.25"]').click();
         await waitFor(() => scale() === 0.25 && !scene.snapshot().settling);
         frame.style.width = (width <= 640 ? 1000 : 390) + 'px';

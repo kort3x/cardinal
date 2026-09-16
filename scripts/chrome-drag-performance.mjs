@@ -47,6 +47,10 @@ export async function runDragPerformanceScenario({ command }) {
         shells: document.querySelectorAll("#stage .cardinal-webgl-card").length,
         renderer: document.querySelector("#renderer-status")?.textContent ?? "",
         status: document.querySelector("#status")?.textContent ?? "",
+        diagnostics: (() => {
+          try { return JSON.parse(document.querySelector("#diagnostics-report")?.textContent ?? "null"); }
+          catch { return null; }
+        })(),
         controls: {
           dragEnabled: document.querySelector("#drag-enabled")?.checked ?? null,
           touchDrag: document.querySelector("#drag-touch")?.checked ?? null,
@@ -448,6 +452,12 @@ export async function runDragPerformanceScenario({ command }) {
     const fixture = await configureFixture(count);
     const points = await coordinates(fixture.primaryCardId);
     await installProbe(fixture.primaryCardId);
+    await evaluate(`(() => {
+      const button = document.querySelector("#record-drag");
+      if (!button) throw new Error("Lab drag diagnostics control is unavailable");
+      button.click();
+      return button.getAttribute("aria-pressed") === "true";
+    })()`);
     await beginProbe();
     try {
       await dragThrough(points.start, points.destination);
@@ -459,12 +469,16 @@ export async function runDragPerformanceScenario({ command }) {
       current.snapshot?.interaction?.sessions?.length === 0
       && !current.snapshot?.settling
       && current.snapshot?.desired?.zones?.find((zone) => zone.id === "workbench")?.cardIds?.includes(fixture.primaryCardId));
+    const sampled = await waitFor("lab drag diagnostic sample", (current) =>
+      current.diagnostics?.lab?.dragCapture?.lastSample?.cardId === fixture.primaryCardId
+      && current.diagnostics?.lab?.dragCapture?.lastSample?.pointerType === "mouse");
     return {
       ...measurement(count, "pointer-drag", sample),
       transfer: {
         cardId: fixture.primaryCardId,
         toZoneId: landed.snapshot.desired.zones.find((zone) => zone.id === "workbench")?.id ?? null,
       },
+      labDragSample: sampled.diagnostics.lab.dragCapture.lastSample,
     };
   }
 
@@ -476,7 +490,9 @@ export async function runDragPerformanceScenario({ command }) {
       measurements.push(details);
       const inputObserved = details.condition !== "pointer-drag"
         || details.pointerMoves > 0 && details.observedMotionFrames > 0
-          && details.transfer?.toZoneId === "workbench";
+          && details.transfer?.toZoneId === "workbench"
+          && details.labDragSample?.pointerMoves > 0
+          && details.labDragSample?.observedMotionFrames > 0;
       results.push({ label, pass: details.frames > 0 && inputObserved, status: "sampled", details });
     } catch (error) {
       results.push({
