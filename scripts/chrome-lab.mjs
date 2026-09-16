@@ -949,6 +949,26 @@ const diagnosticsScenario = String.raw`(async () => {
   });
   record("diagnostics benchmark restores the lab", () => document.querySelectorAll("#card-list label").length === 1
     && document.querySelector("#selection-status")?.textContent === "1 of 1 selected");
+  const clipboardDescriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, "clipboard");
+  const originalExecCommand = document.execCommand;
+  let fallbackCopied = false;
+  try {
+    Object.defineProperty(Navigator.prototype, "clipboard", { configurable: true, get: () => ({
+      writeText: async () => { throw new Error("blocked clipboard"); },
+    }) });
+    document.execCommand = (command) => {
+      fallbackCopied = command === "copy";
+      return fallbackCopied;
+    };
+    document.querySelector("#copy-diagnostics")?.click();
+    await sleep(50);
+  } finally {
+    if (clipboardDescriptor) Object.defineProperty(Navigator.prototype, "clipboard", clipboardDescriptor);
+    else delete Navigator.prototype.clipboard;
+    document.execCommand = originalExecCommand;
+  }
+  record("diagnostics copy falls back when Clipboard API is blocked", () => fallbackCopied
+    && diagnosticsStatus().includes("copied"));
   return { ok: results.every((result) => result.pass), results };
 })()`;
 

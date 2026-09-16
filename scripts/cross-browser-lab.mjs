@@ -314,7 +314,7 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   await actions.release();
   await delay(850);
   state = await evaluate(stateExpression);
-  record("keyboard transfer uses the allowed destination", state, (value) => zoneContainsCard(value, "archive", cardId)
+  record("keyboard transfer uses the allowed destination", state, (value) => zoneContainsCard(value, "workbench", cardId)
     && value.interaction.sessions.length === 0);
 
   const batch = await runBatchAcceptance({

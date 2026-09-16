@@ -33,13 +33,13 @@ window was not moved or resized. Browser workloads and timing runs were serializ
 
 | Run | Result | Measured environment |
 | --- | --- | --- |
-| `npm test` | 178 passed | Deterministic engine tests |
-| `npm run test:chrome:batch` | 11 passed | Chrome 152.0.7977.83; inner 2515×1322, DPR 1 |
-| `npm run test:edge:batch` | 11 passed | Edge 153.0.4234.32; inner 2515×1322, DPR 1 |
+| `npm test` | 180 passed | Deterministic engine tests |
+| `npm run test:chrome:batch` | 13 passed | Chrome 152.0.7977.83; inner 2515×1322, DPR 1 |
+| `npm run test:edge:batch` | 13 passed | Edge 153.0.4234.32; inner 2515×1322, DPR 1 |
 | `npm run test:chrome:drag` | 17 passed | Chrome; inner 2515×1322, DPR 1 |
-| `npm run test:chrome:drag-geometry` | 10 passed | Chrome; 1000×600 isolated fixture within the same viewport |
-| `npm run test:cross-browser -- firefox` | 36 passed | Firefox 155.0.1; inner 2500×1300, DPR 1 |
-| `npm run test:cross-browser -- safari` | 34 passed, 2 skipped | Safari 26.6.2; inner 2500×1248, outer 2500×1300, position (100,31), DPR 1 |
+| `npm run test:chrome:drag-geometry` | 11 passed | Chrome; 1000×600 isolated fixture within the same viewport |
+| `npm run test:cross-browser -- firefox` | 37 passed | Firefox 155.0.1; inner 2500×1300, DPR 1 |
+| `npm run test:cross-browser -- safari` | 35 passed, 2 skipped | Safari 26.6.2; inner 2500×1248, outer 2500×1300, position (100,31), DPR 1 |
 | `npm run test:chrome:drag-performance` | 12 checks passed | Isolated headless Chrome |
 | `npm run test:edge:drag-performance` | 12 checks passed | Isolated headless Edge |
 | `npm run build:pages` | Passed | Local build only; not published |
@@ -53,13 +53,26 @@ are checked, not just reused card IDs.
 
 Measured batch attachment errors: Chrome/Edge 0 CSS px, Firefox 0.35 CSS px,
 Safari 0.048 CSS px. All measured batch landing errors were 0 CSS px, including
-compact-to-slot landing. The existing single-card orthographic/perspective
-geometry suite also measured 0 CSS px, including nonzero depth and camera resize.
-This does not establish an exhaustive cohort-specific scroll/resize/full-window
-and perspective matrix or constitute a screenshot-based visual review.
+compact-to-slot landing. The orthographic/perspective geometry suite also
+measured 0 CSS px, including single-card nonzero depth and camera resize plus a
+two-card perspective cohort at different projected depths through a centered
+resize.
+The Chrome batch journey now also measures 0 CSS px for both selected members
+through stage resize, ancestor scroll, page scroll, and full-window transition.
+Chrome and Edge also run an emulated CDP pen journey that verifies
+`pointerType: "pen"` during two-card selection and cohort transfer; this is
+protocol coverage rather than physical pen evidence.
+This does not establish an exhaustive physical/device perspective matrix or
+constitute a screenshot-based visual review.
 
 ## Harness failures retained in the interpretation
 
+- The keyboard select-all transfer initially advanced one destination with Tab
+  but asserted the second destination. The journey now asserts the intermediate
+  River candidate and sends the second Tab before accepting in Ocean.
+- The cross-browser single-card keyboard assertion expected Lake after one Tab
+  from River; the actual zone order advances to Ocean, where the card landed.
+  The assertion now checks that committed destination.
 - A new compact assertion initially used the press point instead of the actual
   threshold pickup point. The corrected assertion preserves the engine's
   sampled grab offset; no engine change was needed.
@@ -103,11 +116,26 @@ a performance threshold, a GPU-acceleration classification or a Surface guarante
 The lab reports cohort count separately from mounted population and waits for
 manual approval/rejection before finalizing the outcome.
 
+## Physical device evidence from issue #5 comments
+
+- iPhone Safari 26.6.1: accepted a two-card touch cohort from Lake/River into
+  Ocean at 59.9 measured drag FPS, with 3 frame intervals over 20 ms.
+- Surface Laptop, Chrome 138, touch: accepted the same two-card cohort using
+  the Qualcomm Adreno X1-85 WebGL renderer at 60 measured drag FPS, with 1
+  frame interval over 20 ms.
+- Surface Laptop, Chrome 138, mouse: accepted the same cohort using the same
+  Qualcomm renderer at 59.2 measured drag FPS, with 4 frame intervals over 20
+  ms.
+- No physical pen device is available for this acceptance. Chromium CDP pen
+  protocol coverage is present in the automated batch journey, but it does not
+  substitute for a physical pen report.
+
 ## Remaining acceptance
 
-Issue #5 remains open and In progress. Collect fresh physical Surface touch/pen
-and Safari/iPhone batch reports using **Drag → Set up batch** and **Performance
-diagnostics → Record next drag**. Issue #4's single-card device report cannot
-substitute for this cohort interaction. Pen protocol coverage and the extended
-cohort geometry matrix remain unverified. Optional rectangle selection, persistent
-groups, stamps and card-to-card attachments remain outside this slice.
+Issue #5 remains open and In progress. Fresh physical Surface touch and
+Safari/iPhone batch reports are now recorded; physical pen coverage is
+unavailable because no pen device is available. Issue #4's single-card device
+report cannot substitute for this cohort interaction. The broader
+physical/device perspective matrix remains unverified. Optional rectangle
+selection, persistent groups, stamps and card-to-card attachments remain outside
+this slice.

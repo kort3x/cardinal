@@ -336,6 +336,84 @@ export async function runDragGeometryScenario({ command }) {
     })()`);
   }
 
+  async function installCohortDragFixture() {
+    return evaluate(`(async () => {
+      const { createCardScene } = await import(${JSON.stringify(ENGINE_MODULE)});
+      window.__cardinalDragGeometryFixture?.dispose?.();
+      const stage = document.createElement("div");
+      stage.id = "cardinal-drag-perspective-cohort-stage";
+      stage.style.cssText = "position:fixed;left:24px;top:24px;width:1200px;height:800px;z-index:2147483000;overflow:visible;background:transparent;isolation:isolate";
+      document.body.append(stage);
+      const face = (text) => ({ elements: [{ id: "label", type: "text", content: { text } }] });
+      const card = (id, x, y) => ({
+        id,
+        template: "rounded",
+        activeFaceId: "front",
+        faces: { front: face(id), alternate: face(id + " alternate") },
+        back: face(id + " concealed"),
+        faceCycle: ["front", "alternate"],
+        faceUp: true,
+        pose: { x, y, flipX: 0, flipY: 0, scale: 1 },
+        positionMode: "absolute",
+      });
+      const scene = createCardScene({
+        element: stage,
+        templates: { rounded: { width: 180, height: 250, thickness: 14, shape: "rounded-rectangle" } },
+        camera: { projection: "perspective", scaleMode: "stage", center: { x: 0, y: 0 }, distance: 1200, fov: 55 },
+        motion: { reducedMotion: true },
+        selection: { multiple: true },
+        interaction: { rules: { canStart: () => ({ allowed: true }), canDrop: () => ({ allowed: true }) } },
+      });
+      const ids = ["perspective-cohort-primary", "perspective-cohort-secondary"];
+      scene.apply({
+        cards: [card(ids[0], -390, -20), card(ids[1], -180, 40)],
+        zones: [
+          { id: "source", geometry: { x: -540, y: -260, width: 500, height: 520, depth: 240 }, cardIds: ids },
+          { id: "destination", geometry: { x: 80, y: -260, width: 440, height: 520, depth: 80 }, cardIds: [] },
+        ],
+      });
+      scene.select(ids, { primaryCardId: ids[0], anchorCardId: ids[0] });
+      const drops = [];
+      scene.on("drop", (intent) => { drops.push(intent); scene.resolveDrop(intent.id, { accepted: true }); });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const fixture = {
+        scene,
+        stage,
+        drops,
+        ids,
+        environment() {
+          const rect = stage.getBoundingClientRect();
+          return {
+            userAgent: navigator.userAgent,
+            innerWidth,
+            innerHeight,
+            outerWidth,
+            outerHeight,
+            screenX,
+            screenY,
+            devicePixelRatio,
+            stage: { left: Number(rect.left.toFixed(2)), top: Number(rect.top.toFixed(2)), width: Number(rect.width.toFixed(2)), height: Number(rect.height.toFixed(2)) },
+          };
+        },
+        dispose() { scene.destroy(); stage.remove(); },
+      };
+      window.__cardinalDragGeometryFixture = fixture;
+      const state = scene.snapshot();
+      const pose = (id) => state.visual.find(({ cardId }) => cardId === id)?.pose;
+      const destination = state.zones.find(({ id }) => id === "destination").geometry;
+      return {
+        renderer: state.renderer,
+        projection: state.projection,
+        ids,
+        start: scene.sceneToClient(pose(ids[0])),
+        destination: scene.sceneToClient({ x: destination.x + destination.width / 2, y: destination.y + destination.height / 2, z: destination.depth }),
+        centers: Object.fromEntries(ids.map((id) => [id, scene.sceneToClient(pose(id))])),
+        depths: Object.fromEntries(ids.map((id) => [id, pose(id).z])),
+        environment: fixture.environment(),
+      };
+    })()`);
+  }
+
   async function fixtureState() {
     return evaluate(`(async () => {
       const fixture = window.__cardinalDragGeometryFixture;
@@ -386,7 +464,7 @@ export async function runDragGeometryScenario({ command }) {
         y: start.y + (destination.y - start.y) * fraction,
       };
       await mouseMove(point);
-      await onSample?.(point);
+      await onSample?.(point, index);
     }
   }
 
@@ -585,6 +663,92 @@ export async function runDragGeometryScenario({ command }) {
     return `resize attachment error ${resizeAttachmentErrorPx.toFixed(3)} CSS px with a nonzero grab offset`;
   });
 
+  let cohortAttachmentErrorPx = 0;
+  let cohortRelativeErrorPx = 0;
+  let cohortDepths = null;
+  await runCase("perspective cohort stays attached through center resize", async () => {
+    const installed = await installCohortDragFixture();
+    cohortDepths = installed.depths;
+    if (installed.renderer !== "webgl" || installed.projection !== "perspective"
+      || !Object.values(installed.depths).every((depth) => depth > 0)) {
+      throw new Error(`Perspective cohort fixture failed setup: ${JSON.stringify(installed)}`);
+    }
+    const [primaryId, secondaryId] = installed.ids;
+    const initialDelta = {
+      x: installed.centers[secondaryId].x - installed.centers[primaryId].x,
+      y: installed.centers[secondaryId].y - installed.centers[primaryId].y,
+    };
+    let baselineOffset = null;
+    let resized = false;
+    await dragPath(installed.start, installed.destination, async (point, index) => {
+      const sample = await evaluate(`(async () => {
+        const fixture = window.__cardinalDragGeometryFixture;
+        const snapshot = fixture.scene.snapshot();
+        const session = snapshot.interaction.sessions.at(-1);
+        const centers = Object.fromEntries(fixture.ids.map((id) => {
+          const pose = snapshot.visual.find(({ cardId }) => cardId === id)?.pose;
+          return [id, pose ? fixture.scene.sceneToClient(pose) : null];
+        }));
+        return { phase: session?.phase ?? null, centers };
+      })()`);
+      const primary = sample.centers[primaryId];
+      const secondary = sample.centers[secondaryId];
+      if (sample.phase !== "dragging" || !primary || !secondary) return;
+      baselineOffset ??= { x: point.x - primary.x, y: point.y - primary.y };
+      cohortAttachmentErrorPx = Math.max(cohortAttachmentErrorPx, Math.hypot(
+        point.x - primary.x - baselineOffset.x,
+        point.y - primary.y - baselineOffset.y,
+      ));
+      cohortRelativeErrorPx = Math.max(cohortRelativeErrorPx, Math.hypot(
+        secondary.x - primary.x - initialDelta.x,
+        secondary.y - primary.y - initialDelta.y,
+      ));
+      if (index === 5 && !resized) {
+        resized = true;
+        await evaluate(`(async () => {
+          const fixture = window.__cardinalDragGeometryFixture;
+          const before = fixture.stage.getBoundingClientRect();
+          const center = { x: before.left + before.width / 2, y: before.top + before.height / 2 };
+          const width = 1000;
+          const height = 600;
+          fixture.stage.style.left = (center.x - width / 2) + "px";
+          fixture.stage.style.top = (center.y - height / 2) + "px";
+          fixture.stage.style.width = width + "px";
+          fixture.stage.style.height = height + "px";
+          window.dispatchEvent(new Event("resize"));
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          return true;
+        })()`);
+      }
+    });
+    await waitFor("perspective cohort candidate", (state) => {
+      const session = state?.interaction?.sessions?.at(-1);
+      return session?.phase === "dragging"
+        && session.cardIds?.length === 2
+        && session.candidate?.toZoneId === "destination"
+        && session.candidate.allowed === true;
+    });
+    await mouseRelease(installed.destination);
+    const landed = await waitFor("perspective cohort drop", (state) => {
+      const destination = state?.desired?.zones?.find(({ id }) => id === "destination");
+      return state?.interaction?.sessions?.length === 0
+        && state.drops?.length === 1
+        && state.drops[0].toZoneId === "destination"
+        && installed.ids.every((id) => destination?.cardIds.includes(id));
+    });
+    if (cohortAttachmentErrorPx > 1 || cohortRelativeErrorPx > 1) {
+      throw new Error(`Perspective cohort attachment errors exceed 1 CSS px: ${JSON.stringify({
+        cohortAttachmentErrorPx,
+        cohortRelativeErrorPx,
+      })}`);
+    }
+    const intent = landed.drops[0];
+    if (intent.cardIds?.length !== 2 || !installed.ids.every((id) => intent.cardIds.includes(id))) {
+      throw new Error(`Unexpected cohort drop intent: ${JSON.stringify(intent)}`);
+    }
+    return `max attachment error ${cohortAttachmentErrorPx.toFixed(3)} CSS px; relative error ${cohortRelativeErrorPx.toFixed(3)} CSS px at depths ${JSON.stringify(cohortDepths)}`;
+  });
+
   await runCase("late image completion is inert after scene disposal", async () => {
     const outcomes = await evaluate(`(async () => {
       const { createCardScene } = await import(${JSON.stringify(ENGINE_MODULE)});
@@ -663,7 +827,10 @@ export async function runDragGeometryScenario({ command }) {
     measurements: {
       pointerAttachmentErrorPx: Number(attachmentErrorPx.toFixed(3)),
       perspectiveCenterResizeAttachmentErrorPx: Number(resizeAttachmentErrorPx.toFixed(3)),
+      perspectiveCohortAttachmentErrorPx: Number(cohortAttachmentErrorPx.toFixed(3)),
+      perspectiveCohortRelativeErrorPx: Number(cohortRelativeErrorPx.toFixed(3)),
       perspectiveDragDepth: dragDepth,
+      perspectiveCohortDepths: cohortDepths,
     },
   };
 }

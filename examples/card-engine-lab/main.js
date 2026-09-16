@@ -556,6 +556,43 @@ async function refreshDiagnostics(message = "Report refreshed.") {
   return report;
 }
 
+async function copyDiagnosticsText(text) {
+  try {
+    if (typeof navigator.clipboard?.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Try the document copy path for HTTP device sessions and restricted browsers.
+  }
+  const fallback = document.createElement("textarea");
+  fallback.value = text;
+  fallback.setAttribute("readonly", "");
+  fallback.style.position = "fixed";
+  fallback.style.top = "0";
+  fallback.style.left = "-9999px";
+  document.body.append(fallback);
+  fallback.focus();
+  fallback.select();
+  fallback.setSelectionRange(0, text.length);
+  try {
+    return document.execCommand?.("copy") === true;
+  } catch {
+    return false;
+  } finally {
+    fallback.remove();
+  }
+}
+
+function selectDiagnosticsReport() {
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(diagnosticsReport);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  diagnosticsReport.scrollIntoView({ block: "nearest" });
+}
+
 async function runDiagnosticsBenchmark() {
   if (!scene || runDiagnosticsBenchmarkButton.disabled) return;
   runDiagnosticsBenchmarkButton.disabled = true;
@@ -2575,11 +2612,12 @@ collectDiagnosticsButton.addEventListener("click", () => { void refreshDiagnosti
 runDiagnosticsBenchmarkButton.addEventListener("click", () => { void runDiagnosticsBenchmark(); });
 copyDiagnosticsButton.addEventListener("click", async () => {
   if (!diagnosticsReport.dataset.report) await refreshDiagnostics();
-  try {
-    await navigator.clipboard.writeText(diagnosticsReport.textContent);
+  const copied = await copyDiagnosticsText(diagnosticsReport.textContent ?? "");
+  if (copied) {
     diagnosticsStatus.textContent = "Report copied to the clipboard.";
-  } catch {
-    diagnosticsStatus.textContent = "Clipboard access is unavailable; select and copy the report manually.";
+  } else {
+    selectDiagnosticsReport();
+    diagnosticsStatus.textContent = "Clipboard access is unavailable; the report is selected for manual copying.";
   }
 });
 recordDragButton.addEventListener("click", armDragDiagnostic);

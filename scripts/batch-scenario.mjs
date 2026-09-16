@@ -28,6 +28,8 @@ function compactDiagnostics(state) {
     interactionStatus: state?.interactionStatus,
     selection: state?.snapshot?.selection,
     interaction: state?.snapshot?.interaction,
+    scroll: state?.scroll,
+    fullWindow: state?.fullWindow,
     zones: allZones(state),
     shells: state?.shells,
     probe: state?.probe,
@@ -56,6 +58,7 @@ export async function runBatchAcceptance({
   pointer,
   keyboard,
   touch,
+  pen,
   label = "batch acceptance",
   labUrl,
 } = {}) {
@@ -91,6 +94,19 @@ export async function runBatchAcceptance({
         snapshot,
         shells: [...document.querySelectorAll("#stage .cardinal-webgl-card")].map(({ dataset }) => dataset.cardId),
         focus: { cardId: active?.dataset?.cardId ?? null, isCardShell: Boolean(active?.matches?.(".cardinal-webgl-card[data-card-id]")) },
+        scroll: {
+          ancestor: (() => {
+            const node = document.querySelector(".scene-column");
+            return node ? {
+              top: node.scrollTop,
+              left: node.scrollLeft,
+              height: node.clientHeight,
+              scrollHeight: node.scrollHeight,
+            } : null;
+          })(),
+          page: { x: scrollX, y: scrollY },
+        },
+        fullWindow: document.body.classList.contains("stage-full-window"),
         probe: {
           drops: structuredClone(probe.drops ?? []),
           changes: structuredClone(probe.changes ?? []),
@@ -185,6 +201,22 @@ export async function runBatchAcceptance({
   }
 
   async function fixture({ response = "manual", touchSelection = false, touchDrag = false, presentation = "preserve" } = {}) {
+    await evaluate(`(() => {
+      document.body.classList.remove("stage-full-window");
+      document.documentElement.classList.remove("stage-full-window");
+      document.querySelector("#full-window-control")?.setAttribute("aria-pressed", "false");
+      document.querySelector("#full-window-control")?.replaceChildren(document.createTextNode("Full window"));
+      for (const selector of [".scene-column", "#stage", "body", "html"]) {
+        const element = document.querySelector(selector) ?? (selector === "body" ? document.body : selector === "html" ? document.documentElement : null);
+        if (!element) continue;
+        for (const property of ["height", "width", "maxHeight", "maxWidth", "overflow", "overflowX", "overflowY", "minHeight"]) {
+          element.style.removeProperty(property);
+        }
+      }
+      document.querySelector(".scene-column")?.scrollTo?.(0, 0);
+      window.scrollTo(0, 0);
+      return true;
+    })()`);
     await control("#drag-presentation", presentation);
     await control("#drag-response", response).catch(() => {});
     if (touchSelection) await control("#touch-selection", true);
@@ -299,6 +331,21 @@ export async function runBatchAcceptance({
         return [id, actual && expected ? Number(Math.hypot(actual.x - expected.x, actual.y - expected.y).toFixed(3)) : null];
       }));
     })()`);
+  }
+
+  async function waitForAttachment(description, cardIds, startCenters, pointerPoint, grabOffset, ready = () => true) {
+    const started = Date.now();
+    let current;
+    let errors;
+    while (Date.now() - started < WAIT_MS) {
+      current = await state();
+      if (lastSession(current)?.phase === "dragging" && ready(current)) {
+        errors = await attachmentErrors(cardIds, startCenters, pointerPoint, grabOffset);
+        if (Object.values(errors).every((error) => error !== null && error <= 1)) return { current, errors };
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
+    throw new Error(`${description} timed out: ${JSON.stringify({ errors, diagnostics: compactDiagnostics(current) })}`);
   }
 
   async function resolvePending(accepted) {
@@ -523,6 +570,97 @@ export async function runBatchAcceptance({
     return { ids, attachmentError, compactError, landing: errors };
   });
 
+  await runCase(results, "cohort stays attached through resize, scroll and full-window transition", async () => {
+    const prepared = await fixture();
+    const ids = [...prepared.snapshot.selection.cardIds];
+    const startCenters = Object.fromEntries(await Promise.all(ids.map(async (id) => [id, await cardPoint(id)])));
+    const start = startCenters[ids[0]];
+    const press = { x: start.x + 22, y: start.y - 18 };
+    const nudge = { x: press.x + 12, y: press.y + 8 };
+    await pointer.drag(press, nudge, { steps: 1 });
+    const carrying = await waitFor("responsive cohort pickup", (current) => lastSession(current)?.phase === "dragging"
+      && lastSession(current).cardIds.length === ids.length);
+    const pickup = pointer.pickupPoint ?? nudge;
+    const grabOffset = { x: pickup.x - start.x, y: pickup.y - start.y };
+
+    await evaluate(`(async () => {
+      const stage = document.querySelector("#stage");
+      const column = document.querySelector(".scene-column");
+      stage.style.width = "1100px";
+      stage.style.height = "620px";
+      column.style.height = "500px";
+      column.style.maxHeight = "500px";
+      column.style.overflow = "auto";
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return { stage: stage.getBoundingClientRect().toJSON(), column: column.getBoundingClientRect().toJSON() };
+    })()`);
+    const resizedAttachment = await waitForAttachment("cohort stage resize attachment", ids, startCenters, nudge, grabOffset,
+      (current) => current.environment.stage?.width >= 1099 && current.environment.stage?.height >= 619);
+    const resizeErrors = resizedAttachment.errors;
+
+    const ancestorScrollTarget = await evaluate(`(() => {
+      const column = document.querySelector(".scene-column");
+      column.scrollTop = Math.min(100, Math.max(0, column.scrollHeight - column.clientHeight));
+      column.dispatchEvent(new Event("scroll", { bubbles: true }));
+      return column.scrollTop;
+    })()`);
+    const ancestorAttachment = await waitForAttachment("cohort ancestor scroll attachment", ids, startCenters, nudge, grabOffset,
+      (current) => (current.scroll?.ancestor?.top ?? 0) > 0);
+    const ancestorScrolled = ancestorAttachment.current;
+    const ancestorErrors = ancestorAttachment.errors;
+
+    await evaluate(`(() => {
+      const column = document.querySelector(".scene-column");
+      column.style.height = "auto";
+      column.style.maxHeight = "none";
+      column.style.overflow = "visible";
+      document.body.style.minHeight = (innerHeight + 800) + "px";
+      document.documentElement.style.minHeight = (innerHeight + 800) + "px";
+      window.scrollTo(0, 0);
+      return true;
+    })()`);
+    await evaluate(`(() => {
+      window.scrollTo(0, Math.min(200, Math.max(0, document.documentElement.scrollHeight - innerHeight)));
+      return scrollY;
+    })()`);
+    const pageAttachment = await waitForAttachment("cohort page scroll attachment", ids, startCenters, nudge, grabOffset,
+      (current) => (current.scroll?.page?.y ?? 0) > 0);
+    const pageScrolled = pageAttachment.current;
+    const pageErrors = pageAttachment.errors;
+
+    await evaluate(`(() => {
+      window.scrollTo(0, 0);
+      return true;
+    })()`);
+    await waitForAttachment("cohort page scroll reset", ids, startCenters, nudge, grabOffset,
+      (current) => (current.scroll?.page?.y ?? 0) === 0);
+
+    await evaluate(`(async () => {
+      document.querySelector("#stage").style.removeProperty("width");
+      document.querySelector("#stage").style.removeProperty("height");
+      document.querySelector("#full-window-control")?.click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return true;
+    })()`);
+    const fullWindowAttachment = await waitForAttachment("cohort full-window attachment", ids, startCenters, nudge, grabOffset,
+      (current) => current.environment.stage?.width >= current.environment.innerWidth - 1 && current.fullWindow === true);
+    const fullWindow = fullWindowAttachment.current;
+    const fullWindowErrors = fullWindowAttachment.errors;
+    measurements.attachmentErrors.push({ case: "cohort-responsive", values: {
+      resize: resizeErrors,
+      ancestorScroll: ancestorErrors,
+      pageScroll: pageErrors,
+      fullWindow: fullWindowErrors,
+    }});
+    return {
+      ids,
+      sources: carrying.sources,
+      attachment: { resizeErrors, ancestorErrors, pageErrors, fullWindowErrors },
+      scroll: { ancestor: { target: ancestorScrollTarget, ...ancestorScrolled.scroll }, page: pageScrolled.scroll },
+      viewport: fullWindow.environment,
+    };
+  });
+
   await runCase(results, "mouse Ctrl/Cmd toggle and Shift range selection", async () => {
     const prepared = await fixture();
     await clearSelection();
@@ -546,6 +684,8 @@ export async function runBatchAcceptance({
     await keyboard.press(" ");
     const picked = await waitFor("keyboard cohort pickup", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === ids.length);
+    await keyboard.press("Tab");
+    await waitFor("keyboard River candidate", (current) => lastSession(current)?.candidate?.toZoneId === "reserve");
     await keyboard.press("Tab");
     await waitFor("keyboard Ocean candidate", (current) => lastSession(current)?.candidate?.toZoneId === "workbench");
     await keyboard.press("Enter");
@@ -579,6 +719,30 @@ export async function runBatchAcceptance({
       && zoneCards(current, "workbench").length === ids.length && !current.snapshot.settling);
     measurements.cohortSizes.push({ input: "touch", count: carrying.snapshot.interaction.sessions.at(-1)?.cardIds.length ?? ids.length });
     return { ids, selection: selected.snapshot.selection, session: carrying.snapshot.interaction.sessions.at(-1), zones: allZones(landed), shells: landed.shells };
+  });
+
+  if (pen?.supported === false) results.push({ label: "emulated pen selection and cohort drag", pass: false,
+    skipped: true, error: pen.unsupportedReason });
+  else if (pen) await runCase(results, "emulated pen selection and cohort drag", async () => {
+    const prepared = await fixture({ response: "immediate" });
+    const ids = ["batch-card-1", "batch-card-2"];
+    await clearSelection();
+    await pen.tap(await cardPoint(ids[0]));
+    await pen.click(await cardPoint(ids[1]), { toggle: true });
+    const selected = await waitFor("pen cohort selection", (current) => ids.every((id) => current.snapshot.selection.cardIds.includes(id)));
+    const penEvents = selected.probe.inputEvents.filter(({ pointerType }) => pointerType === "pen");
+    if (!penEvents.some(({ type }) => type === "pointerdown") || !penEvents.some(({ type }) => type === "pointerup")) {
+      throw new Error(`The pen protocol did not produce pen pointer events: ${JSON.stringify(penEvents)}`);
+    }
+    const primary = await cardPoint(ids[0]);
+    await pen.drag(primary, await zonePoint("workbench"), { steps: 8 });
+    const carrying = await waitFor("pen cohort pickup", (current) => lastSession(current)?.phase === "dragging"
+      && lastSession(current).cardIds.length === ids.length);
+    await pen.release(await zonePoint("workbench"));
+    const landed = await waitFor("pen cohort landing", (current) => current.snapshot.interaction.sessions.length === 0
+      && zoneCards(current, "workbench").length === ids.length && !current.snapshot.settling);
+    measurements.cohortSizes.push({ input: "pen", count: carrying.snapshot.interaction.sessions.at(-1)?.cardIds.length ?? ids.length });
+    return { ids, selection: selected.snapshot.selection, session: carrying.snapshot.interaction.sessions.at(-1), penEvents: penEvents.length, zones: allZones(landed), shells: landed.shells };
   });
 
   await runCase(results, "frozen cohort ignores late selection and late approval", async () => {

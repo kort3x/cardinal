@@ -33,9 +33,9 @@ export async function runBatchScenario({ command } = {}) {
   let touchActive = false;
   let pickupPoint = null;
 
-  async function mouseEvent(type, point, { buttons = mouseDown ? 1 : 0, modifiers = 0, button = "none" } = {}) {
+  async function mouseEvent(type, point, { buttons = mouseDown ? 1 : 0, modifiers = 0, button = "none", pointerType = "mouse" } = {}) {
     return command("Input.dispatchMouseEvent", {
-      type, x: point.x, y: point.y, button, buttons, modifiers,
+      type, x: point.x, y: point.y, button, buttons, modifiers, pointerType,
       ...(type === "mousePressed" || type === "mouseReleased" ? { clickCount: 1 } : {}),
     });
   }
@@ -136,6 +136,53 @@ export async function runBatchScenario({ command } = {}) {
     },
   };
 
+  let penDown = false;
+  async function penEvent(type, point, { buttons = penDown ? 1 : 0, modifiers = 0, button = "none" } = {}) {
+    try {
+      return await mouseEvent(type, point, { buttons, modifiers, button, pointerType: "pen" });
+    } finally {
+      if (type === "mousePressed") penDown = true;
+      if (type === "mouseReleased") penDown = false;
+    }
+  }
+
+  const pen = {
+    supported: true,
+    async tap(point) {
+      await penEvent("mouseMoved", point);
+      await penEvent("mousePressed", point, { buttons: 1, button: "left" });
+      await penEvent("mouseReleased", point, { button: "left" });
+    },
+    async click(point, options = {}) {
+      const modifiers = modifierMask(options);
+      await penEvent("mouseMoved", point, { modifiers });
+      await penEvent("mousePressed", point, { buttons: 1, modifiers, button: "left" });
+      await penEvent("mouseReleased", point, { modifiers, button: "left" });
+    },
+    async drag(start, destination, { steps = 8 } = {}) {
+      await penEvent("mouseMoved", start);
+      await penEvent("mousePressed", start, { buttons: 1, button: "left" });
+      try {
+        for (let index = 1; index <= steps; index += 1) {
+          const fraction = index / steps;
+          await penEvent("mouseMoved", {
+            x: start.x + (destination.x - start.x) * fraction,
+            y: start.y + (destination.y - start.y) * fraction,
+          }, { buttons: 1, button: "left" });
+        }
+      } catch (error) {
+        await pen.cleanup().catch(() => {});
+        throw error;
+      }
+    },
+    async release(point) {
+      if (penDown) await penEvent("mouseReleased", point, { button: "left" });
+    },
+    async cleanup() {
+      if (penDown) await penEvent("mouseReleased", { x: 0, y: 0 }, { button: "left" });
+    },
+  };
+
   const keyboard = {
     async press(key, options = {}) {
       const info = keyInfo(key);
@@ -158,12 +205,14 @@ export async function runBatchScenario({ command } = {}) {
       pointer,
       keyboard,
       touch,
+      pen,
       label: "Chrome batch acceptance",
       labUrl: process.env.CARDINAL_LAB_URL ?? "http://127.0.0.1:4173/",
     });
   } finally {
     await pointer.cleanup().catch(() => {});
     await touch.cleanup().catch(() => {});
+    await pen.cleanup().catch(() => {});
     await evaluate(`(() => {
       const scene = globalThis.__cardinalGetScene?.();
       for (const session of scene?.snapshot?.().interaction?.sessions ?? []) {
