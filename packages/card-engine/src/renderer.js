@@ -118,7 +118,7 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
     const mounted = mount(card);
     const dimensions = cardDimensions(card, templates, elementRenderers);
     const face = card.faces[card.activeFaceId] ?? {};
-    const renderedScale = pose.scale * (pose.depthScale ?? 1);
+    const renderedScale = pose.scale * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
     const renderedWidth = dimensions.width * renderedScale;
     const renderedHeight = dimensions.height * renderedScale;
     mounted.shell.style.width = `${renderedWidth}px`;

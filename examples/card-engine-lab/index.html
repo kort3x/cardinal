@@ -19,9 +19,9 @@
         --lab-accent: #e5c07b;
         --lab-focus: #61afef;
         --lab-cyan: #56b6c2;
-        --lab-zone-archive: #56b6c2;
-        --lab-zone-workbench: #61afef;
-        --lab-zone-reserve: #c678dd;
+        --lab-zone-lake: #56b6c2;
+        --lab-zone-ocean: #61afef;
+        --lab-zone-river: #c678dd;
         color: var(--lab-text);
         background: var(--lab-bg);
         font-family: system-ui, sans-serif;
@@ -70,12 +70,12 @@
       .control-row input[type="range"] { width: 100%; accent-color: var(--lab-accent); }
       .control-row.select-row { grid-template-columns: max-content minmax(0, 1fr); }
       .control-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
-      #spawn-zone[data-zone-id="archive"] { color: var(--lab-zone-archive); border-color: var(--lab-zone-archive); }
-      #spawn-zone[data-zone-id="workbench"] { color: var(--lab-zone-workbench); border-color: var(--lab-zone-workbench); }
-      #spawn-zone[data-zone-id="reserve"] { color: var(--lab-zone-reserve); border-color: var(--lab-zone-reserve); }
-      #spawn-zone option[data-zone-id="archive"] { color: var(--lab-zone-archive); }
-      #spawn-zone option[data-zone-id="workbench"] { color: var(--lab-zone-workbench); }
-      #spawn-zone option[data-zone-id="reserve"] { color: var(--lab-zone-reserve); }
+      #spawn-zone[data-zone-id="lake"] { color: var(--lab-zone-lake); border-color: var(--lab-zone-lake); }
+      #spawn-zone[data-zone-id="ocean"] { color: var(--lab-zone-ocean); border-color: var(--lab-zone-ocean); }
+      #spawn-zone[data-zone-id="river"] { color: var(--lab-zone-river); border-color: var(--lab-zone-river); }
+      #spawn-zone option[data-zone-id="lake"] { color: var(--lab-zone-lake); }
+      #spawn-zone option[data-zone-id="ocean"] { color: var(--lab-zone-ocean); }
+      #spawn-zone option[data-zone-id="river"] { color: var(--lab-zone-river); }
       .control-row output { min-width: 4.5em; color: var(--lab-accent); text-align: right; white-space: nowrap; }
       .drag-group .control-row { margin: 5px 0; }
       .drag-group .toggle-row { grid-template-columns: minmax(0, 1fr) max-content; }
@@ -92,9 +92,9 @@
       #card-list label { padding: 6px 8px; cursor: pointer; }
       #card-list .card-z { color: var(--lab-accent); font-variant-numeric: tabular-nums; }
       #card-list .card-zone { font-size: 0.82em; }
-      #card-list .card-zone[data-zone-id="archive"] { color: var(--lab-zone-archive); }
-      #card-list .card-zone[data-zone-id="workbench"] { color: var(--lab-zone-workbench); }
-      #card-list .card-zone[data-zone-id="reserve"] { color: var(--lab-zone-reserve); }
+      #card-list .card-zone[data-zone-id="lake"] { color: var(--lab-zone-lake); }
+      #card-list .card-zone[data-zone-id="ocean"] { color: var(--lab-zone-ocean); }
+      #card-list .card-zone[data-zone-id="river"] { color: var(--lab-zone-river); }
       #selection-status { margin-bottom: 0; }
       #element-list { display: grid; gap: 8px; }
       .element-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); }
@@ -116,16 +116,24 @@
       .zone-row[aria-hidden="true"] { opacity: 0.55; }
       .zone-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .zone-count { color: var(--lab-accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
-      .zone-row[data-zone-id="archive"] .zone-name { color: var(--lab-zone-archive); }
-      .zone-row[data-zone-id="workbench"] .zone-name { color: var(--lab-zone-workbench); }
-      .zone-row[data-zone-id="reserve"] .zone-name { color: var(--lab-zone-reserve); }
+      .zone-row[data-zone-id="lake"] .zone-name { color: var(--lab-zone-lake); }
+      .zone-row[data-zone-id="ocean"] .zone-name { color: var(--lab-zone-ocean); }
+      .zone-row[data-zone-id="river"] .zone-name { color: var(--lab-zone-river); }
       .zone-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
       .zone-actions button { min-width: 0; padding-inline: 7px; }
-      .zone-actions button[data-transfer-zone="archive"] { color: var(--lab-zone-archive); border-color: var(--lab-zone-archive); }
-      .zone-actions button[data-transfer-zone="workbench"] { color: var(--lab-zone-workbench); border-color: var(--lab-zone-workbench); }
-      .zone-actions button[data-transfer-zone="reserve"] { color: var(--lab-zone-reserve); border-color: var(--lab-zone-reserve); }
-      .zone-row { grid-template-columns: minmax(0, 1fr) max-content max-content; }
-      .zone-row button { padding: 4px 6px; font-size: 0.8rem; }
+      .zone-actions button[data-transfer-zone="lake"] { color: var(--lab-zone-lake); border-color: var(--lab-zone-lake); }
+      .zone-actions button[data-transfer-zone="ocean"] { color: var(--lab-zone-ocean); border-color: var(--lab-zone-ocean); }
+      .zone-actions button[data-transfer-zone="river"] { color: var(--lab-zone-river); border-color: var(--lab-zone-river); }
+      .zone-row-controls { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+      .zone-row-controls button { flex: 1 1 auto; min-width: 0; padding: 4px 6px; font-size: 0.8rem; }
+      .zone-row-controls select { flex: 1 1 7em; min-width: 0; width: auto; padding: 4px 5px; font-size: 0.78rem; }
+      .zone-arrangement-settings { grid-column: 1 / -1; min-width: 0; }
+      .zone-arrangement-settings summary { padding: 4px 0; color: var(--lab-muted); font-size: 0.78rem; cursor: pointer; }
+      .zone-arrangement-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; padding-top: 4px; }
+      .zone-arrangement-field { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 5px; align-items: center; min-width: 0; padding: 0; border: 0; background: transparent; font-size: 0.72rem; }
+      .zone-arrangement-field select, .zone-arrangement-field input { min-width: 0; width: 100%; }
+      .zone-arrangement-field input { accent-color: var(--lab-accent); }
+      .zone-arrangement-field output { min-width: 3em; color: var(--lab-accent); text-align: right; }
       .cards-sidebar .presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .cards-sidebar .presets button { min-width: 0; width: 100%; padding-inline: 7px; }
       .elements-group > .presets { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
@@ -144,12 +152,12 @@
       #stage { position: relative; width: 100%; height: min(1100px, calc(100vh - 330px)); min-height: 500px; margin: 0; border: 1px solid var(--lab-border); border-radius: 8px; background: radial-gradient(circle at 50% 35%, #323842, var(--lab-bg-deep) 70%); overflow: hidden; }
       .lab-zone-anchor { position: absolute; z-index: 1; box-sizing: border-box; border: 1px solid; border-radius: 14px; pointer-events: none; }
       .lab-zone-anchor span { position: absolute; left: 8px; bottom: 8px; display: inline-block; padding: 2px 5px; background: rgb(33 37 43 / 88%); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; }
-      #zone-archive { inset: 18px auto 18px 18px; width: 30%; border-color: rgb(86 182 194 / 68%); background: transparent; }
-      #zone-archive span { color: var(--lab-zone-archive); }
-      #zone-workbench { inset: 18px 18px 18px auto; width: 30%; border-color: rgb(97 175 239 / 68%); background: transparent; }
-      #zone-workbench span { color: var(--lab-zone-workbench); }
-      #zone-reserve { left: 33%; bottom: 18px; width: 34%; height: 40%; border-color: rgb(198 120 221 / 68%); background: transparent; }
-      #zone-reserve span { color: var(--lab-zone-reserve); }
+      #zone-lake { inset: 18px auto 18px 18px; width: 15%; border-color: rgb(86 182 194 / 68%); background: transparent; }
+      #zone-lake span { color: var(--lab-zone-lake); }
+      #zone-ocean { inset: 18px 18px 18px auto; width: 15%; border-color: rgb(97 175 239 / 68%); background: transparent; }
+      #zone-ocean span { color: var(--lab-zone-ocean); }
+      #zone-river { left: 18%; bottom: 18px; width: 64%; height: 50%; border-color: rgb(198 120 221 / 68%); background: transparent; }
+      #zone-river span { color: var(--lab-zone-river); }
       .lab-zone-anchor[hidden] { display: none; }
       #stage > .cardinal-webgl-canvas { z-index: 2; }
       #full-window-control { background: rgb(33 37 43 / 90%); }
@@ -277,7 +285,12 @@
               <input id="card-thickness" type="range" min="1" max="30" step="0.5" value="6" aria-describedby="card-thickness-value">
               <output id="card-thickness-value" for="card-thickness">6</output>
             </label>
-            <p>Auto height follows visible flow elements; fixed size uses the width and height sliders. Depth changes the physical cuboid and stack separation.</p>
+            <label class="control-row" for="card-weight">
+              <span title="Motion weight">Wt</span>
+              <input id="card-weight" type="range" min="0.25" max="4" step="0.25" value="1" aria-describedby="card-weight-value">
+              <output id="card-weight-value" for="card-weight">1×</output>
+            </label>
+            <p>Auto height follows visible flow elements; fixed size uses the width and height sliders. Depth changes the physical cuboid and stack separation. Weight changes how quickly target motion settles.</p>
           </details>
 
         </div>
@@ -380,10 +393,10 @@
             </div>
             <label class="control-row select-row" for="spawn-zone">
               <span>Spawn in</span>
-              <select id="spawn-zone" aria-label="Zone for new cards" data-zone-id="reserve">
-                <option value="archive" data-zone-id="archive">Lake</option>
-                <option value="reserve" data-zone-id="reserve" selected>River</option>
-                <option value="workbench" data-zone-id="workbench">Ocean</option>
+              <select id="spawn-zone" aria-label="Zone for new cards" data-zone-id="river">
+                <option value="lake" data-zone-id="lake">Lake</option>
+                <option value="river" data-zone-id="river" selected>River</option>
+                <option value="ocean" data-zone-id="ocean">Ocean</option>
               </select>
             </label>
             <div id="card-list" role="group" aria-label="Cards in the lab"></div>
@@ -411,6 +424,16 @@
                 <option value="compact">Compact bundle</option>
               </select>
             </label>
+            <label class="control-row" for="drag-dangliness">
+              <span title="Pickup hang response">Dangly</span>
+              <input id="drag-dangliness" type="range" min="0" max="2" step="0.1" value="1" aria-describedby="drag-dangliness-value">
+              <output id="drag-dangliness-value" for="drag-dangliness">1×</output>
+            </label>
+            <label class="control-row" for="drag-snap-delay">
+              <span title="Pause before a dropped card starts moving to its target">Snap delay</span>
+              <input id="drag-snap-delay" type="range" min="0" max="300" step="10" value="80" aria-describedby="drag-snap-delay-value">
+              <output id="drag-snap-delay-value" for="drag-snap-delay">80 ms</output>
+            </label>
             <label class="control-row select-row" for="drag-denied-card">
               <span>Deny card</span>
               <select id="drag-denied-card" aria-label="Denied batch member">
@@ -421,9 +444,9 @@
               <span>Deny zone</span>
               <select id="drag-denied-zone" aria-label="Denied drag destination">
                 <option value="" selected>None</option>
-                <option value="archive">Lake</option>
-                <option value="reserve">River</option>
-                <option value="workbench">Ocean</option>
+                <option value="lake">Lake</option>
+                <option value="river">River</option>
+                <option value="ocean">Ocean</option>
               </select>
             </label>
             <label class="control-row select-row" for="drag-response">
@@ -461,11 +484,11 @@
               </select>
             </label>
             <div class="zone-actions">
-              <button type="button" data-transfer-zone="archive">Lake</button>
-              <button type="button" data-transfer-zone="reserve">River</button>
-              <button type="button" data-transfer-zone="workbench">Ocean</button>
+              <button type="button" data-transfer-zone="lake">Lake</button>
+              <button type="button" data-transfer-zone="river">River</button>
+              <button type="button" data-transfer-zone="ocean">Ocean</button>
             </div>
-            <p>Zones own membership and grid placement. Anchored zones follow the stage as it resizes.</p>
+            <p>Cycle each populated zone through grids, rows, columns, splay, piles, stacks, and hand-held fans. Reverse checks explicit order; overflow controls the boundary policy.</p>
           </details>
         </aside>
         <div class="scene-column">
@@ -490,9 +513,9 @@
             <button id="full-window-control" type="button" aria-pressed="false">Full window</button>
           </div>
           <div id="stage" aria-label="Card stage">
-            <div id="zone-archive" class="lab-zone-anchor" data-zone-id="archive"><span>Lake</span></div>
-            <div id="zone-workbench" class="lab-zone-anchor" data-zone-id="workbench"><span>Ocean</span></div>
-            <div id="zone-reserve" class="lab-zone-anchor" data-zone-id="reserve"><span>River</span></div>
+            <div id="zone-lake" class="lab-zone-anchor" data-zone-id="lake"><span>Lake</span></div>
+            <div id="zone-ocean" class="lab-zone-anchor" data-zone-id="ocean"><span>Ocean</span></div>
+            <div id="zone-river" class="lab-zone-anchor" data-zone-id="river"><span>River</span></div>
           </div>
         </div>
         <aside class="side-controls elements-sidebar" aria-label="Right control rail">

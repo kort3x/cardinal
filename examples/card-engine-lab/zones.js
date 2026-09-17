@@ -16,9 +16,9 @@ const initial = {
     back: { background: "#17212b", elements: [] },
   })),
   zones: [
-    { id: "archive", anchor: "#archive", capacity: 6, cardIds: ["card-1", "card-2"], arrangement: { type: "grid", gap: 18 } },
-    { id: "workbench", anchor: "#workbench", capacity: 6, cardIds: ["card-3", "card-4"], arrangement: { type: "grid", gap: 18 } },
-    { id: "reserve", geometry, capacity: 6, cardIds: ["card-5", "card-6"], arrangement: { type: "grid", gap: 18 } },
+    { id: "lake", anchor: "#lake", capacity: 6, cardIds: ["card-1", "card-2"], arrangement: { type: "grid", gap: 18 } },
+    { id: "ocean", anchor: "#ocean", capacity: 6, cardIds: ["card-3", "card-4"], arrangement: { type: "grid", gap: 18 } },
+    { id: "river", geometry, capacity: 6, cardIds: ["card-5", "card-6"], arrangement: { type: "hand", curve: "concave" } },
   ],
 };
 
@@ -51,6 +51,7 @@ for (const card of initial.cards) {
   const input = document.createElement("input");
   input.type = "checkbox";
   input.value = card.id;
+  input.title = `Select or deselect ${card.id}.`;
   input.addEventListener("change", () => scene.select([card.id], { mode: "toggle" }));
   label.append(input, card.id);
   selection.append(label);
@@ -69,21 +70,21 @@ async function transfer(to) {
 document.querySelectorAll("[data-to]").forEach((button) => button.addEventListener("click", () => transfer(button.dataset.to)));
 document.querySelector("#route").addEventListener("click", async (event) => {
   event.target.disabled = true;
-  try { for (const zone of ["workbench", "reserve", "archive"]) await transfer(zone); }
+  try { for (const zone of ["ocean", "river", "lake"]) await transfer(zone); }
   finally { event.target.disabled = false; }
 });
 document.querySelector("#reflow").addEventListener("click", (event) => {
   event.target.setAttribute("aria-pressed", String(stage.classList.toggle("narrow")));
 });
 document.querySelector("#hide-zone").addEventListener("click", (event) => {
-  const anchor = document.querySelector("#workbench");
+  const anchor = document.querySelector("#ocean");
   anchor.hidden = !anchor.hidden;
   event.target.setAttribute("aria-pressed", String(anchor.hidden));
-  event.target.textContent = anchor.hidden ? "Restore Workbench" : "Hide Workbench";
+  event.target.textContent = anchor.hidden ? "Restore Ocean" : "Hide Ocean";
 });
 document.querySelector("#depth").addEventListener("click", (event) => {
   const enabled = event.target.getAttribute("aria-pressed") !== "true";
-  scene.transact([{ type: "zone", zoneId: "workbench", changes: { depth: enabled ? -180 : 0 } }]);
+  scene.transact([{ type: "zone", zoneId: "ocean", changes: { depth: enabled ? -180 : 0 } }]);
   event.target.setAttribute("aria-pressed", String(enabled));
 });
 document.querySelector("#scroll").addEventListener("click", () => window.scrollBy({ top: 220, behavior: "smooth" }));

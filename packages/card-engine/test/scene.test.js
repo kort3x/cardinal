@@ -284,6 +284,19 @@ test("face background images default to cover and reject unknown fitting", () =>
   );
 });
 
+test("card weight is optional, positive, and finite", () => {
+  const weighted = normalizeSnapshot({ cards: [{ ...card, weight: 2.5 }], zones: [zone] });
+  assert.equal(weighted.cards[0].weight, 2.5);
+  assert.throws(
+    () => normalizeSnapshot({ cards: [{ ...card, weight: 0 }], zones: [zone] }),
+    /Card weight must be positive and finite/,
+  );
+  assert.throws(
+    () => normalizeSnapshot({ cards: [{ ...card, weight: Number.NaN }], zones: [zone] }),
+    /Card weight must be positive and finite/,
+  );
+});
+
 test("auto-height textures use the current animated height", () => {
   const autoCard = {
     ...card,
@@ -571,6 +584,149 @@ test("failed batch commits restore displaced preview neighbors as well as the co
   assert.deepEqual(scene.snapshot().desired, before.desired);
   assert.deepEqual(scene.snapshot().visual, before.visual);
   assert.equal(scene.snapshot().interaction.sessions.length, 0);
+  scene.destroy();
+});
+
+test("moving into an angled arrangement updates card orientation", async () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply({
+    cards: [card, { ...card, id: "card-2" }],
+    zones: [
+      { ...zone, id: "source", cardIds: [card.id], geometry: { ...zone.geometry, x: 0 }, arrangement: { type: "grid", gap: 16 } },
+      { ...zone, id: "destination", cardIds: ["card-2"], geometry: { ...zone.geometry, x: 700 }, arrangement: { type: "splay", spread: 60, gap: 16 } },
+    ],
+  });
+
+  await scene.transact([{ type: "move", cardId: card.id, to: "destination", index: 0 }]).finished;
+  assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === card.id)?.pose.angle, -30);
+  scene.destroy();
+});
+
+test("moving a batch into an angled arrangement updates every card orientation", async () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  const second = { ...card, id: "card-2" };
+  const third = { ...card, id: "card-3" };
+  scene.apply({
+    cards: [card, second, third],
+    zones: [
+      { ...zone, id: "source", cardIds: [card.id, second.id], geometry: { ...zone.geometry, x: 0 }, arrangement: { type: "grid", gap: 16 } },
+      { ...zone, id: "destination", cardIds: [third.id], geometry: { ...zone.geometry, x: 700 }, arrangement: { type: "splay", spread: 60, gap: 16 } },
+    ],
+  });
+
+  await scene.transact([{ type: "moveBatch", cardIds: [card.id, second.id], to: "destination", index: 0 }]).finished;
+  const angles = new Map(scene.snapshot().visual.map(({ cardId, pose }) => [cardId, pose.angle]));
+  assert.equal(angles.get(card.id), -30);
+  assert.equal(angles.get(second.id), 0);
+  assert.equal(angles.get(third.id), 30);
+  scene.destroy();
+});
+
+test("zone policies govern scale, face side, and alignment channel speeds", async () => {
+  const timer = testClock();
+  const scene = createCardScene({ motion: { clock: timer, duration: 100 } });
+  scene.apply({
+    cards: [card, { ...card, id: "card-2" }],
+    zones: [
+      { ...zone, id: "source", cardIds: [card.id], geometry: { ...zone.geometry, x: 0 }, arrangement: { type: "grid", gap: 16 } },
+      {
+        ...zone,
+        id: "destination",
+        cardIds: ["card-2"],
+        geometry: { ...zone.geometry, x: 700 },
+        scale: 0.5,
+        faceUp: false,
+        motion: { positionSpeed: 2, orientationSpeed: 0.5, scaleSpeed: 4, faceSpeed: 2 },
+        arrangement: { type: "hand", spread: 56, radius: 240, curve: "concave" },
+      },
+    ],
+  });
+
+  const initial = scene.snapshot().visual.find(({ cardId }) => cardId === card.id)?.pose;
+  const transition = scene.transact([{ type: "move", cardId: card.id, to: "destination", index: 0 }]);
+  timer.tick(50);
+  const halfway = scene.snapshot().visual.find(({ cardId }) => cardId === card.id)?.pose;
+  const target = scene.snapshot().desired.zones.find(({ id }) => id === "destination");
+  assert.equal(halfway.scale, 0.5);
+  assert.equal(halfway.flipY, 180);
+  assert.notEqual(halfway.x, initial.x);
+  assert.ok(halfway.angle > 0);
+  assert.ok(halfway.angle < 5.6);
+  assert.equal(target.scale, 0.5);
+  assert.equal(target.faceUp, false);
+
+  timer.tick(150);
+  await transition.finished;
+  const settled = scene.snapshot().visual.find(({ cardId }) => cardId === card.id)?.pose;
+  assert.equal(settled.scale, 0.5);
+  assert.equal(settled.flipY, 180);
+  assert.notEqual(settled.x, initial.x);
+  scene.destroy();
+});
+
+test("moving a card out of a hand refans the remaining cards", async () => {
+  const cards = [card, { ...card, id: "card-2" }, { ...card, id: "card-3" }, { ...card, id: "card-4" }];
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply({
+    cards,
+    zones: [
+      { ...zone, id: "hand", cardIds: cards.map(({ id }) => id), geometry: { ...zone.geometry, x: 0 }, arrangement: { type: "hand", spread: 60, radius: 240, curve: "concave" } },
+      { ...zone, id: "destination", cardIds: [], geometry: { ...zone.geometry, x: 700 }, arrangement: { type: "grid", gap: 16 } },
+    ],
+  });
+  const before = new Map(scene.snapshot().visual.map(({ cardId, pose }) => [cardId, pose.angle]));
+
+  await scene.transact([{ type: "move", cardId: card.id, to: "destination", index: 0 }]).finished;
+  const after = new Map(scene.snapshot().visual.map(({ cardId, pose }) => [cardId, pose.angle]));
+  const assertAngle = (angles, cardId, expected) => assert.ok(Math.abs(angles.get(cardId) - expected) < 1e-9, `${cardId} angle should be ${expected}`);
+  assertAngle(before, "card-2", 6);
+  assertAngle(before, "card-3", -6);
+  assertAngle(before, "card-4", -18);
+  assertAngle(after, "card-2", 12);
+  assertAngle(after, "card-3", 0);
+  assertAngle(after, "card-4", -12);
+  scene.destroy();
+});
+
+test("moving cards within a hand recomputes depth order", async () => {
+  const cards = [card, { ...card, id: "card-2" }, { ...card, id: "card-3" }, { ...card, id: "card-4" }];
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply({
+    cards,
+    zones: [{ ...zone, id: "hand", cardIds: cards.map(({ id }) => id), arrangement: { type: "hand", spread: 60, radius: 240, curve: "concave" } }],
+  });
+  const before = new Map(scene.snapshot().visual.map(({ cardId, pose }) => [cardId, pose.z]));
+
+  await scene.transact([{ type: "moveBatch", cardIds: [card.id], to: "hand", index: 3 }]).finished;
+  const after = new Map(scene.snapshot().visual.map(({ cardId, pose }) => [cardId, pose.z]));
+  assert.ok(before.get("card-1") < before.get("card-2"));
+  assert.ok(before.get("card-2") < before.get("card-3"));
+  assert.ok(before.get("card-3") < before.get("card-4"));
+  assert.ok(after.get("card-2") < after.get("card-3"));
+  assert.ok(after.get("card-3") < after.get("card-4"));
+  assert.ok(after.get("card-4") < after.get("card-1"));
+  scene.destroy();
+});
+
+test("moved cards pop above a hand while traveling then restore their order", async () => {
+  const timer = testClock();
+  const cards = [card, { ...card, id: "card-2" }, { ...card, id: "card-3" }];
+  const scene = createCardScene({ motion: { clock: timer, duration: 100 } });
+  scene.apply({
+    cards,
+    zones: [{ ...zone, id: "hand", cardIds: cards.map(({ id }) => id), arrangement: { type: "hand", spread: 60, radius: 240, curve: "concave" } }],
+  });
+
+  const transition = scene.transact([{ type: "moveBatch", cardIds: [card.id], to: "hand", index: 2 }]);
+  const moving = scene.snapshot().visual.find(({ cardId }) => cardId === card.id)?.pose;
+  const otherOrders = scene.snapshot().visual.filter(({ cardId }) => cardId !== card.id).map(({ pose }) => pose.drawOrder);
+  assert.ok(moving.drawOrder > Math.max(...otherOrders));
+
+  timer.tick(100);
+  await transition.finished;
+  const settled = new Map(scene.snapshot().visual.map(({ cardId, pose }) => [cardId, pose]));
+  assert.ok(settled.get("card-2").drawOrder < settled.get("card-3").drawOrder);
+  assert.ok(settled.get("card-3").drawOrder < settled.get("card-1").drawOrder);
   scene.destroy();
 });
 
@@ -1026,7 +1182,7 @@ test("motion duration can be changed for future transitions", async () => {
 
   const transition = scene.transact([{ type: "move", cardId: "card-1", position: { x: 400, y: 220 } }]);
   clock.tick(320);
-  assert.equal(scene.snapshot().visual[0].pose.x, 245);
+  assert.equal(scene.snapshot().visual[0].pose.x, 322.5);
   clock.tick(320);
   assert.deepEqual(await transition.finished, [{ type: "move", cardId: "card-1", status: "settled" }]);
   assert.throws(() => scene.setMotion({ duration: 0 }), /positive and finite/);
@@ -1048,11 +1204,11 @@ test("one transaction composes move, rotation, scale, and flip", async () => {
   assert.equal(scene.snapshot().settling, true);
   clock.tick(160);
   const halfway = scene.snapshot().visual[0].pose;
-  assert.equal(halfway.x, 245);
-  assert.equal(halfway.y, 172.5);
-  assert.equal(halfway.angle, 45);
-  assert.equal(halfway.scale, 1.125);
-  assert.equal(halfway.flipY, 90);
+  assert.equal(halfway.x, 322.5);
+  assert.equal(halfway.y, 196.25);
+  assert.equal(halfway.angle, 67.5);
+  assert.equal(halfway.scale, 1.1875);
+  assert.equal(halfway.flipY, 135);
 
   clock.tick(160);
   assert.deepEqual(await transition.finished, [
@@ -1066,6 +1222,40 @@ test("one transaction composes move, rotation, scale, and flip", async () => {
   assert.equal(scene.snapshot().visual[0].pose.angle, 90);
   assert.equal(scene.snapshot().visual[0].pose.scale, 1.25);
   assert.equal(scene.snapshot().visual[0].pose.flipY, 180);
+});
+
+test("card weight scales target motion without changing the target pose", async () => {
+  const clock = testClock();
+  const weightedCard = { ...card, weight: 2 };
+  const speedControlledZone = {
+    ...zone,
+    motion: { positionSpeed: 1, orientationSpeed: 1, scaleSpeed: 1, faceSpeed: 1 },
+  };
+  const scene = createCardScene({ motion: { clock, duration: 100 } });
+  scene.apply({ cards: [weightedCard], zones: [speedControlledZone] });
+
+  const transition = scene.transact([
+    { type: "move", cardId: weightedCard.id, position: { x: 400, y: 220 } },
+    { type: "rotate", cardId: weightedCard.id, angle: 90 },
+    { type: "scale", cardId: weightedCard.id, factor: 1.25 },
+    { type: "face", cardId: weightedCard.id, face: "faceDown", axis: "y" },
+  ]);
+
+  clock.tick(100);
+  const halfway = scene.snapshot().visual[0].pose;
+  assert.equal(halfway.x, 245);
+  assert.equal(halfway.y, 172.5);
+  assert.equal(halfway.angle, 45);
+  assert.equal(halfway.scale, 1.125);
+  assert.equal(halfway.flipY, 90);
+
+  clock.tick(100);
+  await transition.finished;
+  assert.equal(scene.snapshot().visual[0].pose.x, 400);
+  assert.equal(scene.snapshot().visual[0].pose.angle, 90);
+  assert.equal(scene.snapshot().visual[0].pose.scale, 1.25);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 180);
+  scene.destroy();
 });
 
 test("a logical face cycle advances independently of physical orientation", () => {
@@ -1189,7 +1379,7 @@ test("a face transition can target an intermediate flip angle", async () => {
   ]);
 
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipY, 60);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 90);
   clock.tick(160);
   assert.equal(scene.snapshot().visual[0].pose.flipY, 120);
   assert.equal(scene.snapshot().desired.cards[0].faceUp, false);
@@ -1212,8 +1402,8 @@ test("a face transition can animate x and y axes together", async () => {
   ]);
 
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipX, 30);
-  assert.equal(scene.snapshot().visual[0].pose.flipY, 60);
+  assert.equal(scene.snapshot().visual[0].pose.flipX, 45);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 90);
   clock.tick(160);
   assert.equal(scene.snapshot().visual[0].pose.flipX, 60);
   assert.equal(scene.snapshot().visual[0].pose.flipY, 120);
@@ -1288,7 +1478,7 @@ test("face retargeting takes the shortest path after continuous spinning", async
 
   const transition = scene.transact([{ type: "face", cardId: "card-1", face: "faceUp", axis: "y" }]);
   clock.tick(160);
-  assert.equal(scene.snapshot().visual[0].pose.flipY, 405);
+  assert.equal(scene.snapshot().visual[0].pose.flipY, 382.5);
   clock.tick(160);
   assert.equal(scene.snapshot().visual[0].pose.flipY, 0);
   await transition.finished;

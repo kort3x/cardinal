@@ -32,7 +32,7 @@ if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid ${browserLabe
 if (typeof WebSocket !== "function") {
   throw new Error(`${browserLabel} automation requires Node 22+ with the built-in WebSocket API`);
 }
-if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown ${browserLabel} lab scenario: ${scenario}`);
+if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", "arrangements", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown ${browserLabel} lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -218,7 +218,7 @@ const elementScenario = String.raw`(async () => {
     const dimensions = document.querySelector("#status").getAttribute("aria-label").match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
     const scale = Number(dimensions?.[3] ?? 1);
     stage.scrollIntoView({ block: "center", inline: "center" });
-    const rect = document.querySelector("#zone-reserve").getBoundingClientRect();
+    const rect = document.querySelector("#zone-river").getBoundingClientRect();
     stage.dispatchEvent(new PointerEvent("pointermove", {
       bubbles: true,
       clientX: rect.left + Number(dimensions?.[1] ?? 180) * scale / 2,
@@ -476,7 +476,7 @@ const layoutScenario = String.raw`(async () => {
       && status.querySelectorAll(".status-unit, .status-separator").length === 0);
   });
   record("cards render above zone guides", () => getComputedStyle(document.querySelector("#stage > .cardinal-webgl-canvas"))?.zIndex === "2"
-    && getComputedStyle(document.querySelector("#zone-archive"))?.zIndex === "1");
+    && getComputedStyle(document.querySelector("#zone-lake"))?.zIndex === "1");
   record("expanded rails use the side space", () => stage.clientWidth >= 1600);
   record("side rails use matching widths", () => {
     const left = document.querySelector(".cards-sidebar")?.getBoundingClientRect();
@@ -550,11 +550,11 @@ const layoutScenario = String.raw`(async () => {
     const buttons = [...(cardActions?.querySelectorAll("button") ?? [])];
     return buttons.length === 4 && buttons.every((button) => within(button, cardActions));
   });
-  if (spawnZone) spawnZone.value = "archive";
+  if (spawnZone) spawnZone.value = "lake";
   document.querySelector("#add-card")?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  const spawnedInArchive = Boolean(cardList?.querySelector('.card-zone[data-zone-id="archive"]')
-    && spawnZone?.value === "archive");
+  const spawnedInLake = Boolean(cardList?.querySelector('.card-zone[data-zone-id="lake"]')
+    && spawnZone?.value === "lake");
   const addedTop = rect(cardActions)?.top;
   document.querySelector("#remove-cards")?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -563,7 +563,7 @@ const layoutScenario = String.raw`(async () => {
     && rect(cardActions).bottom <= rect(cardList).top
     && Math.abs(addedTop - actionsTop) <= 1
     && Math.abs(removedTop - actionsTop) <= 1
-    && spawnedInArchive);
+    && spawnedInLake);
   record("lab logo sits above the Cards toolbox corner", () => {
     const cardsGroup = document.querySelector(".cards-sidebar > .control-group");
     const logo = document.querySelector(".lab-header .lab-logo");
@@ -650,7 +650,7 @@ const resizeScenario = String.raw`(async () => {
     results.push({ label, pass: Boolean(predicate(current)), status: current.status, pointer: current.pointer });
   };
   const centerPointer = () => {
-    const zone = document.querySelector("#zone-reserve").getBoundingClientRect();
+    const zone = document.querySelector("#zone-river").getBoundingClientRect();
     const dimensions = document.querySelector("#status").getAttribute("aria-label").match(/size ([0-9.]+)×([0-9.]+).*scale ([0-9.]+)/);
     const scale = Number(dimensions?.[3] ?? 1);
     stage.dispatchEvent(new PointerEvent("pointermove", {
@@ -669,7 +669,7 @@ const resizeScenario = String.raw`(async () => {
   record("baseline WebGL scene", (current) => current.renderer.includes("Three.js WebGL") && current.shells === 1);
   centerPointer();
   await sleep(80);
-  record("baseline reserve placement is hittable", (current) => current.pointer?.insideStage === true
+  record("baseline river placement is hittable", (current) => current.pointer?.insideStage === true
     && current.pointer.target?.kind === "card-element" && current.pointer.target.elementId === "image");
 
   for (const [label, width, height] of [["narrow", 1000, 650], ["wide", 1700, 850], ["tall", 1200, 1000]]) {
@@ -982,8 +982,8 @@ const zonesScenario = String.raw`(async () => {
   const shells = [...stage.querySelectorAll('.cardinal-webgl-card')];
   const parent = shells[0].parentNode;
   const pose = (id) => scene.snapshot().visual.find((item) => item.cardId === id).pose;
-  const anchor = document.querySelector('#workbench');
-  const zone = () => scene.snapshot().zones.find((item) => item.id === 'workbench');
+  const anchor = document.querySelector('#ocean');
+  const zone = () => scene.snapshot().zones.find((item) => item.id === 'ocean');
   const matchesGrid = () => zone().cardIds.every((id, index) => {
     const columns = Math.max(1, Math.floor((zone().geometry.width + 18) / 128));
     return Math.abs(pose(id).x - (zone().geometry.x + 55 + index % columns * 128)) < 0.01
@@ -991,7 +991,7 @@ const zonesScenario = String.raw`(async () => {
   });
   await sleep(800);
   record('zones lab starts with six WebGL cards and three zones', scene.snapshot().renderer === 'webgl' && shells.length === 6 && scene.snapshot().zones.length === 3);
-  const transfer = scene.transact([{ type: 'move', cardId: 'card-1', to: 'workbench', index: 0 }, { type: 'move', cardId: 'card-2', to: 'workbench', index: 1 }]);
+  const transfer = scene.transact([{ type: 'move', cardId: 'card-1', to: 'ocean', index: 0 }, { type: 'move', cardId: 'card-2', to: 'ocean', index: 1 }]);
   await sleep(150);
   stage.style.width = '85%';
   document.querySelector('#reflow').click();
@@ -1000,7 +1000,7 @@ const zonesScenario = String.raw`(async () => {
   await sleep(850);
   record('batch transfer lands in current grid after resize and scroll', matchesGrid() && zone().cardIds.join(',') === 'card-1,card-2,card-3,card-4');
   const before = { ...zone().geometry };
-  await scene.transact([{ type: 'zone', zoneId: 'workbench', changes: { depth: -180 } }]).finished;
+  await scene.transact([{ type: 'zone', zoneId: 'ocean', changes: { depth: -180 } }]).finished;
   record('orthographic anchor footprint survives a depth change', Math.abs(zone().geometry.x - before.x) < 0.01 && Math.abs(zone().geometry.width - before.width) < 0.01 && pose('card-1').z === -180 && matchesGrid());
   anchor.hidden = true;
   await sleep(100);
@@ -1010,16 +1010,16 @@ const zonesScenario = String.raw`(async () => {
   stage.style.width = '100%';
   await sleep(900);
   record('restored anchor solves from current bounds', zone().visible && matchesGrid() && !shells[0].hidden);
-  for (const to of ['reserve', 'archive', 'workbench']) {
+  for (const to of ['river', 'lake', 'ocean']) {
     await scene.transact([{ type: 'move', cardId: 'card-1', to, index: 0 }]).finished;
   }
   record('repeated transfers retain six shells and their stage parent', shells.every((shell) => shell.isConnected && shell.parentNode === parent) && stage.querySelectorAll('.cardinal-webgl-card').length === 6 && matchesGrid());
   const previous = scene.snapshot();
   let rejected = false;
-  try { scene.transact([{ type: 'zone', zoneId: 'workbench', changes: { capacity: 0 } }]); }
+  try { scene.transact([{ type: 'zone', zoneId: 'ocean', changes: { capacity: 0 } }]); }
   catch { rejected = true; }
   record('invalid capacity update leaves state intact', rejected && JSON.stringify(previous.desired) === JSON.stringify(scene.snapshot().desired));
-  const moved = scene.transact([{ type: 'move', cardId: 'card-1', to: 'archive' }, { type: 'rotate', cardId: 'card-1', angle: 45 }, { type: 'face', cardId: 'card-1', face: 'faceDown' }]);
+  const moved = scene.transact([{ type: 'move', cardId: 'card-1', to: 'lake' }, { type: 'rotate', cardId: 'card-1', angle: 45 }, { type: 'face', cardId: 'card-1', face: 'faceDown' }]);
   await sleep(120);
   document.querySelector('#reflow').click();
   await moved.finished;
@@ -1059,36 +1059,146 @@ const mainZonesScenario = String.raw`(async () => {
   const record = (label, pass) => results.push({ label, pass: Boolean(pass) });
   const zoneRow = (id) => document.querySelector('#zone-list [data-zone-id="' + id + '"]');
   const zoneText = (id) => zoneRow(id)?.textContent ?? '';
+  const lab = await import('/examples/card-engine-lab/main.js');
+  const scene = lab.getScene();
+  const zoneCount = (id) => scene.snapshot().desired.zones.find(({ id: zoneId }) => zoneId === id)?.cardIds.length ?? -1;
   await sleep(800);
-  record('main lab exposes three integrated zones', document.querySelectorAll('#zone-list .zone-row').length === 3 && zoneText('reserve').includes('1 card'));
+  record('main lab exposes three integrated zones', document.querySelectorAll('#zone-list .zone-row').length === 3
+    && zoneCount('lake') === 1 && zoneCount('river') === 1 && zoneCount('ocean') === 1);
   for (let index = 0; index < 2; index += 1) document.querySelector('#add-card').click();
   await sleep(200);
-  record('the first three cards spawn in River by default', zoneText('reserve').includes('3 cards') && zoneText('workbench').includes('0 cards'));
+  record('new cards spawn in the selected River zone', zoneCount('river') === 3
+    && zoneCount('lake') === 1 && zoneCount('ocean') === 1);
   document.querySelector('#add-card').click();
   await sleep(200);
-  record('cards after the first three spawn in Lake by default', zoneText('reserve').includes('3 cards') && zoneText('archive').includes('1 card') && document.querySelector('#spawn-zone').value === 'archive');
+  record('cards continue spawning in the selected River zone', zoneCount('river') === 4
+    && zoneCount('lake') === 1 && zoneCount('ocean') === 1 && document.querySelector('#spawn-zone').value === 'river');
   for (let index = 0; index < 2; index += 1) document.querySelector('#add-card').click();
+  const totalCards = scene.snapshot().desired.cards.length;
   document.querySelector('#select-all').click();
-  document.querySelector('[data-transfer-zone="archive"]').click();
+  document.querySelector('[data-transfer-zone="lake"]').click();
   await sleep(900);
-  record('integrated transfer moves all selected cards into the destination zone', zoneText('archive').includes('6 cards') && zoneText('reserve').includes('0 cards') && document.querySelectorAll('#stage .cardinal-webgl-card').length === 6
-    && document.querySelectorAll('#card-list .card-zone[data-zone-id="archive"]').length === 6);
+  record('integrated transfer moves all selected cards into the destination zone', zoneText('lake').includes(totalCards + ' cards')
+    && zoneText('river').includes('0 cards') && document.querySelectorAll('#stage .cardinal-webgl-card').length === totalCards
+    && document.querySelectorAll('#card-list .card-zone[data-zone-id="lake"]').length === totalCards);
   document.querySelector('#stage').style.width = '85%';
   window.dispatchEvent(new Event('resize'));
   await sleep(500);
-  const anchor = document.querySelector('#zone-archive');
-  document.querySelector('[data-zone-id="archive"] button').click();
+  const anchor = document.querySelector('#zone-lake');
+  document.querySelector('[data-zone-id="lake"] button').click();
   await sleep(250);
-  record('hiding an integrated anchored zone preserves membership and hides its cards', anchor.hidden && zoneRow('archive')?.getAttribute('aria-hidden') === 'true' && zoneText('archive').includes('6 cards'));
-  document.querySelector('[data-zone-id="archive"] button').click();
+  record('hiding an integrated anchored zone preserves membership and hides its cards', anchor.hidden && zoneRow('lake')?.getAttribute('aria-hidden') === 'true' && zoneText('lake').includes(totalCards + ' cards'));
+  document.querySelector('[data-zone-id="lake"] button').click();
   await sleep(800);
-  record('restoring an integrated anchored zone makes its cards visible again', !anchor.hidden && zoneRow('archive')?.getAttribute('aria-hidden') === 'false');
-  document.querySelector('[data-transfer-zone="workbench"]').click();
+  record('restoring an integrated anchored zone makes its cards visible again', !anchor.hidden && zoneRow('lake')?.getAttribute('aria-hidden') === 'false');
+  document.querySelector('#select-all').click();
+  document.querySelector('[data-transfer-zone="ocean"]').click();
   await sleep(900);
-  record('integrated cards can be transferred repeatedly without remounting shells', zoneText('workbench').includes('6 cards') && document.querySelectorAll('#stage .cardinal-webgl-card').length === 6);
+  record('integrated cards can be transferred repeatedly without remounting shells', zoneText('ocean').includes(totalCards + ' cards') && document.querySelectorAll('#stage .cardinal-webgl-card').length === totalCards);
   document.querySelector('#stage').style.width = '';
   window.scrollTo(0, 0);
   await sleep(200);
+  return { ok: results.every(({ pass }) => pass), results };
+})()`;
+
+const arrangementsScenario = String.raw`(async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const results = [];
+  const record = (label, pass) => results.push({ label, pass: Boolean(pass) });
+  const lab = await import('/examples/card-engine-lab/main.js');
+  const scene = lab.getScene();
+  await sleep(700);
+  record('new cards use the Ember front face by default', scene.snapshot().desired.cards[0]?.faces?.['face-a']?.backgroundImage?.src?.endsWith('/b1.png'));
+  const initialCards = scene.snapshot().desired.cards;
+  record('lab includes the new ice and owl card art', initialCards.length === 3
+    && initialCards.find((card) => card.id === 'ice-demo')?.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src?.endsWith('/ice.png')
+    && initialCards.find((card) => card.id === 'owl-demo')?.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src?.endsWith('/owl.png'));
+  record('primary selection is marked on the card shell', document.querySelector('.cardinal-webgl-card[data-card-id="cardinal-demo"]')?.dataset.selected === 'true'
+    && document.querySelector('.cardinal-webgl-card[data-card-id="cardinal-demo"]')?.dataset.primary === 'true');
+  record('lab controls expose explanatory tooltips', Boolean(document.querySelector('#add-card')?.title)
+    && Boolean(document.querySelector('#move')?.title)
+    && Boolean(document.querySelector('[data-zone-arrangement="river"]')?.title)
+    && Boolean(document.querySelector('[data-zone-overflow="river"]')?.title));
+  const zoneRailFits = () => [...document.querySelectorAll('#zone-list .zone-row')].every((row) => {
+    const list = document.querySelector('#zone-list');
+    const listRect = list.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    return row.scrollWidth <= row.clientWidth + 1 && rowRect.right <= listRect.right + 1;
+  });
+  record('zone controls stay inside the sidebar', zoneRailFits());
+  for (let index = 0; index < 5; index += 1) document.querySelector('#add-card').click();
+  const cardArtSources = new Set(['/examples/card-engine-lab/majestic.png', '/examples/card-engine-lab/assets/cards/ice.png', '/examples/card-engine-lab/assets/cards/owl.png']);
+  const imageSource = (card) => card.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src;
+  record('new cards randomize across the three card artworks', scene.snapshot().desired.cards.slice(3).every((card) => cardArtSources.has(imageSource(card))));
+  const totalCards = scene.snapshot().desired.cards.length;
+  document.querySelector('#select-all').click();
+  document.querySelector('[data-transfer-zone="river"]').click();
+  await sleep(900);
+  const zone = () => scene.snapshot().desired.zones.find(({ id }) => id === 'river');
+  const riverAngles = scene.snapshot().visual.filter(({ cardId }) => zone().cardIds.includes(cardId)).map(({ pose }) => pose.angle);
+  record('moving cards into the hand arrangement updates orientation', new Set(riverAngles).size > 1 && riverAngles.some((angle) => angle !== 0));
+  const types = [];
+  for (let index = 0; index < 7; index += 1) {
+    document.querySelector('[data-zone-cycle="river"]').click();
+    await sleep(120);
+    types.push(zone().arrangement.type);
+  }
+  record('cycle control visits every arrangement type', JSON.stringify(types) === JSON.stringify(['grid', 'row', 'column', 'splay', 'pile', 'stack', 'hand']));
+  record('splay, pile, stack, and hand leave cards in the populated zone', ['splay', 'pile', 'stack', 'hand'].every((type) => types.includes(type)) && zone().cardIds.length === totalCards);
+  const beforeOrder = [...zone().cardIds];
+  document.querySelector('[data-zone-reorder="river"]').click();
+  await sleep(400);
+  record('reverse control changes explicit stack order', JSON.stringify(zone().cardIds) === JSON.stringify(beforeOrder.reverse()));
+  let rejectedOverflow = false;
+  try { scene.transact([{ type: 'zone', zoneId: 'river', changes: { arrangement: { type: 'row', gap: 10, overflow: 'reject' } } }]); }
+  catch { rejectedOverflow = true; }
+  record('reject overflow reports an explicit failure', rejectedOverflow);
+  const arrangementSelect = document.querySelector('[data-zone-arrangement="river"]');
+  arrangementSelect.value = 'hand';
+  arrangementSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await sleep(250);
+  const settingsDisclosure = document.querySelector('[data-zone-id="river"] .zone-arrangement-settings');
+  settingsDisclosure.open = true;
+  const radiusControl = document.querySelector('[data-zone-setting="river"][data-arrangement-key="radius"]');
+  if (radiusControl) {
+    radiusControl.value = '220';
+    radiusControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  await sleep(250);
+  record('hand arrangement exposes radius settings', Boolean(radiusControl) && scene.snapshot().desired.zones.find(({ id }) => id === 'river')?.arrangement.radius === 220);
+  record('arrangement settings stay open after an update', document.querySelector('[data-zone-id="river"] .zone-arrangement-settings')?.open === true);
+  const curveControl = document.querySelector('[data-zone-setting="river"][data-arrangement-key="curve"]');
+  if (curveControl) {
+    curveControl.value = 'concave';
+    curveControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  await sleep(250);
+  record('hand arrangement exposes concave or convex curve control', Boolean(curveControl) && scene.snapshot().desired.zones.find(({ id }) => id === 'river')?.arrangement.curve === 'concave');
+  const positionSpeedControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="positionSpeed"]');
+  const scaleControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="scale"]');
+  const faceControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="faceUp"]');
+  if (positionSpeedControl) {
+    positionSpeedControl.value = '2';
+    positionSpeedControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (scaleControl) {
+    scaleControl.value = '0.75';
+    scaleControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (faceControl) {
+    faceControl.value = 'false';
+    faceControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  await sleep(250);
+  const riverPolicy = scene.snapshot().desired.zones.find(({ id }) => id === 'river');
+  record('zone controls expose alignment speed, scale, and face policy', Boolean(positionSpeedControl && scaleControl && faceControl)
+    && riverPolicy?.motion?.positionSpeed === 2 && riverPolicy.scale === 0.75 && riverPolicy.faceUp === false);
+  const handVisual = scene.snapshot().visual
+    .filter(({ cardId }) => zone().cardIds.includes(cardId))
+    .sort((first, second) => first.pose.x - second.pose.x);
+  record('hand layering follows left-to-right visual order', handVisual.every((entry, index) => index === 0
+    || (entry.pose.z >= handVisual[index - 1].pose.z && entry.pose.drawOrder > handVisual[index - 1].pose.drawOrder)));
+  window.scrollTo(0, 0);
   return { ok: results.every(({ pass }) => pass), results };
 })()`;
 
@@ -1131,6 +1241,7 @@ async function run() {
                   : scenario === "diagnostics" ? diagnosticsScenario
                   : scenario === "zones" ? zonesScenario
                   : scenario === "main-zones" ? mainZonesScenario
+                  : scenario === "arrangements" ? arrangementsScenario
                   : acceptanceScenario,
           awaitPromise: true,
           returnByValue: true,

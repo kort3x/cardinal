@@ -132,7 +132,7 @@ test("pointer pickup waits for movement and releases a one-card scene drag", () 
   stage.dispatchEvent(event("pointerdown", { target: shell, clientX: 20, clientY: 30 }));
   stage.dispatchEvent(event("pointermove", { target: shell, clientX: 30, clientY: 40 }));
   assert.deepEqual(calls, [
-    ["drag", { cardIds: ["card-1"], primaryCardId: "card-1", point: { x: 30, y: 40 } }],
+    ["drag", { cardIds: ["card-1"], primaryCardId: "card-1", point: { x: 20, y: 30 } }],
   ]);
 
   stage.dispatchEvent(event("pointerup", { target: shell, clientX: 32, clientY: 42 }));
@@ -576,7 +576,7 @@ test("pickup preserves full selection and anchor, sets picked primary, and freez
   const f = selectionInput(); t.after(() => f.adapter.destroy());
   f.selection.select(["a", "c", "d"], { primaryCardId: "d", anchorCardId: "a" });
   f.pickup("c");
-  assert.deepEqual(f.calls[0], ["drag", { cardIds: ["a", "c", "d"], primaryCardId: "c", point: { x: 40, y: 50 } }]);
+  assert.deepEqual(f.calls[0], ["drag", { cardIds: ["a", "c", "d"], primaryCardId: "c", point: { x: 20, y: 30 } }]);
   assert.deepEqual(f.selection.snapshot(), { cardIds: ["a", "c", "d"], primaryCardId: "c", anchorCardId: "a" });
   f.selection.select(["b"]);
   assert.deepEqual(f.session().snapshot().cardIds, ["a", "c", "d"]);

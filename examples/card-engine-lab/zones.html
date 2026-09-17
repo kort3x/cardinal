@@ -31,24 +31,24 @@
   <p>Six persistent cards · two CSS anchors and one spatial zone · one engine-owned membership model</p>
   <div id="selection" class="controls" aria-label="Select cards"></div>
   <div class="controls">
-    <button data-to="archive">Move to Archive</button>
-    <button data-to="workbench">Move to Workbench</button>
-    <button data-to="reserve">Move to Reserve</button>
-    <label>Insert at <input id="slot" type="number" min="0" max="6" value="0" style="width:3em" aria-label="Destination slot"></label>
-    <button id="route">Run transfer route</button>
-    <button id="reflow" aria-pressed="false">Resize anchors</button>
-    <button id="hide-zone" aria-pressed="false">Hide Workbench</button>
-    <button id="depth" aria-pressed="false">Change depth</button>
-    <button id="scroll">Scroll page</button>
-    <label><input id="reduced" type="checkbox">Reduced motion</label>
+    <button data-to="lake" title="Move the selected cards to the Lake zone.">Move to Lake</button>
+    <button data-to="ocean" title="Move the selected cards to the Ocean zone.">Move to Ocean</button>
+    <button data-to="river" title="Move the selected cards to the River zone.">Move to River</button>
+    <label title="Choose the insertion slot in the destination zone.">Insert at <input id="slot" type="number" min="0" max="6" value="0" style="width:3em" aria-label="Destination slot"></label>
+    <button id="route" title="Move the current selection through Ocean, River, and Lake.">Run transfer route</button>
+    <button id="reflow" aria-pressed="false" title="Change the CSS anchor widths and re-solve their cards.">Resize anchors</button>
+    <button id="hide-zone" aria-pressed="false" title="Hide or restore Ocean while preserving its cards.">Hide Ocean</button>
+    <button id="depth" aria-pressed="false" title="Move Ocean backward or forward in scene depth.">Change depth</button>
+    <button id="scroll" title="Scroll the page to test anchor tracking during scroll.">Scroll page</button>
+    <label title="Apply reduced motion when restarting the zones scene."><input id="reduced" type="checkbox">Reduced motion</label>
   </div>
   <p id="message" role="status">Select cards and a destination.</p>
   <div id="stage">
     <div class="anchors">
-      <div id="archive" class="anchor"><span>Archive · CSS anchor</span></div>
-      <div id="workbench" class="anchor"><span>Workbench · CSS anchor</span></div>
+      <div id="lake" class="anchor"><span>Lake · CSS anchor</span></div>
+      <div id="ocean" class="anchor"><span>Ocean · CSS anchor</span></div>
     </div>
-    <div id="spatial-outline"><span>Reserve · spatial geometry</span></div>
+    <div id="spatial-outline"><span>River · spatial geometry</span></div>
   </div>
   <pre id="state" aria-label="Zone membership and scene status"></pre>
   <footer>Resize the window or scroll during movement. Hiding an anchor preserves its cards and membership.</footer>

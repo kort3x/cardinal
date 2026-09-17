@@ -26,6 +26,9 @@ const dragEnabled = document.querySelector("#drag-enabled");
 const touchDrag = document.querySelector("#drag-touch");
 const touchSelection = document.querySelector("#touch-selection");
 const dragPresentation = document.querySelector("#drag-presentation");
+const dragDangliness = document.querySelector("#drag-dangliness");
+const dragSnapDelay = document.querySelector("#drag-snap-delay");
+const dragSnapDelayValue = document.querySelector("#drag-snap-delay-value");
 const dragDeniedCard = document.querySelector("#drag-denied-card");
 const dragDeniedZone = document.querySelector("#drag-denied-zone");
 const dragResponse = document.querySelector("#drag-response");
@@ -38,6 +41,7 @@ const cardSizing = document.querySelector("#card-sizing");
 const cardWidthSlider = document.querySelector("#card-width");
 const cardHeightSlider = document.querySelector("#card-height");
 const cardThicknessSlider = document.querySelector("#card-thickness");
+const cardWeightSlider = document.querySelector("#card-weight");
 const reduced = document.querySelector("#reduced");
 const moveXSlider = document.querySelector("#move-x");
 const moveYSlider = document.querySelector("#move-y");
@@ -60,6 +64,8 @@ const motionSpeedValue = document.querySelector("#motion-speed-value");
 const cardWidthValue = document.querySelector("#card-width-value");
 const cardHeightValue = document.querySelector("#card-height-value");
 const cardThicknessValue = document.querySelector("#card-thickness-value");
+const cardWeightValue = document.querySelector("#card-weight-value");
+const dragDanglinessValue = document.querySelector("#drag-dangliness-value");
 const rotateValue = document.querySelector("#rotate-value");
 const scaleValue = document.querySelector("#scale-value");
 const flipXValue = document.querySelector("#flip-x-value");
@@ -101,10 +107,104 @@ function defaultCardScale() {
 scaleSlider.value = String(defaultCardScale());
 touchDrag.checked = isTouchCapable();
 const LAB_ZONE_DEFINITIONS = Object.freeze([
-  { id: "archive", label: "Lake", anchor: "#zone-archive", arrangement: { type: "grid", gap: 16 } },
-  { id: "reserve", label: "River", anchor: "#zone-reserve", arrangement: { type: "grid", gap: 16 } },
-  { id: "workbench", label: "Ocean", anchor: "#zone-workbench", arrangement: { type: "grid", gap: 16 } },
+  { id: "lake", label: "Lake", anchor: "#zone-lake", arrangement: { type: "grid", gap: 16 } },
+  { id: "river", label: "River", anchor: "#zone-river", arrangement: { type: "hand", curve: "concave" } },
+  { id: "ocean", label: "Ocean", anchor: "#zone-ocean", arrangement: { type: "grid", gap: 16 } },
 ]);
+const ARRANGEMENT_CYCLE = Object.freeze(["grid", "row", "column", "splay", "pile", "stack", "hand"]);
+const OVERFLOW_POLICIES = Object.freeze(["scroll", "overlap", "fit", "reject"]);
+const zoneArrangements = new Map(LAB_ZONE_DEFINITIONS.map(({ id, arrangement }) => [id, { ...arrangement }]));
+const zonePolicies = new Map(LAB_ZONE_DEFINITIONS.map(({ id }) => [id, {}]));
+const zoneArrangementSettingsOpen = new Map();
+const ARRANGEMENT_SETTING_DEFINITIONS = Object.freeze([
+  { key: "gap", label: "Gap", types: ["grid", "row", "column", "splay", "stack"], kind: "range", min: 0, max: 80, step: 1, defaultValue: 16, title: "Set the spacing between arranged cards." },
+  { key: "columns", label: "Cols", types: ["grid"], kind: "select", options: [["", "Auto"], ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"], ["5", "5"], ["6", "6"]], defaultValue: "", title: "Set the number of grid columns, or let the zone fit them automatically." },
+  { key: "alignment", label: "Align", types: ["row", "column"], kind: "select", options: [["start", "Start"], ["center", "Center"], ["end", "End"]], defaultValue: "center", title: "Align cards across the secondary axis." },
+  { key: "spread", label: "Spread", types: ["splay", "pile", "hand"], kind: "range", min: 0, max: 120, step: 1, defaultValue: (type) => type === "hand" ? 56 : type === "pile" ? 24 : 30, suffix: "°", title: "Set the maximum splay spread; smaller hands scale it to their card count." },
+  { key: "radius", label: "Radius", types: ["hand"], kind: "range", min: 0, max: 600, step: 5, defaultValue: 300, title: "Set the hand fan radius from its shared grip arc." },
+  { key: "curve", label: "Curve", types: ["hand"], kind: "select", options: [["convex", "Convex · outer cards rise"], ["concave", "Concave · outer cards dip"]], defaultValue: "concave", title: "Choose whether the hand arc rises or dips at the outer cards." },
+  { key: "angle", label: "Angle", types: ["pile"], kind: "range", min: 0, max: 45, step: 1, defaultValue: 8, suffix: "°", title: "Set the maximum random pile rotation." },
+  { key: "step", label: "Step", types: ["stack"], kind: "range", min: 0, max: 80, step: 1, defaultValue: 0, title: "Set the offset between cards in the stack." },
+  { key: "axis", label: "Axis", types: ["splay", "stack"], kind: "select", options: [["x", "Horizontal"], ["y", "Vertical"]], defaultValue: (type) => type === "stack" ? "y" : "x", title: "Choose the axis used by this arrangement." },
+  { key: "depthStep", label: "Depth", types: ["grid", "row", "column", "splay", "pile", "stack", "hand"], kind: "range", min: 0, max: 40, step: 1, defaultValue: 8, title: "Set the minimum depth separation between cards." },
+]);
+const ZONE_POLICY_SETTING_DEFINITIONS = Object.freeze([
+  { key: "scale", label: "Size", kind: "range", min: 0.25, max: 2, step: 0.05, defaultValue: 1, suffix: "×", title: "Set the target card scale governed by this zone." },
+  { key: "positionSpeed", label: "Move", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target position." },
+  { key: "orientationSpeed", label: "Turn", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target orientation." },
+  { key: "scaleSpeed", label: "Scale", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target scale." },
+  { key: "faceSpeed", label: "Flip", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's face side." },
+  { key: "faceUp", kind: "select", options: [["", "Keep side"], ["true", "Face up"], ["false", "Face down"]], defaultValue: "", title: "Optionally make cards entering this zone face up or face down." },
+]);
+
+const LAB_CONTROL_TOOLTIPS = Object.freeze([
+  ["#move", "Start or stop continuous movement of the selected cards."],
+  ["#rotate", "Start or stop continuous rotation of the selected cards."],
+  ["#scale", "Start or stop continuous scaling of the selected cards."],
+  ["#flip", "Start or stop continuous face flipping of the selected cards."],
+  ["#spin", "Spin the selected cards around the chosen flip axis."],
+  ["#combined", "Run a short combined move, rotate, scale, and flip demo."],
+  ["#random", "Start or stop random card movement."],
+  ["#animation-test", "Run the animation and retargeting test."],
+  ["#reduced", "Use immediate transitions so reduced-motion results can be compared."],
+  ["#shape", "Choose the card profile used by new and reset cards."],
+  ["#face-count", "Choose how many logical faces each card has."],
+  ["#card-sizing", "Choose fixed dimensions or content-driven card height."],
+  ["#card-width", "Set the authored card width."],
+  ["#card-height", "Set the authored card height."],
+  ["#card-thickness", "Set the card thickness used for depth separation."],
+  ["#card-weight", "Set how long target position, orientation, scale, and face transitions take for the selected cards."],
+  ["#move-x", "Set the selected card's scene X position."],
+  ["#move-y", "Set the selected card's scene Y position."],
+  ["#motion-speed", "Adjust the speed of the animated controls."],
+  ["#rotate-slider", "Set the selected card's authored rotation."],
+  ["#scale-slider", "Set the selected card's authored scale."],
+  ["#flip-axis", "Choose the axis used for flipping and spinning."],
+  ["#flip-x-slider", "Set the selected card's X flip angle."],
+  ["#flip-y-slider", "Set the selected card's Y flip angle."],
+  ["#add-card", "Add a new card in the selected spawn zone."],
+  ["#remove-cards", "Remove all currently selected cards."],
+  ["#select-all", "Select every card in the scene."],
+  ["#deselect-all", "Clear the current card selection."],
+  ["#spawn-zone", "Choose where newly added cards are placed."],
+  ["#drag-enabled", "Allow cards to be picked up and moved."],
+  ["#drag-touch", "Enable touch dragging when using a touch-capable device."],
+  ["#touch-selection", "Use touch taps to toggle card selection."],
+  ["#drag-presentation", "Choose whether a carried selection keeps offsets or compacts."],
+  ["#drag-dangliness", "Set how strongly cards tilt when picked up near their left or right edge."],
+  ["#drag-snap-delay", "Pause before a dropped card starts moving to its target."],
+  ["#drag-denied-card", "Choose a card that the lab drag rules will deny."],
+  ["#drag-denied-zone", "Choose a destination zone that the lab drag rules will deny."],
+  ["#drag-response", "Choose whether drops are accepted, rejected, delayed, or manual."],
+  ["#batch-fixture", "Create a four-card batch fixture for drag testing."],
+  ["#flip-selection", "Flip every selected card once."],
+  ["#zone-slot", "Choose the insertion slot used by zone transfer buttons."],
+  ["[data-transfer-zone=lake]", "Move the selected cards to Lake."],
+  ["[data-transfer-zone=river]", "Move the selected cards to River."],
+  ["[data-transfer-zone=ocean]", "Move the selected cards to Ocean."],
+  ["#collect-diagnostics", "Refresh the renderer and device diagnostics report."],
+  ["#run-diagnostics-benchmark", "Run the 1, 5, and 10-card motion benchmark."],
+  ["#record-drag", "Capture timing and input details for the next drag."],
+  ["#copy-diagnostics", "Copy the current diagnostics report."],
+  ["#full-window-control", "Toggle the stage into full-window inspection mode."],
+  ["#element-type", "Choose the type of card element to add."],
+  ["#add-element", "Add the selected element type to the active card face."],
+  ["#background-side", "Choose which face receives the background."],
+  ["#background-image", "Enter an image URL for the card background."],
+  ["#background-fit", "Choose how the background image fits the card face."],
+  ["#apply-background", "Apply the background image settings."],
+]);
+
+for (const [selector, tooltip] of LAB_CONTROL_TOOLTIPS) {
+  for (const control of document.querySelectorAll(selector)) control.title = tooltip;
+}
+for (const button of document.querySelectorAll("[data-move-preset]")) button.title = `Move the selected cards to the ${button.dataset.movePreset} position.`;
+for (const button of document.querySelectorAll("[data-rotate]")) button.title = `Set the selected cards to ${button.dataset.rotate} degrees.`;
+for (const button of document.querySelectorAll("[data-scale]")) button.title = `Set the selected cards to ${Number(button.dataset.scale) * 100}% scale.`;
+for (const button of document.querySelectorAll("[data-flip]")) button.title = button.dataset.flip === "1" ? "Turn the selected cards face down." : "Turn the selected cards face up.";
+for (const button of document.querySelectorAll("[data-background-preset]")) button.title = button.dataset.backgroundPreset === "none"
+  ? "Remove the background image."
+  : `Apply the ${button.textContent.trim()} background preset.`;
 
 function syncSpawnZoneColor() {
   spawnZone.dataset.zoneId = spawnZone.value;
@@ -367,7 +467,7 @@ const logicalFaceDefinitions = [
       },
     ],
     background: "#17212b",
-    backgroundImage: { src: "/examples/card-engine-lab/assets/backgrounds/b4.png", fit: "cover" },
+    backgroundImage: { src: "/examples/card-engine-lab/assets/backgrounds/b1.png", fit: "cover" },
     textColor: "#f7f4e9",
     mutedTextColor: "#d7dee8",
   },
@@ -431,8 +531,61 @@ const baseCard = {
   template: "illustrated",
 };
 
-let cardZoneIds = new Map([[baseCard.id, "reserve"]]);
-let spawnZoneAuto = true;
+function artCard({ id, zoneId, title, image, alt, flavour, specimen, background, backgroundImage }) {
+  return {
+    ...baseCard,
+    id,
+    pose: { scale: defaultCardScale() },
+    faces: {
+      "face-a": {
+        background,
+        backgroundImage: { src: backgroundImage, fit: "cover" },
+        elements: [
+          { id: "title", content: { text: title } },
+          { id: "image", content: { src: image, alt } },
+          { id: "flavour", content: { text: flavour } },
+          { id: "specimen", content: { text: specimen } },
+        ],
+      },
+    },
+    zoneId,
+  };
+}
+
+const additionalLabCards = [
+  artCard({
+    id: "ice-demo",
+    zoneId: "lake",
+    title: "The Kingfisher",
+    image: "/examples/card-engine-lab/assets/cards/ice.png",
+    alt: "A blue kingfisher perched on a branch above a mountain lake",
+    flavour: "Blue fire over\nstill water.",
+    specimen: "SPECIMEN · 002",
+    background: "#123f5a",
+    backgroundImage: "/examples/card-engine-lab/assets/backgrounds/b2.png",
+  }),
+  artCard({
+    id: "owl-demo",
+    zoneId: "ocean",
+    title: "The Owl",
+    image: "/examples/card-engine-lab/assets/cards/owl.png",
+    alt: "A stylized owl perched on a rocky overlook above a mountain lake",
+    flavour: "Night keeps watch\nover the wild.",
+    specimen: "SPECIMEN · 003",
+    background: "#483323",
+    backgroundImage: "/examples/card-engine-lab/assets/backgrounds/b3.png",
+  }),
+];
+
+const LAB_CARD_PROTOTYPES = Object.freeze([
+  baseCard,
+  ...additionalLabCards.map(({ zoneId, ...card }) => card),
+]);
+
+let cardZoneIds = new Map([
+  [baseCard.id, "river"],
+  ...additionalLabCards.map(({ id, zoneId }) => [id, zoneId]),
+]);
 
 let selectedCardIds = new Set([baseCard.id]);
 let selectionReason = "";
@@ -907,20 +1060,23 @@ function initialCards() {
   const flipX = Number(flipXSlider.value);
   const flipY = Number(flipYSlider.value);
   const faceUp = Math.cos(flipX * Math.PI / 180) * Math.cos(flipY * Math.PI / 180) >= 0;
-  return [{
-    ...baseCard,
-    template: shape.value,
-    faceUp,
-    flipAxis: flipAxis.value,
-    pose: {
-      x: Number(moveXSlider.value),
-      y: Number(moveYSlider.value),
-      angle: Number(rotateSlider.value),
-      scale: Number(scaleSlider.value),
-      flipX,
-      flipY,
+  return [
+    {
+      ...baseCard,
+      template: shape.value,
+      faceUp,
+      flipAxis: flipAxis.value,
+      pose: {
+        x: Number(moveXSlider.value),
+        y: Number(moveYSlider.value),
+        angle: Number(rotateSlider.value),
+        scale: Number(scaleSlider.value),
+        flipX,
+        flipY,
+      },
     },
-  }];
+    ...additionalLabCards.map(({ zoneId, ...card }) => ({ ...card, template: shape.value })),
+  ];
 }
 
 function sceneCards() {
@@ -938,19 +1094,30 @@ function zoneSnapshot(cards) {
       .filter((cardId) => cardIds.has(cardId) && cardZoneIds.get(cardId) === id),
   ]));
   for (const card of cards) {
-    const zoneId = memberships.has(cardZoneIds.get(card.id)) ? cardZoneIds.get(card.id) : "reserve";
+    const zoneId = memberships.has(cardZoneIds.get(card.id)) ? cardZoneIds.get(card.id) : "river";
     cardZoneIds.set(card.id, zoneId);
     if (!memberships.get(zoneId).includes(card.id)) memberships.get(zoneId).push(card.id);
   }
-  return LAB_ZONE_DEFINITIONS.map(({ id, label, anchor, geometry, arrangement }) => ({
-    ...committed.find((zone) => zone.id === id),
-    id,
-    label,
-    ...(anchor ? { anchor } : { geometry }),
-    cardIds: memberships.get(id),
-    arrangement,
-    visible: zoneVisibility.get(id) !== false,
-  }));
+  return LAB_ZONE_DEFINITIONS.map(({ id, label, anchor, geometry }) => {
+    const committedZone = committed.find((zone) => zone.id === id);
+    const policy = zonePolicies.get(id) ?? {};
+    const zone = {
+      ...committedZone,
+      ...policy,
+      ...(policy.motion ? { motion: { ...(committedZone?.motion ?? {}), ...policy.motion } } : {}),
+      id,
+      label,
+      ...(anchor ? { anchor } : { geometry }),
+      cardIds: memberships.get(id),
+      arrangement: zoneArrangements.get(id) ?? { type: "grid", gap: 16 },
+      visible: zoneVisibility.get(id) !== false,
+    };
+    if (Object.hasOwn(policy, "faceUp")) {
+      if (policy.faceUp === null) delete zone.faceUp;
+      else zone.faceUp = policy.faceUp;
+    }
+    return zone;
+  });
 }
 
 function desiredSnapshot(cards = sceneCards()) {
@@ -1660,6 +1827,8 @@ function startScene(cards = sceneCards()) {
         touchDrag: touchDrag.checked,
         touchSelection: touchSelection.checked,
         dragPresentation: dragPresentation.value,
+        dragHangFactor: Number(dragDangliness.value),
+        dragSnapDelay: Number(dragSnapDelay.value),
       },
     });
     scene = createdScene;
@@ -1722,6 +1891,10 @@ function syncZoneMembership(state) {
 
 function renderZones(state = scene.snapshot()) {
   syncZoneMembership(state);
+  for (const row of zoneList.querySelectorAll(".zone-row")) {
+    const settings = row.querySelector(".zone-arrangement-settings");
+    if (settings) zoneArrangementSettingsOpen.set(row.dataset.zoneId, settings.open);
+  }
   const zones = state.zones;
   const selectedSlot = Number.parseInt(zoneSlot.value, 10) || 0;
   const slotCount = Math.max(1, state.desired.cards.length + 1);
@@ -1747,8 +1920,131 @@ function renderZones(state = scene.snapshot()) {
     const visibility = document.createElement("button");
     visibility.type = "button";
     visibility.textContent = zone.visible === false ? "Show" : "Hide";
+    visibility.title = zone.visible === false ? "Show this zone and its cards." : "Hide this zone while preserving its cards.";
     visibility.addEventListener("click", () => toggleZone(zone.id));
-    row.append(name, count, visibility);
+    const arrangement = document.createElement("select");
+    arrangement.dataset.zoneArrangement = zone.id;
+    arrangement.setAttribute("aria-label", `Arrangement for ${zone.label ?? zone.id}`);
+    arrangement.title = "Choose grid, row, column, splay, pile, stack, or hand placement.";
+    for (const type of ARRANGEMENT_CYCLE) {
+      const option = document.createElement("option");
+      option.value = type;
+      option.textContent = type[0].toUpperCase() + type.slice(1);
+      arrangement.append(option);
+    }
+    arrangement.value = zone.arrangement?.type ?? "grid";
+    arrangement.addEventListener("change", () => updateZoneArrangement(zone.id, { type: arrangement.value }));
+    const overflow = document.createElement("select");
+    overflow.dataset.zoneOverflow = zone.id;
+    overflow.setAttribute("aria-label", `Overflow for ${zone.label ?? zone.id}`);
+    overflow.title = "Choose scrolling, intentional overlap, bounded fitting, or rejection.";
+    for (const policy of OVERFLOW_POLICIES) {
+      const option = document.createElement("option");
+      option.value = policy;
+      option.textContent = policy[0].toUpperCase() + policy.slice(1);
+      overflow.append(option);
+    }
+    overflow.value = zone.arrangement?.overflow ?? "scroll";
+    overflow.addEventListener("change", () => updateZoneArrangement(zone.id, { overflow: overflow.value }));
+    const cycle = document.createElement("button");
+    cycle.type = "button";
+    cycle.dataset.zoneCycle = zone.id;
+    cycle.textContent = "Next";
+    cycle.title = "Advance this zone to the next arrangement type.";
+    cycle.addEventListener("click", () => cycleZoneArrangement(zone.id));
+    const reorder = document.createElement("button");
+    reorder.type = "button";
+    reorder.dataset.zoneReorder = zone.id;
+    reorder.textContent = "Reverse";
+    reorder.title = "Reverse the zone's explicit card order.";
+    reorder.addEventListener("click", () => reverseZoneOrder(zone.id));
+    const controls = document.createElement("div");
+    controls.className = "zone-row-controls";
+    controls.append(visibility, arrangement, overflow, cycle, reorder);
+    const settings = document.createElement("details");
+    settings.className = "zone-arrangement-settings";
+    settings.open = zoneArrangementSettingsOpen.get(zone.id) === true;
+    settings.addEventListener("toggle", () => zoneArrangementSettingsOpen.set(zone.id, settings.open));
+    const settingsSummary = document.createElement("summary");
+    settingsSummary.textContent = "Arrangement & alignment";
+    settingsSummary.title = "Adjust placement, target scale, face side, and alignment speeds for this zone.";
+    const fields = document.createElement("div");
+    fields.className = "zone-arrangement-fields";
+    const arrangementType = zone.arrangement?.type ?? "grid";
+    for (const definition of ARRANGEMENT_SETTING_DEFINITIONS.filter(({ types }) => types.includes(arrangementType))) {
+      const label = document.createElement("label");
+      label.className = "zone-arrangement-field";
+      label.title = definition.title;
+      const caption = document.createElement("span");
+      caption.textContent = definition.label;
+      const value = zone.arrangement?.[definition.key] ?? (typeof definition.defaultValue === "function" ? definition.defaultValue(arrangementType) : definition.defaultValue);
+      const control = definition.kind === "select" ? document.createElement("select") : document.createElement("input");
+      control.dataset.zoneSetting = zone.id;
+      control.dataset.arrangementKey = definition.key;
+      control.setAttribute("aria-label", `${definition.label} for ${zone.label ?? zone.id}`);
+      if (definition.kind === "select") {
+        for (const [optionValue, optionLabel] of definition.options) control.append(new Option(optionLabel, optionValue));
+        control.value = String(value);
+      } else {
+        control.type = "range";
+        control.min = String(definition.min);
+        control.max = String(definition.max);
+        control.step = String(definition.step);
+        control.value = String(value);
+      }
+      const output = document.createElement("output");
+      if (definition.kind === "range") output.textContent = `${value}${definition.suffix ?? ""}`;
+      control.addEventListener("input", () => {
+        if (definition.kind === "range") output.textContent = `${control.value}${definition.suffix ?? ""}`;
+      });
+      control.addEventListener("change", () => {
+        const nextValue = definition.key === "columns" && control.value === "" ? undefined
+          : definition.kind === "range" ? Number(control.value) : control.value;
+        updateZoneArrangement(zone.id, { [definition.key]: nextValue });
+      });
+      label.append(caption, control, output);
+      fields.append(label);
+    }
+    for (const definition of ZONE_POLICY_SETTING_DEFINITIONS) {
+      const label = document.createElement("label");
+      label.className = "zone-arrangement-field";
+      label.title = definition.title;
+      const caption = document.createElement("span");
+      caption.textContent = definition.label;
+      const value = definition.group === "motion"
+        ? zone.motion?.[definition.key] ?? definition.defaultValue
+        : definition.key === "faceUp"
+          ? zone.faceUp === undefined ? definition.defaultValue : String(zone.faceUp)
+          : zone[definition.key] ?? definition.defaultValue;
+      const control = definition.kind === "select" ? document.createElement("select") : document.createElement("input");
+      control.dataset.zoneSetting = zone.id;
+      control.dataset.zonePolicyKey = definition.key;
+      control.setAttribute("aria-label", `${definition.label} for ${zone.label ?? zone.id}`);
+      if (definition.kind === "select") {
+        for (const [optionValue, optionLabel] of definition.options) control.append(new Option(optionLabel, optionValue));
+        control.value = String(value);
+      } else {
+        control.type = "range";
+        control.min = String(definition.min);
+        control.max = String(definition.max);
+        control.step = String(definition.step);
+        control.value = String(value);
+      }
+      const output = document.createElement("output");
+      if (definition.kind === "range") output.textContent = `${value}${definition.suffix ?? ""}`;
+      control.addEventListener("input", () => {
+        if (definition.kind === "range") output.textContent = `${control.value}${definition.suffix ?? ""}`;
+      });
+      control.addEventListener("change", () => {
+        const nextValue = definition.kind === "range" ? Number(control.value)
+          : definition.key === "faceUp" ? control.value === "" ? null : control.value === "true" : control.value;
+        updateZonePolicy(zone.id, definition, nextValue);
+      });
+      label.append(caption, control, output);
+      fields.append(label);
+    }
+    settings.append(settingsSummary, fields);
+    row.append(name, count, controls, settings);
     return row;
   }));
   const zoneById = new Map(zones.map((zone) => [zone.id, zone]));
@@ -1756,6 +2052,52 @@ function renderZones(state = scene.snapshot()) {
     const target = zoneById.get(button.dataset.transferZone);
     button.disabled = selectedCardIds.size === 0 || target?.visible === false;
   }
+}
+
+function updateZoneArrangement(zoneId, changes) {
+  const current = zoneArrangements.get(zoneId) ?? { type: "grid", gap: 16 };
+  zoneArrangements.set(zoneId, { ...current, ...changes });
+  try {
+    scene.apply(desiredSnapshot(sceneCards()));
+  } catch (error) {
+    zoneArrangements.set(zoneId, current);
+    renderZones();
+    showStatusMessage(`Arrangement update failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function updateZonePolicy(zoneId, definition, value) {
+  const current = structuredClone(zonePolicies.get(zoneId) ?? {});
+  const next = structuredClone(current);
+  if (definition.group === "motion") {
+    next.motion = { ...(next.motion ?? {}), [definition.key]: value };
+  } else if (definition.key === "faceUp") {
+    next.faceUp = value;
+  } else {
+    next[definition.key] = value;
+  }
+  zonePolicies.set(zoneId, next);
+  try {
+    scene.apply(desiredSnapshot(sceneCards()));
+  } catch (error) {
+    zonePolicies.set(zoneId, current);
+    renderZones();
+    showStatusMessage(`Zone policy update failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function cycleZoneArrangement(zoneId) {
+  const current = zoneArrangements.get(zoneId) ?? { type: "grid", gap: 16 };
+  const index = ARRANGEMENT_CYCLE.indexOf(current.type);
+  updateZoneArrangement(zoneId, { type: ARRANGEMENT_CYCLE[(index + 1) % ARRANGEMENT_CYCLE.length] });
+}
+
+function reverseZoneOrder(zoneId) {
+  const snapshot = structuredClone(scene.snapshot().desired);
+  const zone = snapshot.zones.find(({ id }) => id === zoneId);
+  if (!zone || zone.cardIds.length < 2) return;
+  zone.cardIds.reverse();
+  scene.apply(snapshot);
 }
 
 function renderCardList() {
@@ -1770,6 +2112,7 @@ function renderCardList() {
     input.type = "checkbox";
     input.checked = selectedCardIds.has(card.id);
     input.setAttribute("aria-label", `Select card ${index + 1}`);
+    input.title = `Select or deselect Card ${index + 1}.`;
     depth.className = "card-z";
     depth.dataset.cardId = card.id;
     zone.className = "card-zone";
@@ -1821,6 +2164,7 @@ function syncControlsFromSelection() {
     width: pose.width,
     height: pose.height,
     thickness: pose.thickness,
+    weight: card.weight ?? 1,
     angle: pose.angle,
     scale: pose.scale,
     flipX: pose.flipX ?? 0,
@@ -1917,6 +2261,7 @@ function renderElementList(state = scene.snapshot()) {
     checkbox.type = "checkbox";
     checkbox.checked = element.visible !== false;
     checkbox.setAttribute("aria-label", `Show ${element.id}`);
+    checkbox.title = `Show or hide the ${element.id} element.`;
     checkbox.addEventListener("change", () => applyElementOperation({
       action: checkbox.checked ? "show" : "hide",
       elementId: element.id,
@@ -1932,6 +2277,7 @@ function renderElementList(state = scene.snapshot()) {
     editor.type = element.type === "spacer" ? "number" : "text";
     editor.value = elementEditorValue(element);
     editor.setAttribute("aria-label", element.type === "spacer" ? `Height for ${element.id}` : `Content for ${element.id}`);
+    editor.title = element.type === "spacer" ? `Set the height of ${element.id}.` : `Edit the content of ${element.id}.`;
     if (element.type === "spacer") {
       editor.min = "0";
       editor.max = "480";
@@ -1950,6 +2296,7 @@ function renderElementList(state = scene.snapshot()) {
 
     const mode = document.createElement("select");
     mode.setAttribute("aria-label", `Layout mode for ${element.id}`);
+    mode.title = `Choose flow or overlay layout for ${element.id}.`;
     mode.innerHTML = '<option value="flow">Flow</option><option value="overlay">Overlay</option>';
     mode.value = element.layout?.mode ?? "flow";
     mode.addEventListener("change", () => applyElementOperation({
@@ -1960,6 +2307,7 @@ function renderElementList(state = scene.snapshot()) {
 
     const policy = document.createElement("select");
     policy.setAttribute("aria-label", `Hidden layout policy for ${element.id}`);
+    policy.title = `Choose whether hidden ${element.id} keeps its layout space.`;
     policy.innerHTML = '<option value="reflow">Hidden: Reflow</option><option value="preserve-space">Hidden: Preserve space</option>';
     policy.value = element.visibilityMode ?? "reflow";
     policy.addEventListener("change", () => applyElementOperation({
@@ -1975,6 +2323,7 @@ function renderElementList(state = scene.snapshot()) {
       button.type = "button";
       button.textContent = label;
       button.disabled = disabled;
+      button.title = label === "↑" ? `Move ${element.id} earlier in the flow.` : `Move ${element.id} later in the flow.`;
       button.addEventListener("click", () => applyElementOperation({ action: "reorder", elementId: element.id, index: targetIndex }));
       return button;
     };
@@ -1982,6 +2331,7 @@ function renderElementList(state = scene.snapshot()) {
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "Remove";
+    remove.title = `Remove the ${element.id} element.`;
     remove.addEventListener("click", () => applyElementOperation({ action: "remove", elementId: element.id }));
     actions.append(remove);
 
@@ -2130,6 +2480,9 @@ function updateControlLabels() {
   cardWidthValue.textContent = cardWidthSlider.value;
   cardHeightValue.textContent = cardHeightSlider.value;
   cardThicknessValue.textContent = cardThicknessSlider.value;
+  cardWeightValue.textContent = `${Number(cardWeightSlider.value)}×`;
+  dragDanglinessValue.textContent = `${Number(dragDangliness.value).toFixed(1)}×`;
+  dragSnapDelayValue.textContent = `${dragSnapDelay.value} ms`;
   cardHeightSlider.disabled = cardSizing.value === "content";
   rotateValue.textContent = `${rotateSlider.value}°`;
   scaleValue.textContent = `${Math.round(scale * 100)}%`;
@@ -2137,12 +2490,13 @@ function updateControlLabels() {
   flipYValue.textContent = `${flipY}°`;
 }
 
-function setControls({ x, y, width, height, thickness, angle, scale, faceUp, flipX, flipY } = {}) {
+function setControls({ x, y, width, height, thickness, weight, angle, scale, faceUp, flipX, flipY } = {}) {
   if (x !== undefined) moveXSlider.value = String(x);
   if (y !== undefined) moveYSlider.value = String(y);
   if (width !== undefined) cardWidthSlider.value = String(width);
   if (height !== undefined) cardHeightSlider.value = String(height);
   if (thickness !== undefined) cardThicknessSlider.value = String(thickness);
+  if (weight !== undefined) cardWeightSlider.value = String(weight);
   if (angle !== undefined) rotateSlider.value = String(angle);
   if (scale !== undefined) scaleSlider.value = String(scale);
   if (flipX !== undefined) flipXSlider.value = String(flipX);
@@ -2159,6 +2513,13 @@ function updateMotionSpeed() {
   const speed = Number(motionSpeedSlider.value);
   scene.setMotion({ duration: LAB_MOTION_DURATION / speed });
   updateControlLabels();
+}
+
+function applySelectedWeight() {
+  if (!scene || selectedCardIds.size === 0) return;
+  const weight = Number(cardWeightSlider.value);
+  const selected = new Set(selectedCardIds);
+  applyLabCards(scene.snapshot().desired.cards.map((card) => selected.has(card.id) ? { ...card, weight } : card));
 }
 
 function selectedCards(state = scene.snapshot()) {
@@ -2373,6 +2734,7 @@ animationTestButton.addEventListener("click", runAnimationTest);
 motionSpeedSlider.addEventListener("input", updateMotionSpeed);
 [cardWidthSlider, cardHeightSlider].forEach((slider) => slider.addEventListener("input", () => queueControl("resize")));
 cardThicknessSlider.addEventListener("input", () => queueControl("thickness"));
+cardWeightSlider.addEventListener("input", applySelectedWeight);
 rotateSlider.addEventListener("input", () => {
   stopRotateAnimation();
   queueControl("rotate");
@@ -2396,13 +2758,10 @@ addCardButton.addEventListener("click", () => {
   const cards = sceneCards();
   const id = `cardinal-demo-${nextCardNumber}`;
   nextCardNumber += 1;
-  if (spawnZoneAuto && cards.length >= 3) {
-    spawnZone.value = "archive";
-    syncSpawnZoneColor();
-  }
+  const prototype = LAB_CARD_PROTOTYPES[Math.floor(Math.random() * LAB_CARD_PROTOTYPES.length)];
   cardZoneIds.set(id, spawnZone.value);
   cards.push({
-    ...baseCard,
+    ...structuredClone(prototype),
     id,
     template: shape.value,
     pose: { scale: defaultCardScale() },
@@ -2412,7 +2771,6 @@ addCardButton.addEventListener("click", () => {
 });
 
 spawnZone.addEventListener("change", () => {
-  spawnZoneAuto = false;
   syncSpawnZoneColor();
 });
 
@@ -2562,6 +2920,10 @@ dragDeniedCard.addEventListener("change", invalidateInteractionRules);
 touchDrag.addEventListener("change", () => startScene());
 touchSelection.addEventListener("change", () => startScene());
 dragPresentation.addEventListener("change", () => startScene());
+dragDangliness.addEventListener("input", updateControlLabels);
+dragDangliness.addEventListener("change", () => startScene());
+dragSnapDelay.addEventListener("input", updateControlLabels);
+dragSnapDelay.addEventListener("change", () => startScene());
 
 document.querySelector("#flip-selection").addEventListener("click", () => {
   stopContinuousFlip();
@@ -2588,7 +2950,7 @@ document.querySelector("#batch-fixture").addEventListener("click", () => {
   scene.invalidateRules();
   const zones = LAB_ZONE_DEFINITIONS.map(({ id, ...zone }) => ({
     ...zone, id, visible: true,
-    cardIds: id === "archive" ? [cards[0].id, cards[2].id] : id === "reserve" ? [cards[1].id, cards[3].id] : [],
+    cardIds: id === "lake" ? [cards[0].id, cards[2].id] : id === "river" ? [cards[1].id, cards[3].id] : [],
   }));
   for (const zone of zones) {
     zoneVisibility.set(zone.id, true);

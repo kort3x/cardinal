@@ -115,6 +115,19 @@ test("multiple-card requests retain all requested members", () => {
   scene.destroy();
 });
 
+test("drag lift temporarily enlarges the carried card and restores its scale", () => {
+  const { scene } = sceneWith({ rules: permissiveRules() });
+  const before = pose(scene, "a").scale;
+  const session = start(scene);
+
+  assert.equal(pose(scene, "a").scale, before * 1.12);
+  assert.equal(scene.snapshot().desired.cards[0].pose.scale ?? 1, before);
+
+  session.cancel("test cleanup");
+  assert.equal(pose(scene, "a").scale, before);
+  scene.destroy();
+});
+
 test("pickup during a move has no jump and preserves rotation and independent spin", () => {
   const timer = clock();
   const { scene } = sceneWith({ rules: permissiveRules(), reducedMotion: false, timer, duration: 100 });
@@ -152,6 +165,101 @@ test("drag updates move the visual preview without changing committed membership
   assert.equal(updated.candidate.allowed, true);
   assert.deepEqual(interactionSessions(scene).map(({ cardIds }) => cardIds), [["a"]]);
   session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("edge pickup hang stays disabled while the card remains pointer anchored", () => {
+  const { scene } = sceneWith({ rules: permissiveRules() });
+  const card = pose(scene, "a");
+  const session = scene.drag({
+    cardIds: ["a"],
+    point: { x: card.x - card.width * 0.45, y: card.y },
+  });
+  assert.equal(pose(scene, "a").tiltY, 0);
+
+  session.update({ point: { x: 1000, y: 600 } });
+  assert.equal(pose(scene, "a").tiltY, 0);
+
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("zero dangliness disables pickup and movement dangle", () => {
+  const timer = clock();
+  const scene = createCardScene({
+    motion: { clock: timer, reducedMotion: false },
+    interaction: { rules: permissiveRules(), dragHangFactor: 0 },
+  });
+  scene.apply(input());
+  const card = pose(scene, "a");
+  const session = scene.drag({
+    cardIds: ["a"],
+    point: { x: card.x - card.width * 0.45, y: card.y },
+  });
+  assert.equal(pose(scene, "a").tiltY, 0);
+
+  session.update({ point: { x: 1000, y: 600 } });
+  for (let frame = 0; frame < 12; frame += 1) timer.tick(16);
+  assert.equal(pose(scene, "a").angle, 0);
+  assert.equal(pose(scene, "a").tiltX, 0);
+  assert.equal(pose(scene, "a").tiltY, 0);
+
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("free pointer dragging turns cards upright until a zone target is found", () => {
+  const { scene } = sceneWith({ rules: permissiveRules() });
+  scene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
+  const session = start(scene);
+
+  session.update({ point: { x: 1000, y: 600 } });
+  assert.equal(pose(scene, "a").angle, 0);
+
+  session.update({ toZoneId: "destination", index: 0 });
+  assert.equal(pose(scene, "a").angle, 35);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("free dragging tilts with direction changes and clears tilt at a target", () => {
+  const { scene, timer } = sceneWith({ rules: permissiveRules(), reducedMotion: false });
+  const initial = pose(scene, "a");
+  const session = scene.drag({ cardIds: ["a"], point: { x: initial.x, y: initial.y } });
+
+  session.update({ point: { x: initial.x + 700, y: initial.y } });
+  for (let frame = 0; frame < 8; frame += 1) timer.tick(16);
+  assert.equal(pose(scene, "a").tiltX, 0);
+  assert.ok(pose(scene, "a").tiltY > 0);
+
+  session.update({ point: { x: initial.x - 500, y: initial.y } });
+  for (let frame = 0; frame < 8; frame += 1) timer.tick(16);
+  assert.ok(pose(scene, "a").tiltY < 0);
+
+  session.update({ toZoneId: "destination", index: 0 });
+  for (let frame = 0; frame < 20; frame += 1) timer.tick(16);
+  assert.equal(pose(scene, "a").tiltX, 0);
+  assert.equal(pose(scene, "a").tiltY, 0);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("pending drops wait for the configured snap delay before landing", () => {
+  const timer = clock();
+  const scene = createCardScene({
+    motion: { clock: timer, reducedMotion: false, duration: 100 },
+    interaction: { rules: permissiveRules(), dragSnapDelay: 80 },
+  });
+  scene.apply(input());
+  const session = scene.drag({ cardIds: ["a"], primaryCardId: "a", point: { x: 40, y: 50 } });
+  session.update({ toZoneId: "destination", index: 0 });
+  const intent = session.release();
+  const held = pose(scene, "a");
+  timer.tick(79);
+  assert.equal(pose(scene, "a").x, held.x);
+  timer.tick(21);
+  assert.notEqual(pose(scene, "a").x, held.x);
+  scene.resolveDrop(intent.id, { accepted: false });
   scene.destroy();
 });
 
@@ -250,6 +358,61 @@ test("same-zone insertion indices are interpreted after removing the dragged car
   assert.equal(scene.resolveDrop(intent.id, { accepted: true }).status, "accepted");
   assert.deepEqual(scene.snapshot().desired.zones[0].cardIds, ["b", "c", "d", "a"]);
   scene.destroy();
+});
+
+test("same-zone hand previews recompute depth order", () => {
+  const { scene } = sceneWith({ rules: permissiveRules() });
+  scene.apply(input({
+    source: ["a", "b", "c", "d"],
+    destination: [],
+    cards: ["a", "b", "c", "d"],
+    zones: { source: { arrangement: { type: "hand", spread: 60, radius: 240, curve: "concave" } } },
+  }));
+  const session = start(scene);
+  session.update({ toZoneId: "source", index: 3 });
+  const visual = new Map(scene.snapshot().visual.map(({ cardId, pose: currentPose }) => [cardId, currentPose]));
+  assert.ok(visual.get("b").z < visual.get("c").z);
+  assert.ok(visual.get("c").z < visual.get("d").z);
+  assert.ok(visual.get("d").z < visual.get("a").z);
+  assert.ok(visual.get("b").drawOrder < visual.get("c").drawOrder);
+  assert.ok(visual.get("c").drawOrder < visual.get("d").drawOrder);
+  assert.ok(visual.get("d").drawOrder < visual.get("a").drawOrder);
+  assert.ok(visual.get("b").angle > visual.get("c").angle);
+  assert.ok(visual.get("c").angle > visual.get("d").angle);
+  assert.ok(visual.get("d").angle > visual.get("a").angle);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("an active drag renders above every arrangement and restores its depth on cancel", () => {
+  const arrangements = ["grid", "row", "column", "splay", "pile", "stack", "hand"];
+  for (const type of arrangements) {
+    const rendered = new Map();
+    const renderer = () => ({
+      type: "test",
+      update(cardValue, renderedPose) { rendered.set(cardValue.id, { ...renderedPose }); },
+      remove() {},
+      render() {},
+      destroy() {},
+      sceneToClient: (point) => ({ x: point.x, y: point.y }),
+      clientToScene: (point) => ({ x: point.x, y: point.y }),
+    });
+    const { scene } = sceneWith({
+      rules: permissiveRules(),
+      renderer,
+    });
+    scene.apply(input({
+      zones: { source: { arrangement: { type, gap: 10, spread: 60, radius: 240, curve: "concave" } } },
+    }));
+    const restingDepth = new Map(scene.snapshot().visual.map(({ cardId, pose: currentPose }) => [cardId, currentPose.z]));
+    const session = start(scene, ["a"]);
+    const draggedDepth = rendered.get("a").z;
+    for (const id of ["b", "c", "d"]) assert.ok(draggedDepth > rendered.get(id).z, `${type}: dragged card should render above ${id}`);
+    assert.equal(pose(scene, "a").z, restingDepth.get("a"), `${type}: logical depth should remain unchanged`);
+    session.cancel("test cleanup");
+    assert.equal(rendered.get("a").z, restingDepth.get("a"), `${type}: cancel should restore resting depth`);
+    scene.destroy();
+  }
 });
 
 test("an ineligible foreground zone blocks a zone behind it, while transparent targeting passes through", () => {
@@ -758,8 +921,8 @@ test('preserve mode reprojects each frozen screen offset at its own depth throug
   session.update({ point: unproject(moved) });
   const p = project(pose(scene, 'd'));
   const s = project(pose(scene, 'b'));
-  assert.ok(Math.abs(p.x - (moved.x - 7)) < 1e-9);
-  assert.ok(Math.abs(p.y - (moved.y + 9)) < 1e-9);
+  assert.ok(Math.abs(p.x - (moved.x - 7 * 1.12)) < 1e-9);
+  assert.ok(Math.abs(p.y - (moved.y + 9 * 1.12)) < 1e-9);
   assert.ok(Math.abs((s.x - p.x) - (secondary.x - primary.x)) < 1e-9);
   assert.ok(Math.abs((s.y - p.y) - (secondary.y - primary.y)) < 1e-9);
   for (const id of ['b', 'd']) assert.equal(pose(scene, id).z, before.get(id).z);
@@ -780,8 +943,8 @@ test('compact carry animates on the engine clock and pending uses actual destina
   assert.ok(middle > 18 && middle < original);
   timer.tick(90);
   assert.equal(pose(scene, 'd').x - pose(scene, 'b').x, 18);
-  assert.equal(pose(scene, 'b').x, 130);
-  assert.equal(pose(scene, 'b').y, 50);
+  assert.equal(pose(scene, 'b').x, 129.16);
+  assert.equal(pose(scene, 'b').y, 51.08);
   session.update({ point: { x: 870, y: 120 } });
   const intent = session.release();
   assert.equal(session.snapshot().phase, 'pending');
@@ -930,7 +1093,7 @@ test('every moving cohort member keeps independent rotation, scale and spin on p
   }
   timer.tick(100);
   assert.equal(pose(scene, 'b').angle, 45);
-  assert.equal(pose(scene, 'd').scale, 1.5);
+  assert.equal(pose(scene, 'd').scale, 1.5 * 1.12);
   assert.notEqual(pose(scene, 'b').flipX, before.get('b').flipX);
   assert.notEqual(pose(scene, 'd').flipY, before.get('d').flipY);
   assert.equal((await movement.finished)[0].status, 'superseded');
@@ -985,13 +1148,13 @@ test('invalid cohort requests leave an already active gesture intact', () => {
   interaction.destroy();
 });
 
-test('a single compact card needs no bundle animation frames', () => {
+test('a single compact card still receives the drag lift', () => {
   const timer = clock();
   const scene = createCardScene({ motion: { clock: timer }, interaction: { rules: permissiveRules(), dragPresentation: 'compact' } });
   scene.apply({ cards: [card('a')], zones: [zone('source', ['a'])] });
   const session = start(scene);
-  assert.equal(timer.pending(), 0);
-  assert.equal(scene.snapshot().settling, false);
+  assert.equal(timer.pending() > 0, true);
+  assert.equal(scene.snapshot().settling, true);
   session.cancel();
   scene.destroy();
 });

@@ -12,6 +12,11 @@ export const DEFAULT_POSE = Object.freeze({
 
 const copy = (value) => structuredClone(value);
 
+export const ARRANGEMENT_TYPES = Object.freeze(["grid", "row", "column", "splay", "pile", "stack", "hand"]);
+const ALIGNMENTS = new Set(["start", "center", "end"]);
+const OVERFLOW_POLICIES = new Set(["scroll", "overlap", "fit", "reject"]);
+const ZONE_MOTION_SPEEDS = ["positionSpeed", "orientationSpeed", "scaleSpeed", "faceSpeed"];
+
 function normalizeDimensions(dimensions) {
   if (!dimensions || !Number.isFinite(dimensions.width) || !Number.isFinite(dimensions.height)) {
     throw new TypeError("Card dimensions require finite width and height");
@@ -29,6 +34,13 @@ function normalizeThickness(thickness) {
   return thickness;
 }
 
+function normalizeWeight(weight) {
+  if (!Number.isFinite(weight) || weight <= 0) {
+    throw new RangeError("Card weight must be positive and finite");
+  }
+  return weight;
+}
+
 function normalizeSizing(sizing) {
   if (sizing === undefined) return undefined;
   if (!sizing || typeof sizing !== "object") throw new TypeError("Card sizing requires an object");
@@ -43,6 +55,19 @@ function normalizeSizing(sizing) {
     throw new RangeError("Card sizing minHeight cannot exceed maxHeight");
   }
   return { ...copy(sizing), mode };
+}
+
+function normalizeZoneMotion(motion) {
+  if (motion === undefined) return undefined;
+  if (!motion || typeof motion !== "object" || Array.isArray(motion)) {
+    throw new TypeError("Zone motion requires an object");
+  }
+  for (const name of ZONE_MOTION_SPEEDS) {
+    if (motion[name] !== undefined && (!Number.isFinite(motion[name]) || motion[name] <= 0)) {
+      throw new RangeError(`Zone motion ${name} must be positive and finite`);
+    }
+  }
+  return copy(motion);
 }
 
 function normalizeBackgroundImage(backgroundImage) {
@@ -125,6 +150,50 @@ export function normalizePose(pose = {}) {
   return result;
 }
 
+export function normalizeArrangement(arrangement = { type: "grid", gap: 16 }) {
+  if (!arrangement || typeof arrangement !== "object" || Array.isArray(arrangement)) {
+    throw new TypeError("Zone arrangement requires an object");
+  }
+  const type = arrangement.type ?? "grid";
+  if (!ARRANGEMENT_TYPES.includes(type)) throw new TypeError(`Unknown arrangement: ${type}`);
+  const result = { ...copy(arrangement), type };
+  if (type === "hand" && result.curve === undefined) result.curve = "concave";
+  if (result.gap !== undefined && (!Number.isFinite(result.gap) || result.gap < 0)) {
+    throw new RangeError("Arrangement gap must be non-negative");
+  }
+  if (result.depthStep !== undefined && (!Number.isFinite(result.depthStep) || result.depthStep < 0)) {
+    throw new RangeError("Arrangement depthStep must be finite and non-negative");
+  }
+  const alignment = result.alignment ?? result.align;
+  if (alignment !== undefined && !ALIGNMENTS.has(alignment)) {
+    throw new TypeError(`Unknown arrangement alignment: ${alignment}`);
+  }
+  if (result.overflow !== undefined && !OVERFLOW_POLICIES.has(result.overflow)) {
+    throw new TypeError(`Unknown arrangement overflow policy: ${result.overflow}`);
+  }
+  if (result.minScale !== undefined && (!Number.isFinite(result.minScale) || result.minScale <= 0 || result.minScale > 1)) {
+    throw new RangeError("Arrangement minScale must be positive and no greater than 1");
+  }
+  for (const name of ["spread", "overlap", "angle", "step", "radius"]) {
+    if (result[name] !== undefined && (!Number.isFinite(result[name]) || result[name] < 0)) {
+      throw new RangeError(`Arrangement ${name} must be finite and non-negative`);
+    }
+  }
+  if (result.columns !== undefined && (!Number.isInteger(result.columns) || result.columns <= 0)) {
+    throw new RangeError("Arrangement columns must be a positive integer");
+  }
+  if (result.axis !== undefined && result.axis !== "x" && result.axis !== "y") {
+    throw new TypeError(`Unknown arrangement axis: ${result.axis}`);
+  }
+  if (result.order !== undefined && result.order !== "forward" && result.order !== "reverse") {
+    throw new TypeError(`Unknown arrangement order: ${result.order}`);
+  }
+  if (result.curve !== undefined && result.curve !== "concave" && result.curve !== "convex") {
+    throw new TypeError(`Unknown arrangement curve: ${result.curve}`);
+  }
+  return result;
+}
+
 export function normalizeSnapshot(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.cards) || !Array.isArray(snapshot.zones)) {
     throw new TypeError("A scene snapshot requires cards and zones arrays");
@@ -154,6 +223,7 @@ export function normalizeSnapshot(snapshot) {
     const normalizedCard = { ...copy(card), pose: normalizePose(card.pose) };
     if (card.dimensions !== undefined) normalizedCard.dimensions = normalizeDimensions(card.dimensions);
     if (card.thickness !== undefined) normalizedCard.thickness = normalizeThickness(card.thickness);
+    if (card.weight !== undefined) normalizedCard.weight = normalizeWeight(card.weight);
     if (card.sizing !== undefined) normalizedCard.sizing = normalizeSizing(card.sizing);
     normalizedCard.faces = Object.fromEntries(Object.entries(card.faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
     if (card.back) normalizedCard.back = normalizeFace(card.back);
@@ -184,13 +254,11 @@ export function normalizeSnapshot(snapshot) {
     if (zone.cardIds.length > (zone.capacity ?? Infinity)) throw new RangeError(`Zone ${zone.id} exceeds capacity`);
     if (zone.visible !== undefined && typeof zone.visible !== "boolean") throw new TypeError(`Zone ${zone.id} visible must be boolean`);
     if (zone.dropTarget !== undefined && !['surface', 'transparent'].includes(zone.dropTarget)) throw new TypeError(`Zone ${zone.id} dropTarget must be surface or transparent`);
-    const arrangement = zone.arrangement ?? { type: "grid", gap: 16 };
-    if (arrangement.type !== "grid") throw new TypeError(`Unknown arrangement: ${arrangement.type}`);
-    if (arrangement.gap !== undefined && (!Number.isFinite(arrangement.gap) || arrangement.gap < 0)) throw new RangeError(`Zone ${zone.id} gap must be non-negative`);
-    if (arrangement.depthStep !== undefined && (!Number.isFinite(arrangement.depthStep) || arrangement.depthStep < 0)) {
-      throw new RangeError(`Zone ${zone.id} arrangement.depthStep must be finite and non-negative`);
-    }
-    return { ...copy(zone), arrangement };
+    if (zone.scale !== undefined && (!Number.isFinite(zone.scale) || zone.scale <= 0)) throw new RangeError(`Zone ${zone.id} scale must be positive and finite`);
+    if (zone.faceUp !== undefined && typeof zone.faceUp !== "boolean") throw new TypeError(`Zone ${zone.id} faceUp must be boolean`);
+    const arrangement = normalizeArrangement(zone.arrangement);
+    const motion = normalizeZoneMotion(zone.motion);
+    return { ...copy(zone), arrangement, ...(motion === undefined ? {} : { motion }) };
   });
 
   const cardIds = new Set();
@@ -206,6 +274,16 @@ export function normalizeSnapshot(snapshot) {
   }
   for (const card of cards) {
     if (cardIds.has(card.id) === false) throw new Error(`Card ${card.id} has no zone membership`);
+  }
+
+  for (const zone of zones) {
+    if (zone.faceUp === undefined) continue;
+    for (const cardId of zone.cardIds) {
+      const card = cards.find((candidate) => candidate.id === cardId);
+      card.faceUp = zone.faceUp;
+      delete card.pose.flipX;
+      delete card.pose.flipY;
+    }
   }
 
   return { cards, zones };

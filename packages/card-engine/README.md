@@ -33,13 +33,13 @@ remain in the same renderer layer when their membership changes.
 scene.apply({
   cards,
   zones: [
-    { id: "archive", anchor: "#archive-area", depth: 0, cardIds: ["card-7"], capacity: 6 },
-    { id: "reserve", geometry: { x: 40, y: 400, width: 600, height: 350, depth: 0 }, cardIds: [] },
+    { id: "lake", anchor: "#lake-area", depth: 0, cardIds: ["card-7"], capacity: 6 },
+    { id: "river", geometry: { x: 40, y: 400, width: 600, height: 350, depth: 0 }, cardIds: [] },
   ],
 });
 await scene.transact([
-  { type: "move", cardId: "card-7", to: "reserve", index: 0 },
-  { type: "zone", zoneId: "reserve", changes: { capacity: 8 } },
+  { type: "move", cardId: "card-7", to: "river", index: 0 },
+  { type: "zone", zoneId: "river", changes: { capacity: 8 } },
 ]).finished;
 ```
 
@@ -55,7 +55,7 @@ removing every member from its source, including members already in the target:
 
 ```js
 await scene.transact([
-  { type: "moveBatch", cardIds: ["card-7", "card-8"], to: "reserve", index: 0 },
+  { type: "moveBatch", cardIds: ["card-7", "card-8"], to: "river", index: 0 },
 ]).finished;
 ```
 
@@ -65,10 +65,57 @@ previously had absolute positions. The completion handle includes every member
 and displaced neighbor; final capacity validation permits exchanges between full
 zones in one transaction. Invalid transactions leave the whole scene unchanged.
 
-Grid layout uses the largest unscaled width and height in the zone as track sizes
-and compacts its ordered IDs after a transfer. `arrangement.gap` defaults to 16.
-Displaced neighbors animate together and participate in transaction completion.
-Independent rotation, scale, and spin channels survive geometry retargeting.
+Zones support `grid`, aligned `row` and `column`, `splay`, deterministic `pile`,
+ordered `stack`, and handheld fan `hand` arrangements. `arrangement.gap`
+defaults to 16; use
+`alignment: "start" | "center" | "end"`, `spread`, `overlap`, `step`,
+`depthStep`, `axis`, `radius`, `curve: "convex" | "concave"`, and
+`order: "forward" | "reverse"` for the arrangement's geometry. Rows and
+columns use each card's actual dimensions, while piles use a stable card-ID
+scatter, splay keeps cards on a line while rotating them across the spread,
+stacks use the zone's membership order, and hands fan cards around a shared
+grip arc. For `splay`, `spread` is the total rotation angle. For `hand`, it is
+the maximum arc angle; smaller hands automatically use a narrower proportion of it.
+
+Set `overflow` to `scroll`, `overlap`, `fit`, or `reject`. `fit` applies one
+bounded `layoutScale` to the arrangement and honors `minScale`; `reject` throws
+before a transaction commits. The renderer applies that layout scale without
+changing each card's authored `pose.scale`. Displaced neighbors animate together
+and participate in transaction completion. Independent rotation, scale, and spin
+channels survive geometry retargeting.
+
+Zones may also govern the target card presentation. `scale` sets the card scale
+while it belongs to the zone, and optional `faceUp: true` or `faceUp: false`
+sets the physical face side for cards entering the zone. `motion` contains
+independent speed multipliers for alignment channels; omitted values default to
+`1.5×`, `1` uses the scene motion duration, values above `1` are faster, and
+values below `1` are slower:
+
+```js
+{
+  id: "river",
+  geometry: { x: 40, y: 400, width: 600, height: 350, depth: 0 },
+  cardIds: [],
+  scale: 0.75,
+  faceUp: false,
+  motion: {
+    positionSpeed: 1.5,
+    orientationSpeed: 0.8,
+    scaleSpeed: 2,
+    faceSpeed: 1,
+  },
+}
+```
+
+The zone speed settings apply to position, arrangement orientation, target
+scale, and face transitions independently. Set a channel to `1` when it should
+use the scene's base motion duration.
+
+Cards may provide an optional positive `weight`, which defaults to `1`. Target
+position, orientation, scale, and face transitions multiply their duration by
+the card's weight: `2` takes twice as long and `0.5` takes half as long. Direct
+pointer dragging remains attached to the pointer; weight affects the settling
+animation after a target is chosen and the inertia of free-drag rotation.
 
 Use `scene.setMotion({ duration })` to change the duration used by future
 animated transitions without rebuilding the scene. Transitions already in
@@ -90,9 +137,9 @@ preserve their CSS footprint; spatial dimensions remain fixed. Depth is signed
 world Z: the camera sits on positive Z, so a more negative depth is farther away.
 WebGL performs depth projection once, without another artificial card scale.
 
-Open `/examples/card-engine-lab/zones.html` for the six-card, three-zone lab.
-Advanced overflow policies and other arrangements belong to later slices;
-this grid implementation does not silently scale cards to fit.
+Open `/examples/card-engine-lab/zones.html` for the six-card, three-zone lab, or
+use the main lab's Zones controls to cycle a populated zone through every
+arrangement, reverse its explicit order, and exercise overflow handling.
 
 ## Selection and drag interaction
 
@@ -148,6 +195,25 @@ ID order. `presentation: "preserve" | "compact"` overrides carrying presentation
 for one session. Compact offsets affect active carrying only: pending approval
 always previews the actual solved destination slots. Cancellation returns every
 survivor and displaced neighbor to the latest committed source layouts.
+Cards are temporarily rendered at `1.12×` scale while carried, then return to
+their resolved scale when the drag ends. This lift is visual interaction state
+and does not change the authored card scale.
+During free dragging, filtered pointer acceleration drives a bounded local tilt
+and in-plane angular response. Direction changes carry momentum and settle back
+through damping; constant-speed movement does not keep increasing the tilt. The
+card remains anchored at the pointer grab point. Edge pickup hang is currently
+disabled while its calibration is being retried. Snapping into a target waits
+for the configured delay, then uses a smooth position landing and weight-scaled orientation
+overswing before settling on the resolved pose. The response clears when the
+drag ends.
+The interaction option `dragHangFactor` scales the pickup and movement dangle;
+the response is normalized so weight `2.25` with a factor of `2` is the engine
+baseline for movement dangle. Other weights scale by the square root of
+`weight / 2.25`, and the factor scales linearly from that reference. A factor
+of `0` disables all drag-induced dangle. Edge hang remains tracked in
+[issue #19](https://github.com/kort3x/cardinal/issues/19).
+`dragSnapDelay` adds a millisecond pause before pending-drop motion; it defaults
+to `0` in the engine.
 
 Configure selection through `selection.canSelect({ cardId, zoneId, snapshot })`,
 returning `{ allowed, reason? }`, plus `multiple`, `max`, and `scope: "scene" | "zone"`.
@@ -326,9 +392,11 @@ the solver increases it when adjacent cards' scaled 3D thickness requires more
 room. A zone may set another finite, non-negative minimum. The scene also checks
 resolved card footprints across zones; when cards overlap in X/Y, it creates a
 separate physical layer even if they started in different zones. `drawOrder` is
-resolved across the complete scene, and WebGL clears the previous card's depth
-layer before drawing the next card so intentional overlap remains deterministic
-during rotation and flipping.
+resolved across the complete scene, so intentional overlap remains deterministic
+during rotation and flipping. While a drag or pending drop is active, the dragged
+cohort also receives a temporary render-only front depth; its logical `z` and zone
+membership remain unchanged, and the normal arrangement depth returns when the
+interaction ends.
 
 Selection and target intent are engine-owned but do not commit application moves:
 

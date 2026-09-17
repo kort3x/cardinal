@@ -27,8 +27,8 @@ test("transfers commit membership once and animate both grids' displaced neighbo
   const transition = scene.transact([{ type: "move", cardId: "a", to: "destination", index: 0 }]);
   assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), [["b"], ["a", "c"]]);
   timer.tick(50);
-  assert.equal(pose(scene, "b").x, 85);
-  assert.equal(pose(scene, "c").x, 485);
+  assert.equal(pose(scene, "b").x, 62.5);
+  assert.equal(pose(scene, "c").x, 507.5);
   timer.tick(50);
   await transition.finished;
   assert.equal(pose(scene, "a").x, 440);
@@ -172,7 +172,7 @@ test("snapshot reconciliation of zone geometry retains independent motion channe
   next.zones[0].geometry.x += 100;
   scene.apply(next);
   assert.equal(spin.active, true);
-  assert.equal(pose(scene, "b").angle, 30);
+  assert.equal(pose(scene, "b").angle, 45);
   timer.tick(50);
   assert.equal(pose(scene, "b").angle, 60);
   timer.tick(50);
@@ -188,7 +188,7 @@ test("zone depth updates animate in place and finish only after neighbors settle
   const result = scene.transact([{ type: "zone", zoneId: "source", changes: { geometry: { ...initial().zones[0].geometry, depth: 100 } } }]);
   assert.equal(pose(scene, "a").z, 0);
   timer.tick(50);
-  assert.equal(pose(scene, "a").z, 50);
+  assert.equal(pose(scene, "a").z, 75);
   timer.tick(50); await result.finished;
   assert.equal(pose(scene, "a").z, 100);
   scene.destroy();

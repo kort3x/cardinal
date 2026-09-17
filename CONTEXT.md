@@ -8,7 +8,9 @@ permissions, persistence, and networking.
 
 **Card**:
 A stable visual object with an identity, named content faces, a concealed face,
-presentation, and a current pose.
+presentation, and a current pose. An optional weight describes how strongly it
+resists target motion; it affects settling animation time while leaving zone
+membership and depth ownership to the zone.
 
 **Face**:
 A card presentation state: a named content face or the concealed face. Face
@@ -43,6 +45,12 @@ realization.
 An identified area that owns card membership, ordering, and arrangement policy.
 Its ordered membership resolves each card's local depth layer and draw order;
 cards do not choose their own stacking depth.
+
+**Arrangement**:
+The policy that resolves the positions, orientations, and local depth of cards
+inside a zone. Supported forms include grids, aligned rows and columns, splay,
+piles, stacks, and held hands. Splay keeps cards on a line while rotating them
+across a spread; hand follows a shared grip arc.
 
 ## Visual model
 

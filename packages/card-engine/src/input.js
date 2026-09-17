@@ -557,7 +557,9 @@ export function createInputAdapter({ element, scene, options = {}, selectionCont
       press = null;
       return;
     }
-    const point = toScenePoint(press.latest);
+    // The pointer-down position is the physical pickup point. The first
+    // threshold-crossing move is only what turns the press into a drag.
+    const point = toScenePoint(press.start);
     if (!point || !startSession(press.shell, press.cardId, point, "pointer", press.pointerId, press.pointerType, press)) {
       pointerIds.delete(press.pointerId);
       press = null;

@@ -242,32 +242,32 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   state = await evaluate(stateExpression);
   const cardId = state.zones.flatMap(({ cardIds }) => cardIds ?? [])[0] ?? "cardinal-demo";
   const cardPoint = () => evaluate(scenePointExpression("card"));
-  const archivePoint = () => evaluate(scenePointExpression("zone", "archive"));
-  const workbenchPoint = () => evaluate(scenePointExpression("zone", "workbench"));
+  const lakePoint = () => evaluate(scenePointExpression("zone", "lake"));
+  const oceanPoint = () => evaluate(scenePointExpression("zone", "ocean"));
 
   await evaluate(setExpression("#drag-denied-zone", "", "change"));
   const firstCardPoint = await cardPoint();
-  const firstArchivePoint = await archivePoint();
-  await actions.dragStart(firstCardPoint, firstArchivePoint, 240);
+  const firstLakePoint = await lakePoint();
+  await actions.dragStart(firstCardPoint, firstLakePoint, 240);
   await actions.up();
   await actions.release();
   await delay(850);
   state = await evaluate(stateExpression);
-  record("pointer drag allowed transfer", state, (value) => zoneContainsCard(value, "archive", cardId)
+  record("pointer drag allowed transfer", state, (value) => zoneContainsCard(value, "lake", cardId)
     && value.interaction.sessions.length === 0);
 
-  await evaluate(setExpression("#drag-denied-zone", "workbench", "change"));
-  await actions.dragStart(await cardPoint(), await workbenchPoint(), 240);
+  await evaluate(setExpression("#drag-denied-zone", "ocean", "change"));
+  await actions.dragStart(await cardPoint(), await oceanPoint(), 240);
   await delay(120);
   state = await evaluate(stateExpression);
   const deniedSession = interactionSession(state);
-  record("pointer drag exposes denied candidate", state, () => deniedSession?.candidate?.toZoneId === "workbench"
+  record("pointer drag exposes denied candidate", state, () => deniedSession?.candidate?.toZoneId === "ocean"
     && deniedSession.candidate.allowed === false && Boolean(deniedSession.candidate.reason));
   await actions.up();
   await actions.release();
   await delay(450);
   state = await evaluate(stateExpression);
-  record("denied pointer transfer preserves membership", state, (value) => zoneContainsCard(value, "archive", cardId)
+  record("denied pointer transfer preserves membership", state, (value) => zoneContainsCard(value, "lake", cardId)
     && value.interaction.sessions.length === 0);
 
   await navigate(labUrl);
@@ -278,16 +278,16 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   await waitForStable();
   await evaluate(setExpression("#drag-denied-zone", "", "change"));
   const touchCardPoint = await cardPoint();
-  const touchArchivePoint = await archivePoint();
+  const touchLakePoint = await lakePoint();
   if (touchActions.supported === false) {
     checks.push({ label: "touch drag allowed transfer", pass: false, skipped: true, status: touchActions.unsupportedReason });
   } else {
-    await touchActions.dragStart(touchCardPoint, touchArchivePoint, 240);
+    await touchActions.dragStart(touchCardPoint, touchLakePoint, 240);
     await touchActions.up();
     await touchActions.release();
     await delay(850);
     state = await evaluate(stateExpression);
-    record("touch drag allowed transfer", state, (value) => zoneContainsCard(value, "archive", cardId)
+    record("touch drag allowed transfer", state, (value) => zoneContainsCard(value, "lake", cardId)
       && value.interaction.sessions.length === 0);
   }
 
@@ -304,7 +304,7 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   await actions.keyPress("\uE00C");
   await delay(220);
   state = await evaluate(stateExpression);
-  record("keyboard Escape cancels without transfer", state, (value) => zoneContainsCard(value, "reserve", cardId)
+  record("keyboard Escape cancels without transfer", state, (value) => zoneContainsCard(value, "river", cardId)
     && value.interaction.sessions.length === 0);
 
   if (!await evaluate(focusCardExpression(cardId))) throw new Error("Keyboard card shell did not receive focus");
@@ -314,7 +314,7 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   await actions.release();
   await delay(850);
   state = await evaluate(stateExpression);
-  record("keyboard transfer uses the allowed destination", state, (value) => zoneContainsCard(value, "workbench", cardId)
+  record("keyboard transfer uses the allowed destination", state, (value) => zoneContainsCard(value, "ocean", cardId)
     && value.interaction.sessions.length === 0);
 
   const batch = await runBatchAcceptance({

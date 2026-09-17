@@ -99,7 +99,7 @@ needed for the package/examples are permitted; existing application wiring is ou
 | --- | --- |
 | Card | Stable ID, content faces, optional logical face cycle, template, active face, independent faceUp/faceDown state |
 | Zone | Arbitrary ID, spatial area and depth, membership, arrangement, presentation policy |
-| Arrangement | Grid, aligned row/column, fan, pile, or stack |
+| Arrangement | Grid, aligned row/column, splay, pile, stack, or hand |
 | Presentation | Visibility, internal layout, and content-driven dimensions of the card |
 | Attachment | Independently identified card element added, updated, or removed at runtime |
 | Pose | Position, orientation, uniform scale, pivot, and projected size of a card at an instant |
@@ -181,8 +181,10 @@ stage coordinates before projection/layout; never mix viewport rectangles and
 stage-space poses in a transition. Camera changes, page scrolling, viewport resizing,
 or moved anchors update that geometry and continuously retarget resting cards.
 During a drag, the card stays attached to the pointer while zones and insertion
-previews update beneath it. A drop uses current geometry; cancellation returns to
-the newly solved committed rest pose.
+previews update beneath it. Picking up near a horizontal edge adds a subtle
+weight-bearing perspective tilt. A drop uses current geometry and gives the card
+a weight-scaled overswing before settling; cancellation returns to the newly
+solved committed rest pose.
 
 Zones may intentionally overlap. The frontmost visible, non-transparent zone
 surface receives a drop attempt, even when project rules deny that destination.
@@ -355,7 +357,7 @@ velocity. Use one motion driver per animated property. Start with a deterministi
 time-based interpolator that can be sampled in tests; compare rendering strategies
 in the first lab milestone before committing to a backend.
 
-Layouts define gap, alignment, fan spread, overlap, and deterministic ordering.
+Layouts define gap, alignment, splay spread, overlap, and deterministic ordering.
 When cards overlap, the zone's ordered membership remains the source of truth for
 bottom-to-top order. Arrangement resolves a small local depth separation and the
 scene resolves a deterministic draw order across zones; motion operations preserve
@@ -381,7 +383,7 @@ visual state while other active operations continue toward their existing target
 An operation is never implicitly queued until movement finishes.
 
 - **Rotation:** turn the card within the stage plane, with optional local x/y tilt
-  for perspective effects. Layout orientation (such as a fan angle) composes with
+  for perspective effects. Layout orientation (such as a splay angle) composes with
   an explicit card rotation. A rotate command sets an absolute local angle;
   animations use the shortest path by default and allow explicit direction and
   full turns for spins. Center is the default pivot; normalized local pivots may
@@ -478,6 +480,15 @@ cuboid, keeps both face surfaces attached, and causes the arrangement solver to
 recalculate physical layer separation using the new thickness. Thickness is
 independent of uniform visual scale; scale multiplies the configured thickness
 when calculating rendered depth.
+
+Cards may also provide a positive finite `weight`, defaulting to `1`. The
+weight multiplies the duration of target position, orientation, scale, and face
+transitions. During free dragging, movement dangle response uses the normalized
+baseline `sqrt(weight / 2.25) * (dragHangFactor / 2)`, so weight `2.25` and
+factor `2` are the reference response. Edge pickup hang is currently disabled
+while its calibration is retried in issue #19. Weight does not change the
+resolved target pose, layout depth, or the direct pointer attachment during a
+drag.
 
 Movement alone preserves the current internal geometry. Explicit content or
 presentation changes may reshape the card, including during movement. Depth uniformly scales
@@ -753,9 +764,22 @@ At pickup, sample every member's current pose. Preserve offsets from the primary
 card by default so the selected cards follow the pointer without jumping into a
 new arrangement. A project can opt into an animated compact drag bundle for widely
 separated selections. Both preserve individual scene shells, face, and attachments.
+Temporarily render each carried card at `1.12×` its resolved scale to communicate
+that it has been lifted from the table, then return it to the resolved scale when
+the gesture ends. This presentation effect does not mutate authored card scale.
+During free dragging, derive filtered pointer acceleration and use it to drive
+bounded local tilt and in-plane angular momentum. Direction changes carry
+momentum and settle through damping; constant-speed movement does not accumulate
+tilt. Keep the card's grab point anchored to the pointer while applying the
+rotation. Keep edge pickup hang disabled while its calibration is retried, and
+clear the temporary physics when the gesture ends. Pending target motion may pause before landing,
+then uses smooth position easing and weighted orientation overswing.
 The position channel of each member follows the drag; its independent rotate,
 scale, and flip channels continue. Give visible count/selection feedback and expose
-the count accessibly. Drag cohort visuals never obscure destination hit testing.
+the count accessibly. During the active drag and any pending approval, elevate the
+cohort in the render layer for every arrangement type without changing logical
+membership or the resolved resting depth. Drag cohort visuals never obscure
+destination hit testing.
 
 Resolve target positions for the entire batch with one arrangement preview, including
 space for all members and displaced neighbors. Within-zone source order is retained;
@@ -966,7 +990,7 @@ its business meaning.
    dealing remains responsive; superseding one operation preserves independent
    channels; accelerating/skipping produces the same committed state, correct
    completion results, and no late callbacks. Use mock cue consumers initially.
-4. **All arrangements.** Aligned, fan, pile, stack, capacity and overflow policies.
+4. **All arrangements.** Aligned, splay, pile, stack, capacity and overflow policies.
    Gate: deterministic layout, correct stack order, stable targets under population
    changes, and no accidental cross-zone overflow.
    Include mixed card dimensions, CSS-anchored and spatial zones in the same stage,

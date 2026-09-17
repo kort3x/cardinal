@@ -19,7 +19,7 @@ renderer is still being validated. CSS fallback work is deferred to [#16](https:
 | 02 | [#3](https://github.com/kort3x/cardinal/issues/3) | Move cards between responsive zones with stable grid placement | #2 |
 | 03 | [#4](https://github.com/kort3x/cardinal/issues/4) | Drag a card across zones under project-defined rules | #3 |
 | 04 | [#5](https://github.com/kort3x/cardinal/issues/5) | Select and drag several cards as one project-approved batch | #4 |
-| 05 | [#6](https://github.com/kort3x/cardinal/issues/6) | Arrange cards as rows, fans, piles, and ordered stacks | #3 |
+| 05 | [#6](https://github.com/kort3x/cardinal/issues/6) | Arrange cards as rows, splay arrangements, piles, and ordered stacks | #3 |
 | 06 | [#7](https://github.com/kort3x/cardinal/issues/7) | Inspect cards and switch content faces without losing state | #4 |
 | 07 | [#8](https://github.com/kort3x/cardinal/issues/8) | Add or hide card elements and animate the card's changing shape | #3 |
 | 08 | [#9](https://github.com/kort3x/cardinal/issues/9) | Attach live stamps, counters, and stickers to cards | #8 |

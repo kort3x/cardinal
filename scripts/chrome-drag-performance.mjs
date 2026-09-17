@@ -151,7 +151,7 @@ export async function runDragPerformanceScenario({ command }) {
       const zones = original.desired.zones.map((zone) => ({
         ...structuredClone(zone),
         visible: true,
-        cardIds: zone.id === "reserve" ? cardIds : [],
+        cardIds: zone.id === "river" ? cardIds : [],
       }));
       scene.apply({ cards, zones });
       const cohortIds = cardIds.slice(0, ${cohortSize});
@@ -163,7 +163,7 @@ export async function runDragPerformanceScenario({ command }) {
       && current.snapshot?.desired?.cards?.length === count
       && current.shells === count
       && !current.snapshot.settling
-      && current.snapshot?.desired?.zones?.find((zone) => zone.id === "reserve")?.cardIds?.length === count);
+      && current.snapshot?.desired?.zones?.find((zone) => zone.id === "river")?.cardIds?.length === count);
     return result;
   }
 
@@ -324,7 +324,7 @@ export async function runDragPerformanceScenario({ command }) {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       const scene = getScene();
       const visual = scene.snapshot().visual.find(({ cardId: id }) => id === ${JSON.stringify(cardId)});
-      const destination = document.querySelector("#zone-workbench")?.getBoundingClientRect();
+      const destination = document.querySelector("#zone-ocean")?.getBoundingClientRect();
       if (!visual?.pose || !destination || destination.width <= 0 || destination.height <= 0) {
         throw new Error("Missing drag card or destination geometry");
       }
@@ -470,7 +470,7 @@ export async function runDragPerformanceScenario({ command }) {
       current.snapshot?.interaction?.sessions?.length === 0
       && !current.snapshot?.settling
       && fixture.cohortIds.every((id) => current.snapshot?.desired?.zones
-        ?.find((zone) => zone.id === "workbench")?.cardIds?.includes(id)));
+        ?.find((zone) => zone.id === "ocean")?.cardIds?.includes(id)));
     const sampled = await waitFor("lab drag diagnostic sample", (current) =>
       current.diagnostics?.lab?.dragCapture?.lastSample?.cardId === fixture.primaryCardId
       && current.diagnostics?.lab?.dragCapture?.lastSample?.pointerType === "mouse");
@@ -480,7 +480,7 @@ export async function runDragPerformanceScenario({ command }) {
       transfer: {
         cardId: fixture.primaryCardId,
         cardIds: fixture.cohortIds,
-        toZoneId: landed.snapshot.desired.zones.find((zone) => zone.id === "workbench")?.id ?? null,
+        toZoneId: landed.snapshot.desired.zones.find((zone) => zone.id === "ocean")?.id ?? null,
       },
       labDragSample: sampled.diagnostics.lab.dragCapture.lastSample,
     };
@@ -494,7 +494,7 @@ export async function runDragPerformanceScenario({ command }) {
       measurements.push(details);
       const inputObserved = details.condition !== "pointer-drag"
         || details.pointerMoves > 0 && details.observedMotionFrames > 0
-          && details.transfer?.toZoneId === "workbench"
+          && details.transfer?.toZoneId === "ocean"
           && details.labDragSample?.cardCount === details.cards
           && details.labDragSample?.cohortCount === details.cohortSize
           && details.labDragSample?.browser?.version

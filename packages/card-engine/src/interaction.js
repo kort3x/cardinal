@@ -3,6 +3,16 @@ import { resolveBatchMove } from './batch.js';
 const copy = (value) => structuredClone(value);
 const COMPACT_DURATION = 180;
 const COMPACT_STEP = 18;
+const DRAG_LIFT_SCALE = 1.12;
+const DRAG_MAX_TILT = 22;
+const DRAG_MAX_ANGLE = 12;
+const DRAG_HANG_REFERENCE_WEIGHT = 2.25;
+const DRAG_HANG_REFERENCE_FACTOR = 2;
+const DRAG_ACCELERATION_GAIN = 0.00022;
+const DRAG_SPRING_STIFFNESS = 520;
+const DRAG_SPRING_DAMPING = 42;
+const DRAG_INPUT_DECAY = 0.1;
+const DRAG_MAX_STEP = 0.05;
 const authoredPosition = (card) => JSON.stringify([card.positionMode, card.pose?.x, card.pose?.y, card.pose?.z]);
 function immutable(value) {
   if (value && typeof value === 'object') {
@@ -16,10 +26,12 @@ function point(value) {
   if (!value || !Number.isFinite(value.x) || !Number.isFinite(value.y)) throw new TypeError('Drag point requires finite x and y');
   return { x: value.x, y: value.y };
 }
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 // Gesture state and hypothetical layouts never mutate committed membership.
 export function createInteraction({ state, solve, sample, refresh, takePosition, present, commit, emit, rules, toClient, fromClient,
-  isSelectable = () => true, now = () => 0, reducedMotion = () => false, requestFrame = () => {}, defaultPresentation = 'preserve' }) {
+  isSelectable = () => true, now = () => 0, reducedMotion = () => false, requestFrame = () => {}, defaultPresentation = 'preserve',
+  dragHangFactor = 1, dragSnapDelay = 0 }) {
   const sessions = new Map();
   let sequence = 0;
   let revision = 0;
@@ -62,7 +74,21 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     const key = JSON.stringify([zoneId, index]);
     if (session.layouts.has(key)) return session.layouts.get(key);
     const { nextSnapshot } = resolveBatchMove(model, { cardIds: session.data.cardIds, toZoneId: zoneId, index });
+    const destination = nextSnapshot.zones.find((zone) => zone.id === zoneId);
+    if (destination?.faceUp !== undefined) {
+      for (const card of nextSnapshot.cards.filter(({ id }) => session.cohort.has(id))) {
+        card.faceUp = destination.faceUp;
+        delete card.pose.flipX;
+        delete card.pose.flipY;
+      }
+    }
     const poses = solve(nextSnapshot);
+    if (destination?.faceUp !== undefined) {
+      for (const cardId of session.data.cardIds) {
+        const pose = poses.get(cardId);
+        if (pose) pose.flipY = destination.faceUp ? 0 : 180;
+      }
+    }
     session.layouts.set(key, poses);
     return poses;
   }
@@ -119,18 +145,93 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       session.data.targetPoses = Object.fromEntries(session.data.cardIds.map((id) => [id, copy(preview.get(id))]));
     }
   }
+  function advancePhysics(session, time = now()) {
+    const physics = session.physics;
+    let remaining = Math.max(0, (time - physics.lastAt) / 1000);
+    if (remaining === 0) return;
+    physics.lastAt = time;
+    const weight = session.weight;
+    const damping = DRAG_SPRING_DAMPING * Math.sqrt(weight);
+    while (remaining > 0) {
+      const elapsed = Math.min(DRAG_MAX_STEP, remaining);
+      remaining -= elapsed;
+      const decay = Math.exp(-elapsed / DRAG_INPUT_DECAY);
+      physics.input.angle *= decay;
+      physics.input.tiltX *= decay;
+      physics.input.tiltY *= decay;
+      for (const axis of ["angle", "tiltX", "tiltY"]) {
+        const acceleration = (DRAG_SPRING_STIFFNESS * (physics.input[axis] - physics[axis])
+          - damping * physics.velocity[axis]) / weight;
+        physics.velocity[axis] += acceleration * elapsed;
+        const maximum = axis === "angle" ? DRAG_MAX_ANGLE : DRAG_MAX_TILT;
+        const next = physics[axis] + physics.velocity[axis] * elapsed;
+        physics[axis] = clamp(next, -maximum, maximum);
+        if (physics[axis] !== next) physics.velocity[axis] = 0;
+        if (Math.abs(physics[axis]) < 0.01 && Math.abs(physics.velocity[axis]) < 0.01 && Math.abs(physics.input[axis]) < 0.01) {
+          physics[axis] = 0;
+          physics.velocity[axis] = 0;
+          physics.input[axis] = 0;
+        }
+      }
+    }
+  }
+
+  function physicsNeedsFrame(session) {
+    const physics = session.physics;
+    return ["angle", "tiltX", "tiltY"].some((axis) =>
+      Math.abs(physics[axis]) > 0.01 || Math.abs(physics.velocity[axis]) > 0.01 || Math.abs(physics.input[axis]) > 0.01);
+  }
+
   function publish() {
+    const time = now();
+    for (const session of sessions.values()) {
+      if (session.data.phase === 'dragging' && !session.explicit && !session.data.candidate?.allowed) {
+        advancePhysics(session, time);
+      }
+    }
     const restPoses = resting();
     const positions = new Map();
+    // Keep logical depth untouched while giving the active cohort a render-only
+    // layer above every resting card, including cards in other arrangements.
+    const activeCardIds = new Set([...sessions.values()].flatMap((session) => session.data.cardIds));
+    const highestRestingDepth = Math.max(-1, ...[...state().visual.entries()]
+      .filter(([id]) => !activeCardIds.has(id))
+      .map(([, pose]) => pose.z ?? 0));
+    const renderDepthFor = (session, member) => {
+      const memberDepths = [...session.members.values()].map(({ depth }) => depth);
+      const highestMemberDepth = Math.max(...memberDepths);
+      const lowestMemberDepth = Math.min(...memberDepths);
+      const dragLayer = highestRestingDepth + (highestMemberDepth - lowestMemberDepth) + 100;
+      return dragLayer + member.depth - highestMemberDepth;
+    };
+    const renderProjection = (point, depth) => {
+      const projected = fromClient(point, depth);
+      return projected ? { ...projected, z: depth } : null;
+    };
     for (const session of sessions.values()) {
       if (session.preview) for (const [id, pose] of session.preview) {
         const rest = restPoses.get(id);
-        if (rest && ['x', 'y', 'z'].some((key) => rest[key] !== pose[key])) positions.set(id, { pose, direct: false });
+        if (rest && ['x', 'y', 'z'].some((key) => rest[key] !== pose[key])) {
+          positions.set(id, { pose, direct: false, zoneId: session.data.candidate?.toZoneId });
+        }
       }
       if (session.data.phase === 'dragging' && (!session.explicit || session.data.candidate?.allowed)) {
         const primaryTarget = session.explicit ? session.data.targetPose : null;
+        const freeAngle = session.physics.angle;
+        const currentPrimaryPose = state().visual.get(session.data.primaryCardId);
+        session.currentScaleRatio = ((currentPrimaryPose?.scale ?? 1) * (currentPrimaryPose?.layoutScale ?? 1)) / session.grabScale;
+        const anchorAngle = (freeAngle - session.initialAngle) * Math.PI / 180;
+        const anchorOffset = primaryTarget ? null : {
+          // The renderer rotates in world coordinates while client y points down.
+          // Convert that rotation back into client space so the grabbed point stays
+          // under the pointer as the card changes angle.
+          x: session.offset.x * session.currentScaleRatio * Math.cos(anchorAngle)
+            + session.offset.y * session.currentScaleRatio * Math.sin(anchorAngle),
+          y: -session.offset.x * session.currentScaleRatio * Math.sin(anchorAngle)
+            + session.offset.y * session.currentScaleRatio * Math.cos(anchorAngle),
+        };
         const center = primaryTarget ? toClient(primaryTarget)
-          : { x: session.client.x - session.offset.x, y: session.client.y - session.offset.y };
+          : { x: session.client.x - anchorOffset.x, y: session.client.y - anchorOffset.y };
         const progress = compactProgress(session);
         session.compactSettled = progress === 1;
         for (const [id, member] of session.members) {
@@ -139,13 +240,61 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
             y: member.offset.y + (member.compact.y - member.offset.y) * progress,
           } : member.offset;
           const depth = primaryTarget ? primaryTarget.z + member.depth - session.members.get(session.data.primaryCardId).depth : member.depth;
-          const p = fromClient({ x: center.x + offset.x, y: center.y + offset.y }, depth);
-          if (p) positions.set(id, { pose: { ...p, z: depth }, direct: !session.explicit });
+          const screenPoint = { x: center.x + offset.x, y: center.y + offset.y };
+          const p = fromClient(screenPoint, depth);
+          const renderPose = renderProjection(screenPoint, renderDepthFor(session, member));
+          const previewPose = session.preview?.get(id) ?? null;
+          const restingPose = restPoses.get(id);
+          const targetScale = previewPose?.scale ?? restingPose?.scale ?? 1;
+          const previewKeepsPickupPhysics = !previewPose || session.data.sources.some(({ cardId, zoneId }) =>
+            cardId === id && zoneId === session.data.candidate?.toZoneId);
+          const targetTilt = previewPose && !previewKeepsPickupPhysics
+            ? { tiltX: previewPose.tiltX ?? 0, tiltY: previewPose.tiltY ?? 0 }
+            : previewPose
+            ? {
+              tiltX: clamp((previewPose.tiltX ?? 0) + session.physics.tiltX, -DRAG_MAX_TILT, DRAG_MAX_TILT),
+              tiltY: clamp((previewPose.tiltY ?? 0) + session.hangTiltY + session.physics.tiltY, -DRAG_MAX_TILT, DRAG_MAX_TILT),
+            }
+          : { tiltX: session.physics.tiltX,
+            tiltY: clamp(session.hangTiltY + session.physics.tiltY, -DRAG_MAX_TILT, DRAG_MAX_TILT) };
+          const freeDragAngle = previewPose ? undefined : freeAngle;
+          if (p) positions.set(id, {
+            pose: {
+              ...p,
+              z: depth,
+              ...(previewPose?.angle === undefined && freeDragAngle === undefined ? {} : {
+                angle: previewPose?.angle ?? freeDragAngle,
+              }),
+              ...(previewPose?.scale === undefined ? {} : { scale: previewPose.scale }),
+              ...(previewPose?.layoutScale === undefined ? {} : { layoutScale: previewPose.layoutScale }),
+              ...(previewPose?.flipX === undefined ? {} : { flipX: previewPose.flipX }),
+              ...(previewPose?.flipY === undefined ? {} : { flipY: previewPose.flipY }),
+              ...(previewPose?.drawOrder === undefined ? {} : { drawOrder: previewPose.drawOrder }),
+              scale: targetScale * DRAG_LIFT_SCALE,
+              tiltX: targetTilt.tiltX,
+              tiltY: targetTilt.tiltY,
+            },
+            renderPose,
+            direct: !session.explicit,
+            orientationDirect: !previewPose,
+            tiltDirect: !previewPose || previewKeepsPickupPhysics,
+            zoneId: session.data.candidate?.toZoneId ?? session.data.sources.find(({ cardId: sourceId }) => sourceId === id)?.zoneId,
+          });
         }
       } else {
         for (const id of session.data.cardIds) {
           const target = session.data.phase === 'pending' ? targetFor(session, id) : session.keyboardPoses?.get(id);
-          if (target) positions.set(id, { pose: target, direct: false });
+          if (target) {
+            const member = session.members.get(id);
+            const renderPose = renderProjection(toClient(target), renderDepthFor(session, member));
+            positions.set(id, {
+              pose: target,
+              renderPose,
+              direct: false,
+              snap: session.data.phase === 'pending',
+              snapDelay: session.data.phase === 'pending' ? dragSnapDelay : 0,
+            });
+          }
         }
       }
     }
@@ -159,8 +308,10 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     return progress * progress * (3 - 2 * progress);
   }
   function needsFrame() {
-    return !disposed && [...sessions.values()].some((session) => session.data.phase === 'dragging'
-      && (!session.explicit || session.data.candidate?.allowed) && session.data.presentation === 'compact' && !session.compactSettled);
+    return !disposed && [...sessions.values()].some((session) =>
+      (session.data.phase === 'dragging' && (!session.explicit || session.data.candidate?.allowed)
+        && session.data.presentation === 'compact' && !session.compactSettled)
+      || (session.data.phase === 'dragging' && !session.explicit && !session.data.candidate?.allowed && physicsNeedsFrame(session)));
   }
   function tick() { if (needsFrame()) publish(); }
   function finish(session, phase, reason) {
@@ -244,6 +395,10 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     const pose = state().visual.get(id);
     const center = toClient(pose);
     const client = startPoint ? toClient({ ...startPoint, z: 0 }) : center;
+    const projectedRight = toClient({ ...pose, x: pose.x + (pose.width ?? 1) * (pose.scale ?? 1) * (pose.layoutScale ?? 1) / 2 });
+    const projectedBottom = toClient({ ...pose, y: pose.y + (pose.height ?? 1) * (pose.scale ?? 1) * (pose.layoutScale ?? 1) / 2 });
+    const halfWidth = Math.max(1, Math.abs(projectedRight.x - center.x));
+    const halfHeight = Math.max(1, Math.abs(projectedBottom.y - center.y));
     const members = new Map(cardIds.map((cardId, index) => {
       const memberPose = state().visual.get(cardId);
       const projected = toClient(memberPose);
@@ -251,8 +406,30 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       return [cardId, { depth: memberPose.z, offset: { x: projected.x - center.x, y: projected.y - center.y },
         compact: { x: offset, y: offset }, authored: authoredPosition(current.desired.cards.find((card) => card.id === cardId)) }];
     }));
+    const weight = current.desired.cards.find((card) => card.id === id)?.weight ?? 1;
+    const hangResponse = Math.sqrt(weight / DRAG_HANG_REFERENCE_WEIGHT)
+      * dragHangFactor / DRAG_HANG_REFERENCE_FACTOR;
     const session = { data, client, members, cohort: new Set(cardIds), startedAt: now(), compactSettled: false,
-      offset: { x: client.x - center.x, y: client.y - center.y }, ruleKey: null };
+      offset: { x: client.x - center.x, y: client.y - center.y },
+      initialAngle: pose.angle ?? 0,
+      tiltHalfSize: { width: halfWidth, height: halfHeight },
+      hangResponse,
+      // TODO(#19): Retry the edge pickup hang after the dangle calibration is settled.
+      hangTiltY: 0,
+      grabScale: (pose.scale ?? 1) * (pose.layoutScale ?? 1),
+      currentScaleRatio: 1,
+      weight,
+      physics: {
+        angle: 0,
+        tiltX: 0,
+        tiltY: 0,
+        velocity: { angle: 0, tiltX: 0, tiltY: 0 },
+        input: { angle: 0, tiltX: 0, tiltY: 0 },
+        lastAt: now(),
+        lastPointerAt: now(),
+        pointerVelocity: { x: 0, y: 0 },
+      },
+      ruleKey: null };
     session.compactChanges = [...members.values()].some(({ offset, compact }) => offset.x !== compact.x || offset.y !== compact.y);
     session.sourceMembership = membershipKey(session, current.desired, false);
     const finished = new Promise((resolve) => { session.resolve = resolve; });
@@ -264,7 +441,39 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       snapshot: () => copy(data),
       update(change) {
         if (data.phase !== 'dragging') return copy(data);
-        if (change.point !== undefined) { session.client = toClient({ ...point(change.point), z: 0 }); session.explicit = null; }
+        if (change.point !== undefined) {
+          const nextClient = toClient({ ...point(change.point), z: 0 });
+          const elapsed = Math.max(1 / 60, Math.min(DRAG_MAX_STEP, (now() - session.physics.lastPointerAt) / 1000));
+          const measuredVelocity = {
+            x: (nextClient.x - session.client.x) / elapsed,
+            y: (nextClient.y - session.client.y) / elapsed,
+          };
+          const velocityBlend = 0.35;
+          const previousVelocity = session.physics.pointerVelocity;
+          const nextVelocity = {
+            x: previousVelocity.x + (measuredVelocity.x - previousVelocity.x) * velocityBlend,
+            y: previousVelocity.y + (measuredVelocity.y - previousVelocity.y) * velocityBlend,
+          };
+          const acceleration = {
+            x: (nextVelocity.x - previousVelocity.x) / elapsed,
+            y: (nextVelocity.y - previousVelocity.y) / elapsed,
+          };
+          const leverX = session.offset.x / session.tiltHalfSize.width;
+          const leverY = session.offset.y / session.tiltHalfSize.height;
+          session.client = nextClient;
+          session.physics.lastPointerAt = now();
+          session.physics.pointerVelocity = nextVelocity;
+          session.physics.input = {
+            angle: clamp((acceleration.x * leverY - acceleration.y * leverX)
+              * DRAG_ACCELERATION_GAIN / session.weight * DRAG_MAX_ANGLE * session.hangResponse,
+              -DRAG_MAX_ANGLE, DRAG_MAX_ANGLE),
+            tiltX: clamp(-acceleration.y * DRAG_ACCELERATION_GAIN / session.weight * DRAG_MAX_TILT * session.hangResponse,
+              -DRAG_MAX_TILT, DRAG_MAX_TILT),
+            tiltY: clamp(acceleration.x * DRAG_ACCELERATION_GAIN / session.weight * DRAG_MAX_TILT * session.hangResponse,
+              -DRAG_MAX_TILT, DRAG_MAX_TILT),
+          };
+          session.explicit = null;
+        }
         else if (change.toZoneId !== undefined) {
           if (!Number.isInteger(change.index ?? 0) || (change.index ?? 0) < 0) throw new RangeError('Drag index must be non-negative');
           session.keyboardPoses = new Map(cardIds.map((id) => [id, copy(state().visual.get(id))]));

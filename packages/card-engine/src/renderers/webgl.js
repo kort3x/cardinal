@@ -4,6 +4,7 @@ import { DEFAULT_CARD_THICKNESS, cardDimensions, cardThickness, spacerHeight } f
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
+const SELECTION_FRAME_PADDING = 3;
 const zeroShaderPrecision = Object.freeze({ rangeMin: 0, rangeMax: 0, precision: 0 });
 const webglContextAttributes = Object.freeze({
   alpha: true,
@@ -754,7 +755,6 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0 });
     const sideMaterial = new THREE.MeshStandardMaterial({ color: 0x727d86, roughness: 0.75, metalness: 0 });
     const body = new THREE.Mesh(geometry, [bodyMaterial, sideMaterial]);
-    body.onBeforeRender = clearCardDepth;
     const frontBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const backBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const frontBaseMaterial = createCardFaceBaseMaterial(0xffffff);
@@ -763,20 +763,35 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const backBase = new THREE.Mesh(backBaseGeometry, backBaseMaterial);
     const frontMaterial = createCardFaceMaterial();
     const backMaterial = createCardFaceMaterial();
+    const selectionFrameDimensions = {
+      width: faceDimensions.width + SELECTION_FRAME_PADDING * 2,
+      height: faceDimensions.height + SELECTION_FRAME_PADDING * 2,
+    };
+    const selectionFrameShape = createCardShape(card.shape ?? templates[card.template]?.shape, selectionFrameDimensions);
+    const selectionFrameMaterial = new THREE.MeshBasicMaterial({ color: 0xffd166, depthWrite: false });
+    const selectionFront = new THREE.Mesh(createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions), selectionFrameMaterial);
+    const selectionBack = new THREE.Mesh(createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions), selectionFrameMaterial);
     const front = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), frontMaterial);
     const back = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), backMaterial);
     frontBase.renderOrder = 1;
     backBase.renderOrder = 1;
+    selectionFront.renderOrder = 1.5;
+    selectionBack.renderOrder = 1.5;
     front.renderOrder = 2;
     back.renderOrder = 2;
     frontBase.position.z = depth / 2 + 0.04;
     backBase.position.z = -depth / 2 - 0.04;
+    selectionFront.position.z = depth / 2 + 0.05;
+    selectionBack.position.z = -depth / 2 - 0.05;
     front.position.z = depth / 2 + 0.06;
     back.position.z = -depth / 2 - 0.06;
     backBase.rotation.y = Math.PI;
+    selectionBack.rotation.y = Math.PI;
     back.rotation.y = Math.PI;
+    selectionFront.visible = false;
+    selectionBack.visible = false;
     const faceGroup = new THREE.Group();
-    faceGroup.add(body, frontBase, backBase, front, back);
+    faceGroup.add(body, frontBase, backBase, selectionFront, selectionBack, front, back);
     const cardGroup = new THREE.Group();
     cardGroup.userData.cardId = card.id;
     const bodyGroup = new THREE.Group();
@@ -804,6 +819,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       backBaseGeometry,
       frontBaseMaterial,
       backBaseMaterial,
+      selectionFront,
+      selectionBack,
+      selectionFrameMaterial,
+      selectionFrontGeometry: selectionFront.geometry,
+      selectionBackGeometry: selectionBack.geometry,
       geometry,
       bodyMaterial,
       sideMaterial,
@@ -840,11 +860,20 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const faceShape = createCardShape(card.shape ?? templates[card.template]?.shape, faceDimensions);
     const frontBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const backBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
+    const selectionFrameDimensions = {
+      width: faceDimensions.width + SELECTION_FRAME_PADDING * 2,
+      height: faceDimensions.height + SELECTION_FRAME_PADDING * 2,
+    };
+    const selectionFrameShape = createCardShape(card.shape ?? templates[card.template]?.shape, selectionFrameDimensions);
+    const selectionFrontGeometry = createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions);
+    const selectionBackGeometry = createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions);
     const frontGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const backGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const oldGeometry = mounted.geometry;
     const oldFrontBaseGeometry = mounted.frontBaseGeometry;
     const oldBackBaseGeometry = mounted.backBaseGeometry;
+    const oldSelectionFrontGeometry = mounted.selectionFrontGeometry;
+    const oldSelectionBackGeometry = mounted.selectionBackGeometry;
     const oldFrontGeometry = mounted.front.geometry;
     const oldBackGeometry = mounted.back.geometry;
     mounted.geometry = geometry;
@@ -853,6 +882,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.body.geometry = geometry;
     mounted.frontBase.geometry = frontBaseGeometry;
     mounted.backBase.geometry = backBaseGeometry;
+    mounted.selectionFront.geometry = selectionFrontGeometry;
+    mounted.selectionBack.geometry = selectionBackGeometry;
     mounted.front.geometry = frontGeometry;
     mounted.back.geometry = backGeometry;
     mounted.width = dimensions.width;
@@ -860,11 +891,17 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.thickness = thickness;
     mounted.frontBase.position.z = thickness / 2 + 0.04;
     mounted.backBase.position.z = -thickness / 2 - 0.04;
+    mounted.selectionFront.position.z = thickness / 2 + 0.05;
+    mounted.selectionBack.position.z = -thickness / 2 - 0.05;
     mounted.front.position.z = thickness / 2 + 0.06;
     mounted.back.position.z = -thickness / 2 - 0.06;
+    mounted.selectionFrontGeometry = selectionFrontGeometry;
+    mounted.selectionBackGeometry = selectionBackGeometry;
     oldGeometry.dispose();
     oldFrontBaseGeometry.dispose();
     oldBackBaseGeometry.dispose();
+    oldSelectionFrontGeometry.dispose();
+    oldSelectionBackGeometry.dispose();
     oldFrontGeometry.dispose();
     oldBackGeometry.dispose();
   }
@@ -917,7 +954,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.lastPose = pose;
     mounted.drawOrder = pose.drawOrder ?? 0;
     updateGeometry(mounted, card, dimensions, thickness);
-    const renderedScale = pose.scale * (pose.depthScale ?? 1);
+    const renderedScale = pose.scale * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
     const x = pose.x - center.x;
     const y = center.y - pose.y;
     mounted.cardGroup.position.set(x, y, pose.z);
@@ -1084,7 +1121,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     const shape = createCardShape(card?.shape ?? templates[card?.template]?.shape, dimensions);
     const targetGroup = new THREE.Group();
     targetGroup.position.set(targetPose.x - center.x, center.y - targetPose.y, targetPose.z ?? 0);
-    targetGroup.scale.setScalar((targetPose.scale ?? 1) * (targetPose.depthScale ?? 1));
+    targetGroup.scale.setScalar((targetPose.scale ?? 1) * (targetPose.layoutScale ?? 1) * (targetPose.depthScale ?? 1));
     const bodyGroup = new THREE.Group();
     bodyGroup.rotation.order = "ZXY";
     bodyGroup.rotation.set(radians(targetPose.tiltX ?? 0), radians(targetPose.tiltY ?? 0), radians(targetPose.angle ?? 0));
@@ -1155,6 +1192,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityShell.dataset.selected = String(selected);
       mounted.accessibilityShell.dataset.primary = String(isPrimary);
       mounted.bodyMaterial.color.setHex(selected ? (isPrimary ? 0xe5c07b : 0xc9af76) : 0xffffff);
+      mounted.selectionFrameMaterial.color.setHex(isPrimary ? 0xffd166 : 0x61afef);
+      mounted.selectionFront.visible = selected;
+      mounted.selectionBack.visible = selected;
     }
     if (changed) render();
   }
@@ -1167,6 +1207,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.geometry.dispose();
     mounted.frontBaseGeometry.dispose();
     mounted.backBaseGeometry.dispose();
+    mounted.selectionFrontGeometry.dispose();
+    mounted.selectionBackGeometry.dispose();
     mounted.front.geometry.dispose();
     mounted.back.geometry.dispose();
     mounted.bodyMaterial.dispose();
@@ -1177,6 +1219,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.backMaterial.map?.dispose();
     mounted.frontMaterial.dispose();
     mounted.backMaterial.dispose();
+    mounted.selectionFrameMaterial.dispose();
     cards.delete(cardId);
     render();
   }

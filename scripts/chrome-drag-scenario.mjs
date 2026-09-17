@@ -203,7 +203,7 @@ export async function runDragScenario({ command }) {
       desired.zones = desired.zones.map((zone) => ({
         ...zone,
         visible: true,
-        cardIds: zone.id === "reserve" ? [card.id] : [],
+        cardIds: zone.id === "river" ? [card.id] : [],
       }));
       scene.apply(desired);
       scene.select([card.id]);
@@ -240,7 +240,7 @@ export async function runDragScenario({ command }) {
     await waitFor("fixture to settle", (current) => current.snapshot?.renderer === "webgl"
       && current.snapshot?.desired?.cards?.length === 1
       && !current.snapshot.settling
-      && zoneCards(current, "reserve").length === 1);
+      && zoneCards(current, "river").length === 1);
     return result.cardId;
   }
 
@@ -260,7 +260,7 @@ export async function runDragScenario({ command }) {
         zones: current.zones.map((zone) => ({
           ...zone,
           visible: true,
-          cardIds: zone.id === "reserve" ? cards.map(({ id }) => id) : [],
+          cardIds: zone.id === "river" ? cards.map(({ id }) => id) : [],
         })),
       };
       scene.apply(desired);
@@ -275,7 +275,7 @@ export async function runDragScenario({ command }) {
     await waitFor("reorder fixture to settle", (current) => current.snapshot?.renderer === "webgl"
       && current.snapshot?.desired?.cards?.length === 3
       && !current.snapshot.settling
-      && zoneCards(current, "reserve").length === 3);
+      && zoneCards(current, "river").length === 3);
     return result;
   }
 
@@ -621,21 +621,21 @@ export async function runDragScenario({ command }) {
       getScene().select([]);
       return true;
     })()`);
-    const points = await coordinates(cardId, "archive");
+    const points = await coordinates(cardId, "lake");
     await mousePress(points.start);
     await mouseMovePath(points.start, points.destination);
     const carrying = await waitFor("mouse drag preview", (current) => {
       const active = session(current);
       return active?.phase === "dragging" && active.cardIds?.length === 1
-        && active.primaryCardId === cardId && active.candidate?.toZoneId === "archive"
+        && active.primaryCardId === cardId && active.candidate?.toZoneId === "lake"
         && active.candidate.allowed === true
         && current.snapshot.selection?.cardIds?.length === 1
         && current.snapshot.selection.cardIds[0] === cardId;
     });
     await mouseRelease(points.destination);
     const landed = await waitFor("mouse drop acceptance", (current) => current.probe.drops.length === 1
-      && zoneCards(current, "archive").includes(cardId)
-      && !zoneCards(current, "reserve").includes(cardId)
+      && zoneCards(current, "lake").includes(cardId)
+      && !zoneCards(current, "river").includes(cardId)
       && !current.snapshot.settling);
     const intent = landed.probe.drops[0];
     if (intent.cardIds?.length !== 1 || intent.cardIds[0] !== cardId || intent.primaryCardId !== cardId) {
@@ -648,20 +648,20 @@ export async function runDragScenario({ command }) {
   });
 
   await runCase("mouse denied destination reserves no slot", async () => {
-    await setControl("#drag-denied-zone", "archive");
+    await setControl("#drag-denied-zone", "lake");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "archive");
+    const points = await coordinates(cardId, "lake");
     await mousePress(points.start);
     await mouseMovePath(points.start, points.destination);
     const denied = await waitFor("denied mouse candidate", (current) => {
       const active = session(current);
-      return active?.phase === "dragging" && active.candidate?.toZoneId === "archive"
+      return active?.phase === "dragging" && active.candidate?.toZoneId === "lake"
         && active.candidate.allowed === false;
     });
     await mouseRelease(points.destination);
     const settled = await waitFor("denied mouse release", (current) => current.probe.drops.length === 0
       && current.snapshot.interaction.sessions.length === 0
-      && zoneCards(current, "reserve").includes(cardId));
+      && zoneCards(current, "river").includes(cardId));
     return { cardId, candidate: session(denied)?.candidate ?? denied.probe.interactions.at(-1)?.sessions?.at(-1)?.candidate, viewport: settled.viewport };
   });
 
@@ -669,10 +669,10 @@ export async function runDragScenario({ command }) {
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "manual");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "workbench");
+    const points = await coordinates(cardId, "ocean");
     await mousePress(points.start);
     await mouseMovePath(points.start, points.destination);
-    await waitFor("manual drop candidate", (current) => session(current)?.candidate?.toZoneId === "workbench"
+    await waitFor("manual drop candidate", (current) => session(current)?.candidate?.toZoneId === "ocean"
       && session(current)?.candidate?.allowed === true);
     await mouseRelease(points.destination);
     const pending = await waitFor("pending drop approval", (current) => session(current)?.phase === "pending"
@@ -683,7 +683,7 @@ export async function runDragScenario({ command }) {
     await evaluate(`document.querySelector("#drag-reject")?.click(); true`);
     const rejected = await waitFor("manual drop rejection", (current) => current.probe.drops.length === 1
       && current.snapshot.interaction.sessions.length === 0
-      && zoneCards(current, "reserve").includes(cardId)
+      && zoneCards(current, "river").includes(cardId)
       && !current.snapshot.settling);
     return { cardId, pending: session(pending), drops: rejected.probe.drops, viewport: rejected.viewport };
   });
@@ -691,14 +691,14 @@ export async function runDragScenario({ command }) {
   await runCase("Escape cancels an active mouse drag", async () => {
     await setControl("#drag-response", "immediate");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "workbench");
+    const points = await coordinates(cardId, "ocean");
     await mousePress(points.start);
     await mouseMovePath(points.start, points.destination);
     await waitFor("active drag before Escape", (current) => session(current)?.phase === "dragging");
     await key("Escape");
     const cancelled = await waitFor("Escape cancellation", (current) => current.probe.drops.length === 0
       && current.snapshot.interaction.sessions.length === 0
-      && zoneCards(current, "reserve").includes(cardId));
+      && zoneCards(current, "river").includes(cardId));
     return { cardId, status: cancelled.interactionStatus, viewport: cancelled.viewport };
   });
 
@@ -711,25 +711,25 @@ export async function runDragScenario({ command }) {
       return true;
     })()`);
     const spinning = await waitFor("spin to start", (current) => current.snapshot?.spinning === true);
-    const points = await coordinates(cardId, "workbench");
+    const points = await coordinates(cardId, "ocean");
     await mousePress(points.start);
     const thresholdPoint = { x: points.start.x + 10, y: points.start.y };
     await mouseMove(thresholdPoint);
     const carrying = await waitFor("midspin pickup", (current) => session(current)?.phase === "dragging"
       && current.snapshot.spinning === true);
     await mouseMovePath(thresholdPoint, points.destination);
-    await waitFor("midspin drop candidate", (current) => session(current)?.candidate?.toZoneId === "workbench"
+    await waitFor("midspin drop candidate", (current) => session(current)?.candidate?.toZoneId === "ocean"
       && session(current)?.candidate?.allowed === true);
     await mouseRelease(points.destination);
     const transferred = await waitFor("midspin transfer", (current) => current.probe.drops.length === 1
-      && zoneCards(current, "workbench").includes(cardId));
+      && zoneCards(current, "ocean").includes(cardId));
     await evaluate(`(async () => {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       getScene().stopSpin(${JSON.stringify(cardId)});
       return true;
     })()`);
     const landed = await waitFor("midspin settle", (current) => current.probe.drops.length === 1
-      && zoneCards(current, "workbench").includes(cardId) && !current.snapshot.settling);
+      && zoneCards(current, "ocean").includes(cardId) && !current.snapshot.settling);
     return { cardId, spinningAtPickup: spinning.snapshot.spinning && carrying.snapshot.spinning, shells: landed.shells, viewport: transferred.viewport };
   });
 
@@ -746,20 +746,20 @@ export async function runDragScenario({ command }) {
       await key("Tab");
       const current = await waitFor("keyboard destination candidate", (candidateState) => session(candidateState)?.candidate?.toZoneId != null);
       candidate = session(current)?.candidate;
-      if (candidate?.toZoneId === "archive") break;
+      if (candidate?.toZoneId === "lake") break;
     }
-    if (candidate?.toZoneId !== "archive" || candidate.allowed !== true) {
-      throw new Error(`Keyboard did not reach permitted Archive candidate: ${JSON.stringify(candidate)}`);
+    if (candidate?.toZoneId !== "lake" || candidate.allowed !== true) {
+      throw new Error(`Keyboard did not reach permitted Lake candidate: ${JSON.stringify(candidate)}`);
     }
     await key("Enter");
     const landed = await waitFor("keyboard accepted drop", (current) => current.probe.drops.length === 1
-      && zoneCards(current, "archive").includes(cardId) && !current.snapshot.interaction.sessions.length);
+      && zoneCards(current, "lake").includes(cardId) && !current.snapshot.interaction.sessions.length);
     return { cardId, candidate, intent: landed.probe.drops[0], viewport: landed.viewport };
   });
 
   await runCase("keyboard denied destination reports denial and cancels", async () => {
     await mouseRelease();
-    await setControl("#drag-denied-zone", "archive");
+    await setControl("#drag-denied-zone", "lake");
     const cardId = await fixture();
     const focus = await focusCard(cardId);
     if (!focus.focused) throw new Error(`Keyboard fixture focus mismatch: ${JSON.stringify(focus)}`);
@@ -770,14 +770,14 @@ export async function runDragScenario({ command }) {
       await key("Tab");
       const current = await waitFor("keyboard denied candidate", (candidateState) => session(candidateState)?.candidate?.toZoneId != null);
       candidate = session(current)?.candidate;
-      if (candidate?.toZoneId === "archive") break;
+      if (candidate?.toZoneId === "lake") break;
     }
-    if (candidate?.toZoneId !== "archive" || candidate.allowed !== false) {
-      throw new Error(`Keyboard did not reach denied Archive candidate: ${JSON.stringify(candidate)}`);
+    if (candidate?.toZoneId !== "lake" || candidate.allowed !== false) {
+      throw new Error(`Keyboard did not reach denied Lake candidate: ${JSON.stringify(candidate)}`);
     }
     await key("Escape");
     const cancelled = await waitFor("keyboard denied cancellation", (current) => current.probe.drops.length === 0
-      && current.snapshot.interaction.sessions.length === 0 && zoneCards(current, "reserve").includes(cardId));
+      && current.snapshot.interaction.sessions.length === 0 && zoneCards(current, "river").includes(cardId));
     return { cardId, candidate, status: cancelled.interactionStatus, viewport: cancelled.viewport };
   });
 
@@ -794,7 +794,7 @@ export async function runDragScenario({ command }) {
     await waitFor("touch drag control", (current) => current.controls.touchDrag === true
       && current.snapshot?.renderer === "webgl");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "archive");
+    const points = await coordinates(cardId, "lake");
     try {
       await touch(points.start);
       await touchPath(points.start, points.destination);
@@ -805,10 +805,10 @@ export async function runDragScenario({ command }) {
       throw error;
     }
     await waitFor("touch drag candidate", (current) => session(current)?.phase === "dragging"
-      && session(current)?.candidate?.toZoneId === "archive" && session(current)?.candidate?.allowed === true);
+      && session(current)?.candidate?.toZoneId === "lake" && session(current)?.candidate?.allowed === true);
     await touch(points.destination, "touchEnd");
     const landed = await waitFor("touch drop acceptance", (current) => current.probe.drops.length === 1
-      && zoneCards(current, "archive").includes(cardId) && !current.snapshot.interaction.sessions.length);
+      && zoneCards(current, "lake").includes(cardId) && !current.snapshot.interaction.sessions.length);
     return { cardId, intent: landed.probe.drops[0], viewport: landed.viewport };
   });
 
@@ -816,7 +816,7 @@ export async function runDragScenario({ command }) {
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "immediate");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "archive", { x: 22, y: -18 });
+    const points = await coordinates(cardId, "lake", { x: 22, y: -18 });
     await mousePress(points.start);
     await mouseMove({ x: points.start.x + 12, y: points.start.y + 8 });
     await waitFor("responsive drag pickup", (current) => session(current)?.phase === "dragging");
@@ -871,15 +871,15 @@ export async function runDragScenario({ command }) {
       && current.fullWindow === true);
     const afterFullWindow = await assertStationaryAttachment("full-window transition");
     const destination = await evaluate(`(() => {
-      const rect = document.querySelector("#zone-archive").getBoundingClientRect();
+      const rect = document.querySelector("#zone-lake").getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     })()`);
     await mouseMove(destination);
     const carrying = await waitFor("responsive destination candidate", (current) => session(current)?.phase === "dragging"
-      && session(current)?.candidate?.toZoneId === "archive" && session(current)?.candidate?.allowed === true);
+      && session(current)?.candidate?.toZoneId === "lake" && session(current)?.candidate?.allowed === true);
     await mouseRelease(destination);
     const landed = await waitFor("responsive drag landing", (current) => current.probe.drops.length === 1
-      && zoneCards(current, "archive").includes(cardId) && !current.snapshot.interaction.sessions.length
+      && zoneCards(current, "lake").includes(cardId) && !current.snapshot.interaction.sessions.length
       && !current.snapshot.settling);
     return {
       cardId,
@@ -906,36 +906,36 @@ export async function runDragScenario({ command }) {
     const fixtureState = await reorderFixture();
     const sourceId = fixtureState.sourceId;
     const before = await state();
-    const points = await coordinates(sourceId, "reserve", { x: 18, y: -16 });
+    const points = await coordinates(sourceId, "river", { x: 18, y: -16 });
     const destination = await evaluate(`(() => {
-      const rect = document.querySelector("#zone-reserve").getBoundingClientRect();
+      const rect = document.querySelector("#zone-river").getBoundingClientRect();
       return { x: rect.right - 24, y: rect.top + rect.height / 2 };
     })()`);
     await mousePress(points.start);
     await mouseMovePath(points.start, destination);
     const carrying = await waitFor("same-zone reorder candidate", (current) => session(current)?.phase === "dragging"
-      && session(current)?.candidate?.toZoneId === "reserve" && session(current)?.candidate?.allowed === true
+      && session(current)?.candidate?.toZoneId === "river" && session(current)?.candidate?.allowed === true
       && session(current)?.candidate?.index > 0);
     await mouseRelease(destination);
     const landed = await waitFor("same-zone reorder landing", (current) => current.probe.drops.length === 1
       && !current.snapshot.interaction.sessions.length && !current.snapshot.settling
-      && zoneCards(current, "reserve").length === 3);
-    const order = zoneCards(landed, "reserve");
+      && zoneCards(current, "river").length === 3);
+    const order = zoneCards(landed, "river");
     if (order[0] === sourceId || new Set(order).size !== 3 || landed.shells.length !== 3) {
-      throw new Error(`Same-zone reorder did not move one stable shell: ${JSON.stringify({ before: zoneCards(before, "reserve"), order, shells: landed.shells })}`);
+      throw new Error(`Same-zone reorder did not move one stable shell: ${JSON.stringify({ before: zoneCards(before, "river"), order, shells: landed.shells })}`);
     }
-    return { sourceId, before: zoneCards(before, "reserve"), order, candidate: carrying.snapshot.interaction.sessions.at(-1)?.candidate, shells: landed.shells };
+    return { sourceId, before: zoneCards(before, "river"), order, candidate: carrying.snapshot.interaction.sessions.at(-1)?.candidate, shells: landed.shells };
   });
 
   await runCase("live element and dimension changes retain the active drag", async () => {
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "immediate");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "workbench", { x: 20, y: -16 });
+    const points = await coordinates(cardId, "ocean", { x: 20, y: -16 });
     await mousePress(points.start);
     await mouseMovePath(points.start, points.destination);
     await waitFor("live-change drag candidate", (current) => session(current)?.phase === "dragging"
-      && session(current)?.candidate?.toZoneId === "workbench" && session(current)?.candidate?.allowed === true);
+      && session(current)?.candidate?.toZoneId === "ocean" && session(current)?.candidate?.allowed === true);
     const live = await evaluate(`(async () => {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       const scene = getScene();
@@ -966,7 +966,7 @@ export async function runDragScenario({ command }) {
     const afterLiveRemoval = await assertStationaryAttachment("live element removal");
     await mouseRelease(points.destination);
     const landed = await waitFor("live-change drag landing", (current) => current.probe.drops.length === 1
-      && zoneCards(current, "workbench").includes(cardId) && !current.snapshot.interaction.sessions.length
+      && zoneCards(current, "ocean").includes(cardId) && !current.snapshot.interaction.sessions.length
       && !current.snapshot.settling);
     return {
       cardId,
@@ -989,17 +989,17 @@ export async function runDragScenario({ command }) {
       await setControl("#drag-touch", true);
     }
     await waitFor("touch dragging enabled", (current) => current.controls.touchDrag === true);
-    await setControl("#drag-denied-zone", "archive");
+    await setControl("#drag-denied-zone", "lake");
     await setControl("#drag-response", "immediate");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "archive");
+    const points = await coordinates(cardId, "lake");
     await touch(points.start);
     await touchPath(points.start, points.destination);
     const denied = await waitFor("touch denied candidate", (current) => session(current)?.phase === "dragging"
-      && session(current)?.candidate?.toZoneId === "archive" && session(current)?.candidate?.allowed === false);
+      && session(current)?.candidate?.toZoneId === "lake" && session(current)?.candidate?.allowed === false);
     await touch(points.destination, "touchEnd");
     const settled = await waitFor("touch denied release", (current) => current.probe.drops.length === 0
-      && !current.snapshot.interaction.sessions.length && zoneCards(current, "reserve").includes(cardId));
+      && !current.snapshot.interaction.sessions.length && zoneCards(current, "river").includes(cardId));
     return { cardId, candidate: denied.snapshot.interaction.sessions.at(-1)?.candidate, viewport: settled.viewport };
   });
 
@@ -1007,7 +1007,7 @@ export async function runDragScenario({ command }) {
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "immediate");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "workbench");
+    const points = await coordinates(cardId, "ocean");
     await touch(points.start);
     await touch({ x: points.start.x + 12, y: points.start.y }, "touchMove");
     await waitFor("touch gesture before second contact", (current) => session(current)?.phase === "dragging");
@@ -1016,7 +1016,7 @@ export async function runDragScenario({ command }) {
       { x: points.start.x + 40, y: points.start.y + 20, id: 2 },
     ]);
     const cancelled = await waitFor("second-contact cancellation", (current) => current.probe.drops.length === 0
-      && !current.snapshot.interaction.sessions.length && zoneCards(current, "reserve").includes(cardId)
+      && !current.snapshot.interaction.sessions.length && zoneCards(current, "river").includes(cardId)
       && current.inputAnnouncement.includes("Second touch contact"));
     return { cardId, cancelled: cancelled.inputAnnouncement, viewport: cancelled.viewport };
   });
@@ -1032,7 +1032,7 @@ export async function runDragScenario({ command }) {
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "immediate");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "workbench");
+    const points = await coordinates(cardId, "ocean");
     const outside = await evaluate(`(() => {
       const stage = document.querySelector("#stage").getBoundingClientRect();
       const x = Math.min(innerWidth - 8, stage.right + 80);
@@ -1063,7 +1063,7 @@ export async function runDragScenario({ command }) {
       { x: outside.x, y: outside.y, id: 2 },
     ]);
     const cancelled = await waitFor("outside-stage second-contact cancellation", (current) => current.probe.drops.length === 0
-      && !current.snapshot.interaction.sessions.length && zoneCards(current, "reserve").includes(cardId)
+      && !current.snapshot.interaction.sessions.length && zoneCards(current, "river").includes(cardId)
       && current.inputAnnouncement.includes("Second touch contact"));
     const outsideProbe = await evaluate(`(() => {
       const current = window.__outsideTouchProbe?.probe ?? null;
@@ -1082,17 +1082,17 @@ export async function runDragScenario({ command }) {
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "manual");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "archive");
+    const points = await coordinates(cardId, "lake");
     await mousePress(points.start);
     await mouseMovePath(points.start, points.destination);
-    await waitFor("rule-race candidate", (current) => session(current)?.candidate?.toZoneId === "archive"
+    await waitFor("rule-race candidate", (current) => session(current)?.candidate?.toZoneId === "lake"
       && session(current)?.candidate?.allowed === true);
     await mouseRelease(points.destination);
     const pending = await waitFor("rule-race pending approval", (current) => session(current)?.phase === "pending");
     const intentId = session(pending).id;
-    await setControl("#drag-denied-zone", "archive");
+    await setControl("#drag-denied-zone", "lake");
     const cancelled = await waitFor("rule-race cancellation", (current) => current.probe.drops.length === 1
-      && !current.snapshot.interaction.sessions.length && zoneCards(current, "reserve").includes(cardId));
+      && !current.snapshot.interaction.sessions.length && zoneCards(current, "river").includes(cardId));
     const stale = await evaluate(`(async () => {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       return getScene().resolveDrop(${JSON.stringify(intentId)}, { accepted: true });
@@ -1105,10 +1105,10 @@ export async function runDragScenario({ command }) {
     await setControl("#drag-denied-zone", "");
     await setControl("#drag-response", "manual");
     const cardId = await fixture();
-    const points = await coordinates(cardId, "archive");
+    const points = await coordinates(cardId, "lake");
     await mousePress(points.start);
     await mouseMovePath(points.start, points.destination);
-    await waitFor("removal-race candidate", (current) => session(current)?.candidate?.toZoneId === "archive"
+    await waitFor("removal-race candidate", (current) => session(current)?.candidate?.toZoneId === "lake"
       && session(current)?.candidate?.allowed === true);
     await mouseRelease(points.destination);
     const pending = await waitFor("removal-race pending approval", (current) => session(current)?.phase === "pending");

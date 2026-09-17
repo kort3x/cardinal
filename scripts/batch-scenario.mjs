@@ -399,7 +399,7 @@ export async function runBatchAcceptance({
     const primary = before[ids[0]];
     const grabOffset = { x: 11, y: -8 };
     const start = { x: primary.x + grabOffset.x, y: primary.y + grabOffset.y };
-    const destination = await zonePoint("workbench");
+    const destination = await zonePoint("ocean");
     const expectedSources = ids.map((cardId) => {
       const zone = allZones(selected).find(({ cardIds }) => cardIds.includes(cardId));
       return { cardId, zoneId: zone.id, index: zone.cardIds.indexOf(cardId) };
@@ -407,7 +407,7 @@ export async function runBatchAcceptance({
     await pointer.drag(start, destination, { steps: 10 });
     const carrying = await waitFor("pointer cohort pickup", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === 2 && lastSession(current).primaryCardId === ids[0]
-      && lastSession(current).candidate?.toZoneId === "workbench"
+      && lastSession(current).candidate?.toZoneId === "ocean"
       && lastSession(current).candidate.allowed === true);
     if (JSON.stringify(lastSession(carrying).cardIds) !== JSON.stringify(ids)) {
       throw new Error(`Frozen source order changed: ${JSON.stringify(lastSession(carrying))}`);
@@ -439,8 +439,8 @@ export async function runBatchAcceptance({
     if (Object.values(errors).some((error) => error === null || error > 1)) {
       throw new Error(`Cohort landing exceeded 1 CSS px: ${JSON.stringify(errors)}`);
     }
-    if (!zoneCards(landed, "workbench").every((id) => ids.includes(id))
-      || !ids.every((id) => zoneCards(landed, "workbench").includes(id))
+    if (!zoneCards(landed, "ocean").every((id) => ids.includes(id))
+      || !ids.every((id) => zoneCards(landed, "ocean").includes(id))
       || !shellIdentity(landed, ids)
       || !await domShellIdentity(ids)
       || !noDuplicateMembership(landed, ids)) {
@@ -456,8 +456,8 @@ export async function runBatchAcceptance({
     const beforeZones = allZones(prepared);
     const beforeShells = prepared.shells;
     const primary = await cardPoint(ids[0]);
-    await pointer.drag(primary, await zonePoint("workbench"), { steps: 8 });
-    await pointer.release(await zonePoint("workbench"));
+    await pointer.drag(primary, await zonePoint("ocean"), { steps: 8 });
+    await pointer.release(await zonePoint("ocean"));
     const pending = await waitFor("rejected batch pending", (current) => lastSession(current)?.phase === "pending"
       && lastSession(current).cardIds.length === ids.length);
     if (pending.probe.drops.length !== 1) throw new Error(`Expected one rejected intent, got ${pending.probe.drops.length}`);
@@ -488,25 +488,25 @@ export async function runBatchAcceptance({
     const all = prepared.snapshot.desired.cards.map(({ id }) => id);
     await page(`(scene) => {
       const desired = structuredClone(scene.snapshot().desired);
-      desired.zones = desired.zones.map((zone) => ({ ...zone, cardIds: zone.id === "archive" ? [...${JSON.stringify(all)}] : [] }));
+      desired.zones = desired.zones.map((zone) => ({ ...zone, cardIds: zone.id === "lake" ? [...${JSON.stringify(all)}] : [] }));
       scene.apply(desired);
       return scene.select([${JSON.stringify(all[1])}, ${JSON.stringify(all[3])}], { primaryCardId: ${JSON.stringify(all[1])}, anchorCardId: ${JSON.stringify(all[1])} });
     }`);
-    const source = await waitFor("same-zone fixture", (current) => zoneCards(current, "archive").length === 4
+    const source = await waitFor("same-zone fixture", (current) => zoneCards(current, "lake").length === 4
       && current.snapshot.selection.cardIds.length === 2);
     const cohort = [...source.snapshot.selection.cardIds];
-    const before = [...zoneCards(source, "archive")];
+    const before = [...zoneCards(source, "lake")];
     const primary = await cardPoint(cohort[0]);
-    await pointer.drag(primary, await zonePoint("archive"), { steps: 10 });
+    await pointer.drag(primary, await zonePoint("lake"), { steps: 10 });
     const carrying = await waitFor("same-zone candidate", (current) => lastSession(current)?.phase === "dragging"
-      && lastSession(current).candidate?.toZoneId === "archive");
+      && lastSession(current).candidate?.toZoneId === "lake");
     const index = lastSession(carrying).candidate.index;
     const expected = expectedOrder(before, cohort, index);
-    await pointer.release(await zonePoint("archive"));
+    await pointer.release(await zonePoint("lake"));
     await waitFor("same-zone pending", (current) => current.probe.drops.length === 1
       && lastSession(current)?.phase === "pending");
     const settled = await resolvePending(true);
-    const actual = zoneCards(settled, "archive");
+    const actual = zoneCards(settled, "lake");
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
       throw new Error(`Same-zone batch order mismatch: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
     }
@@ -518,11 +518,11 @@ export async function runBatchAcceptance({
     const ids = [...prepared.snapshot.selection.cardIds];
     await control("#drag-denied-card", ids[1]);
     const primary = await cardPoint(ids[0]);
-    await pointer.drag(primary, await zonePoint("workbench"), { steps: 8 });
+    await pointer.drag(primary, await zonePoint("ocean"), { steps: 8 });
     const denied = await waitFor("denied secondary candidate", (current) => lastSession(current)?.phase === "dragging"
-      && lastSession(current).candidate?.toZoneId === "workbench"
+      && lastSession(current).candidate?.toZoneId === "ocean"
       && lastSession(current).candidate.allowed === false);
-    await pointer.release(await zonePoint("workbench"));
+    await pointer.release(await zonePoint("ocean"));
     const settled = await waitFor("denied batch cancellation", (current) => current.snapshot.interaction.sessions.length === 0
       && !current.snapshot.settling);
     if (settled.probe.drops.length !== 0 || !ids.every((id) => allZones(settled).some(({ cardIds }) => cardIds.includes(id)))) {
@@ -535,10 +535,10 @@ export async function runBatchAcceptance({
     const prepared = await fixture({ response: "immediate" });
     const ids = prepared.snapshot.selection.cardIds;
     const beforeZones = allZones(prepared);
-    await page(`(scene) => { scene.transact([{ type: "zone", zoneId: "workbench", changes: { capacity: 1 } }]); return true; }`);
-    const destination = await zonePoint("workbench");
+    await page(`(scene) => { scene.transact([{ type: "zone", zoneId: "ocean", changes: { capacity: 1 } }]); return true; }`);
+    const destination = await zonePoint("ocean");
     await pointer.drag(await cardPoint(ids[0]), destination);
-    const denied = await waitFor("capacity denies cohort", (current) => lastSession(current)?.candidate?.toZoneId === "workbench"
+    const denied = await waitFor("capacity denies cohort", (current) => lastSession(current)?.candidate?.toZoneId === "ocean"
       && lastSession(current).candidate.allowed === false);
     await pointer.release(destination);
     const settled = await waitFor("capacity cancellation", (current) => !current.snapshot.interaction.sessions.length && !current.snapshot.settling);
@@ -549,7 +549,7 @@ export async function runBatchAcceptance({
   await runCase(results, "compact carrying settles then lands in actual target slots", async () => {
     const prepared = await fixture({ presentation: "compact" });
     const ids = prepared.snapshot.selection.cardIds;
-    const destination = await zonePoint("workbench");
+    const destination = await zonePoint("ocean");
     const start = await cardPoint(ids[0]);
     await pointer.drag(start, destination);
     await waitFor("compact offset animation settles", (current) => lastSession(current)?.presentation === "compact"
@@ -685,14 +685,14 @@ export async function runBatchAcceptance({
     const picked = await waitFor("keyboard cohort pickup", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === ids.length);
     await keyboard.press("Tab");
-    await waitFor("keyboard River candidate", (current) => lastSession(current)?.candidate?.toZoneId === "reserve");
+    await waitFor("keyboard River candidate", (current) => lastSession(current)?.candidate?.toZoneId === "river");
     await keyboard.press("Tab");
-    await waitFor("keyboard Ocean candidate", (current) => lastSession(current)?.candidate?.toZoneId === "workbench");
+    await waitFor("keyboard Ocean candidate", (current) => lastSession(current)?.candidate?.toZoneId === "ocean");
     await keyboard.press("Enter");
     const pending = await waitFor("keyboard batch pending", (current) => lastSession(current)?.phase === "pending"
       && current.probe.drops.length === 1);
     const landed = await resolvePending(true);
-    if (!ids.every((id) => zoneCards(landed, "workbench").includes(id)) || !shellIdentity(landed, ids)) {
+    if (!ids.every((id) => zoneCards(landed, "ocean").includes(id)) || !shellIdentity(landed, ids)) {
       throw new Error(`Keyboard cohort did not land atomically: ${JSON.stringify(compactDiagnostics(landed))}`);
     }
     return { ids, selection: selected.snapshot.selection, session: picked.snapshot.interaction.sessions.at(-1), intent: pending.probe.drops[0] };
@@ -711,12 +711,12 @@ export async function runBatchAcceptance({
       throw new Error("The touch protocol did not produce actual touch pointer events");
     }
     const primary = await cardPoint(ids[0]);
-    await touch.drag(primary, await zonePoint("workbench"), { steps: 8 });
+    await touch.drag(primary, await zonePoint("ocean"), { steps: 8 });
     const carrying = await waitFor("touch cohort pickup", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === ids.length);
-    await touch.release(await zonePoint("workbench"));
+    await touch.release(await zonePoint("ocean"));
     const landed = await waitFor("touch cohort landing", (current) => current.snapshot.interaction.sessions.length === 0
-      && zoneCards(current, "workbench").length === ids.length && !current.snapshot.settling);
+      && zoneCards(current, "ocean").length === ids.length && !current.snapshot.settling);
     measurements.cohortSizes.push({ input: "touch", count: carrying.snapshot.interaction.sessions.at(-1)?.cardIds.length ?? ids.length });
     return { ids, selection: selected.snapshot.selection, session: carrying.snapshot.interaction.sessions.at(-1), zones: allZones(landed), shells: landed.shells };
   });
@@ -735,12 +735,12 @@ export async function runBatchAcceptance({
       throw new Error(`The pen protocol did not produce pen pointer events: ${JSON.stringify(penEvents)}`);
     }
     const primary = await cardPoint(ids[0]);
-    await pen.drag(primary, await zonePoint("workbench"), { steps: 8 });
+    await pen.drag(primary, await zonePoint("ocean"), { steps: 8 });
     const carrying = await waitFor("pen cohort pickup", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === ids.length);
-    await pen.release(await zonePoint("workbench"));
+    await pen.release(await zonePoint("ocean"));
     const landed = await waitFor("pen cohort landing", (current) => current.snapshot.interaction.sessions.length === 0
-      && zoneCards(current, "workbench").length === ids.length && !current.snapshot.settling);
+      && zoneCards(current, "ocean").length === ids.length && !current.snapshot.settling);
     measurements.cohortSizes.push({ input: "pen", count: carrying.snapshot.interaction.sessions.at(-1)?.cardIds.length ?? ids.length });
     return { ids, selection: selected.snapshot.selection, session: carrying.snapshot.interaction.sessions.at(-1), penEvents: penEvents.length, zones: allZones(landed), shells: landed.shells };
   });
@@ -749,18 +749,18 @@ export async function runBatchAcceptance({
     const prepared = await fixture();
     const ids = [...prepared.snapshot.selection.cardIds];
     const primary = await cardPoint(ids[0]);
-    await pointer.drag(primary, await zonePoint("workbench"), { steps: 8 });
+    await pointer.drag(primary, await zonePoint("ocean"), { steps: 8 });
     const carrying = await waitFor("frozen cohort carrying", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === ids.length);
     await page(`(scene) => scene.select(["batch-card-3"], { mode: "replace" })`);
-    await pointer.release(await zonePoint("workbench"));
+    await pointer.release(await zonePoint("ocean"));
     const pending = await waitFor("frozen cohort pending", (current) => lastSession(current)?.phase === "pending");
     if (JSON.stringify(lastSession(pending).cardIds) !== JSON.stringify(ids)) throw new Error("Late selection changed frozen cohort");
-    await control("#drag-denied-zone", "workbench");
+    await control("#drag-denied-zone", "ocean");
     const stale = await waitFor("late approval invalidation", (current) => current.snapshot.interaction.sessions.length === 0);
     const lateReply = await page(`(scene) => scene.resolveDrop(${JSON.stringify(lastSession(pending).id)}, { accepted: true })`);
     if (lateReply.status !== "stale") throw new Error("Late approval was not rejected as stale");
-    if (stale.probe.drops.length !== 1 || ids.some((id) => zoneCards(stale, "workbench").includes(id))) {
+    if (stale.probe.drops.length !== 1 || ids.some((id) => zoneCards(stale, "ocean").includes(id))) {
       throw new Error(`Late rule change partially committed: ${JSON.stringify(compactDiagnostics(stale))}`);
     }
     return { ids, carrying: lastSession(carrying), pending: lastSession(pending), finalSelection: stale.snapshot.selection, zones: allZones(stale) };
@@ -771,7 +771,7 @@ export async function runBatchAcceptance({
     const ids = [...prepared.snapshot.selection.cardIds];
     const removed = ids[1];
     const primary = ids[0];
-    await pointer.drag(await cardPoint(primary), await zonePoint("workbench"), { steps: 8 });
+    await pointer.drag(await cardPoint(primary), await zonePoint("ocean"), { steps: 8 });
     await waitFor("removal cohort carrying", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === ids.length);
     await page(`(scene) => {
@@ -783,7 +783,7 @@ export async function runBatchAcceptance({
     }`);
     const cancelled = await waitFor("secondary removal cancellation", (current) => current.snapshot.interaction.sessions.length === 0
       && current.snapshot.desired.cards.every(({ id }) => id !== removed));
-    await pointer.release(await zonePoint("workbench"));
+    await pointer.release(await zonePoint("ocean"));
     const primaryHasMembership = allZones(cancelled).some(({ cardIds }) => cardIds.includes(primary));
     if (!primaryHasMembership || allZones(cancelled).some(({ cardIds }) => cardIds.includes(removed))) {
       throw new Error(`Secondary removal resurrected or lost survivor: ${JSON.stringify(compactDiagnostics(cancelled))}`);
