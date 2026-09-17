@@ -498,6 +498,125 @@ function physicalSide(pose) {
   return facing > 0 ? "front" : "back";
 }
 
+function finitePoint(point) {
+  return point && Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function finiteBounds(bounds) {
+  return bounds && [bounds.left, bounds.top, bounds.width, bounds.height].every(Number.isFinite)
+    && bounds.width > 0 && bounds.height > 0;
+}
+
+function finiteCenter(center) {
+  return center && Number.isFinite(center.x) && Number.isFinite(center.y);
+}
+
+function grabRay(camera, bounds, clientPoint) {
+  if (!camera || !finiteBounds(bounds) || !finitePoint(clientPoint)) return null;
+  const raycaster = new THREE.Raycaster();
+  camera.updateMatrixWorld(true);
+  raycaster.setFromCamera({
+    x: (clientPoint.x - bounds.left) / bounds.width * 2 - 1,
+    y: 1 - (clientPoint.y - bounds.top) / bounds.height * 2,
+  }, camera);
+  return raycaster;
+}
+
+function serializableVector(point) {
+  return { x: point.x, y: point.y, z: point.z };
+}
+
+/**
+ * Capture a physical point in the card's face-group coordinate system. The
+ * point remains attached to the same material through a flip: a back hit is
+ * anchored to the back surface, and an edge/body hit is anchored to that
+ * actual 3D surface. If the ray misses the mounted geometry, the token uses
+ * the transformed card reference plane (local z = 0) instead.
+ */
+export function captureGrabToken({ camera, bounds, cardId, cardGroup, faceGroup, pose, clientPoint, sideForObject } = {}) {
+  if (typeof cardId !== "string" || !cardGroup || !faceGroup || !pose || !finitePoint(clientPoint)) return null;
+  const raycaster = grabRay(camera, bounds, clientPoint);
+  if (!raycaster || cardGroup.visible === false) return null;
+  cardGroup.updateMatrixWorld(true);
+
+  const intersections = raycaster.intersectObject(cardGroup, true);
+  let point;
+  let source = "reference-plane";
+  let side;
+  const hit = intersections.find((intersection) => intersection?.point && intersection.object?.visible !== false);
+  if (hit) {
+    point = faceGroup.worldToLocal(hit.point.clone());
+    source = "surface";
+    side = typeof sideForObject === "function" ? sideForObject(hit.object) : undefined;
+  } else {
+    const origin = faceGroup.localToWorld(new THREE.Vector3());
+    const normal = faceGroup.localToWorld(new THREE.Vector3(0, 0, 1)).sub(origin).normalize();
+    const referencePlane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, origin);
+    const worldPoint = raycaster.ray.intersectPlane(referencePlane, new THREE.Vector3());
+    if (!worldPoint) return null;
+    point = faceGroup.worldToLocal(worldPoint);
+    side = physicalSide(pose);
+  }
+  if (![point.x, point.y, point.z].every(Number.isFinite)) return null;
+  return {
+    version: 1,
+    cardId,
+    space: "card-face",
+    source,
+    ...(side ? { side } : {}),
+    physicalSide: physicalSide(pose),
+    localPoint: serializableVector(point),
+  };
+}
+
+/**
+ * Project a token's local material point through the renderer's card transform.
+ * This mirrors update(): face flip first, then body tilt/angle, then the
+ * combined rendered scale and card-group translation.
+ */
+export function projectGrabPoint(localPoint, pose, center = { x: 0, y: 0 }) {
+  if (!localPoint || !pose || !finiteCenter(center)
+    || ![localPoint.x, localPoint.y, localPoint.z, pose.x, pose.y].every(Number.isFinite)) return null;
+  const renderedScale = (pose.scale ?? 1) * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
+  if (!Number.isFinite(renderedScale)) return null;
+  const point = new THREE.Vector3(localPoint.x, localPoint.y, localPoint.z);
+  point.applyEuler(new THREE.Euler(
+    radians(pose.flipX ?? 0),
+    radians(pose.flipY ?? 0),
+    0,
+    "YXZ",
+  ));
+  point.applyEuler(new THREE.Euler(
+    radians(pose.tiltX ?? 0),
+    radians(pose.tiltY ?? 0),
+    radians(pose.angle ?? 0),
+    "ZXY",
+  ));
+  point.multiplyScalar(renderedScale);
+  point.add(new THREE.Vector3(pose.x - center.x, center.y - pose.y, pose.z ?? 0));
+  return point;
+}
+
+/**
+ * Return a scene-coordinate correction for a final rendered pose. This pure
+ * helper returns a delta; the renderer capability below converts it to the
+ * absolute x/y fields expected by scene render merging. z is deliberately
+ * omitted so the scene-owned render layer is preserved.
+ */
+export function resolveGrabCorrection({ camera, bounds, center = { x: 0, y: 0 }, pose, grabToken, clientPoint } = {}) {
+  if (!grabToken?.localPoint || !finitePoint(clientPoint) || !finiteCenter(center)) return null;
+  const grabbedWorld = projectGrabPoint(grabToken.localPoint, pose, center);
+  const raycaster = grabRay(camera, bounds, clientPoint);
+  if (!grabbedWorld || !raycaster) return null;
+  const target = raycaster.ray.intersectPlane(
+    new THREE.Plane(new THREE.Vector3(0, 0, 1), -grabbedWorld.z),
+    new THREE.Vector3(),
+  );
+  if (!target) return null;
+  const correction = { x: target.x - grabbedWorld.x, y: -(target.y - grabbedWorld.y) };
+  return [correction.x, correction.y].every(Number.isFinite) ? correction : null;
+}
+
 const INTERACTION_PHASES = new Set(["dragging", "pending"]);
 const INTERACTION_ALLOWED_COLOR = 0xe5c07b;
 const INTERACTION_DENIED_COLOR = 0xf87171;
@@ -629,6 +748,13 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   let interactionPreviewKey = null;
   let selectedCardIds = new Set();
   let primaryCardId = null;
+  let drawOrderRevision = 0;
+  let cardsRevision = 0;
+  let interactionPrioritySessionKey = null;
+  let interactionPriorityDrawRevision = -1;
+  let interactionPriorityCardsRevision = -1;
+  let interactionPriorityAssignments = new Map();
+  let interactionPriorityCardIds = new Set();
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
   const handleWindowResize = () => {
     if (!resizeObserver) resize();
@@ -838,6 +964,20 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       backContentKey: null,
       frontTransition: null,
       backTransition: null,
+      accessibilityCard: null,
+      accessibilityFaceId: null,
+      accessibilityNextFaceId: null,
+      accessibilitySide: null,
+      accessibilityContentKey: null,
+      textureCard: null,
+      textureActiveFaceId: null,
+      textureNextFaceId: null,
+      textureFrontFaceId: null,
+      textureBackFaceId: null,
+      textureWidth: null,
+      textureHeight: null,
+      textureTargetWidth: null,
+      textureTargetHeight: null,
       width,
       height,
       thickness,
@@ -846,6 +986,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.frontBase = frontBase;
     mounted.backBase = backBase;
     cards.set(card.id, mounted);
+    cardsRevision += 1;
     return mounted;
   }
 
@@ -906,11 +1047,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     oldBackGeometry.dispose();
   }
 
-  function updateTexture(mounted, side, content, dimensions, targetDimensions) {
+  function updateTexture(mounted, side, content, dimensions, targetDimensions, identity = null) {
     const contentStateName = `${side}Content`;
     const contentStateKeyName = `${side}ContentKey`;
     const transitionName = `${side}Transition`;
-    const structureKey = contentIdentityKey(content);
+    const structureKey = JSON.stringify([identity, contentIdentityKey(content)]);
     if (mounted[contentStateKeyName] !== structureKey) {
       mounted[transitionName] = flowTransitionPolicy(mounted[contentStateName], content);
       mounted[contentStateName] = content;
@@ -924,7 +1065,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       deferFlowIds: isResizing && isGrowing ? transition.deferFlowIds : [],
       gapIndex: transition.gapIndex,
     };
-    const key = JSON.stringify([contentKey(content, dimensions), options.preserveBottom === true, options.deferFlowIds, options.gapIndex]);
+    const key = JSON.stringify([structureKey, contentKey(content, dimensions), options.preserveBottom === true, options.deferFlowIds, options.gapIndex]);
     const keyName = `${side}Key`;
     if (mounted[keyName] === key) {
       if (!isResizing) mounted[transitionName] = null;
@@ -952,25 +1093,65 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.accessibilityShell.inert = pose.visible === false;
     mounted.lastCard = card;
     mounted.lastPose = pose;
-    mounted.drawOrder = pose.drawOrder ?? 0;
+    const drawOrder = pose.drawOrder ?? 0;
+    if (mounted.drawOrder !== drawOrder) drawOrderRevision += 1;
+    mounted.drawOrder = drawOrder;
     updateGeometry(mounted, card, dimensions, thickness);
     const renderedScale = pose.scale * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
     const x = pose.x - center.x;
     const y = center.y - pose.y;
     mounted.cardGroup.position.set(x, y, pose.z);
-    mounted.cardGroup.renderOrder = mounted.drawOrder;
+    if (!interactionPriorityCardIds.has(card.id)) mounted.cardGroup.renderOrder = mounted.drawOrder;
     mounted.cardGroup.scale.setScalar(renderedScale);
     mounted.bodyGroup.rotation.order = "ZXY";
     mounted.bodyGroup.rotation.set(radians(pose.tiltX), radians(pose.tiltY), radians(pose.angle));
     mounted.faceGroup.rotation.order = "YXZ";
     mounted.faceGroup.rotation.set(radians(pose.flipX ?? 0), radians(pose.flipY ?? 0), 0);
     const accessible = accessibleContent(card, pose);
-    const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
-    mounted.accessibilityShell.textContent = accessibleText || "Card";
-    mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
-    updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, targetDimensions);
-    updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, targetDimensions);
-    if (interactionSessions.length > 0) applyInteractionPriority();
+    const faceId = card.faceCycleNextFaceId ?? card.activeFaceId;
+    const textureDimensionsChanged = mounted.textureWidth !== textureDimensions.width
+      || mounted.textureHeight !== textureDimensions.height
+      || mounted.textureTargetWidth !== targetDimensions.width
+      || mounted.textureTargetHeight !== targetDimensions.height;
+    const textureInputsChanged = mounted.textureCard !== card
+      || mounted.textureActiveFaceId !== card.activeFaceId
+      || mounted.textureNextFaceId !== card.faceCycleNextFaceId
+      || mounted.textureFrontFaceId !== faceId
+      || mounted.textureBackFaceId !== card.back
+      || textureDimensionsChanged
+      || mounted.frontKey === null
+      || mounted.backKey === null;
+    if (textureInputsChanged) {
+      updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, targetDimensions, faceId);
+      updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, targetDimensions, "back");
+      mounted.textureCard = card;
+      mounted.textureActiveFaceId = card.activeFaceId;
+      mounted.textureNextFaceId = card.faceCycleNextFaceId;
+      mounted.textureFrontFaceId = faceId;
+      mounted.textureBackFaceId = card.back;
+      mounted.textureWidth = textureDimensions.width;
+      mounted.textureHeight = textureDimensions.height;
+      mounted.textureTargetWidth = targetDimensions.width;
+      mounted.textureTargetHeight = targetDimensions.height;
+    }
+    const accessibilitySelectionChanged = mounted.accessibilityCard !== card
+      || mounted.accessibilityFaceId !== card.activeFaceId
+      || mounted.accessibilityNextFaceId !== card.faceCycleNextFaceId
+      || mounted.accessibilitySide !== accessible.side;
+    if (accessibilitySelectionChanged) {
+      const accessibleContentKey = contentIdentityKey(accessible.content);
+      if (mounted.accessibilityContentKey !== accessibleContentKey || accessibilitySelectionChanged) {
+        const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
+        mounted.accessibilityShell.textContent = accessibleText || "Card";
+        mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
+      }
+      mounted.accessibilityCard = card;
+      mounted.accessibilityFaceId = card.activeFaceId;
+      mounted.accessibilityNextFaceId = card.faceCycleNextFaceId;
+      mounted.accessibilitySide = accessible.side;
+      mounted.accessibilityContentKey = accessibleContentKey;
+    }
+    if (interactionSessions.length > 0 && !interactionPriorityCardIds.has(card.id)) applyInteractionPriority();
     if (shouldRender) render();
   }
 
@@ -1038,6 +1219,36 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       x: bounds.left + (projected.x + 1) / 2 * bounds.width,
       y: bounds.top + (1 - projected.y) / 2 * bounds.height,
     };
+  }
+
+  function captureGrab(cardId, clientPoint) {
+    if (disposed || typeof cardId !== "string") return null;
+    const mounted = cards.get(cardId);
+    if (!mounted || !mounted.lastPose || mounted.cardGroup.visible === false) return null;
+    return captureGrabToken({
+      camera,
+      bounds: canvasBounds(),
+      cardId,
+      cardGroup: mounted.cardGroup,
+      faceGroup: mounted.faceGroup,
+      pose: mounted.lastPose,
+      clientPoint,
+      sideForObject: (object) => cardSideForIntersection(object, mounted),
+    });
+  }
+
+  function resolveGrabPose(pose, grabToken, clientPoint) {
+    if (disposed || !grabToken?.cardId || !cards.has(grabToken.cardId)) return null;
+    const correction = resolveGrabCorrection({
+      camera,
+      bounds: canvasBounds(),
+      center,
+      pose,
+      grabToken,
+      clientPoint,
+    });
+    if (!correction || !pose || !Number.isFinite(pose.x) || !Number.isFinite(pose.y)) return null;
+    return { x: pose.x + correction.x, y: pose.y + correction.y };
   }
 
   function disposeInteractionPreview() {
@@ -1137,18 +1348,35 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function applyInteractionPriority() {
-    for (const mounted of cards.values()) mounted.cardGroup.renderOrder = mounted.drawOrder ?? 0;
     const activeSessions = interactionSessions.filter((session) => INTERACTION_PHASES.has(session?.phase));
-    const highestDrawOrder = Math.max(-1, ...[...cards.values()].map((mounted) => mounted.drawOrder ?? 0));
+    const sessionKey = JSON.stringify(activeSessions.map((session) => [session?.id, session?.cardIds]));
+    if (sessionKey === interactionPrioritySessionKey
+      && drawOrderRevision === interactionPriorityDrawRevision
+      && cardsRevision === interactionPriorityCardsRevision) return;
+
+    for (const cardId of interactionPriorityAssignments.keys()) {
+      const mounted = cards.get(cardId);
+      if (mounted) mounted.cardGroup.renderOrder = mounted.drawOrder ?? 0;
+    }
+    const highestDrawOrder = activeSessions.length === 0
+      ? -1
+      : Math.max(-1, ...[...cards.values()].map((mounted) => mounted.drawOrder ?? 0));
     let priority = highestDrawOrder + 1;
+    const assignments = new Map();
     for (const session of activeSessions) {
       for (const cardId of session.cardIds ?? []) {
         const mounted = cards.get(cardId);
         if (!mounted) continue;
         mounted.cardGroup.renderOrder = priority;
+        assignments.set(cardId, priority);
         priority += 1;
       }
     }
+    interactionPriorityAssignments = assignments;
+    interactionPriorityCardIds = new Set(assignments.keys());
+    interactionPrioritySessionKey = sessionKey;
+    interactionPriorityDrawRevision = drawOrderRevision;
+    interactionPriorityCardsRevision = cardsRevision;
   }
 
   function updateInteraction({ sessions = [] } = {}) {
@@ -1221,6 +1449,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.backMaterial.dispose();
     mounted.selectionFrameMaterial.dispose();
     cards.delete(cardId);
+    cardsRevision += 1;
     render();
   }
 
@@ -1256,6 +1485,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     hitTest,
     clientToScene,
     sceneToClient,
+    captureGrab,
+    resolveGrabPose,
     updateInteraction,
     updateSelection,
     render,

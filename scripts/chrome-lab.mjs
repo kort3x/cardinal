@@ -147,6 +147,23 @@ function connect(target) {
   return { socket, command };
 }
 
+// Element and authored-motion checks use an explicit one-card grid fixture,
+// independent of the lab's showcase cards and default Hand arrangement.
+const singleCardFixture = String.raw`{
+  const { getScene } = await import("/examples/card-engine-lab/main.js");
+  const fixtureScene = getScene();
+  const desired = fixtureScene.snapshot().desired;
+  const card = desired.cards[0];
+  fixtureScene.apply({
+    cards: [card],
+    zones: desired.zones.map((zone) => ({ ...zone,
+      cardIds: zone.id === "river" ? [card.id] : [],
+      arrangement: { type: "grid", gap: 16 },
+    })),
+  });
+  fixtureScene.select([card.id]);
+}`;
+
 const elementScenario = String.raw`(async () => {
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   const showDemo = new URLSearchParams(location.search).has("show-demo");
@@ -199,6 +216,7 @@ const elementScenario = String.raw`(async () => {
   };
 
   await sleep(showDemo ? 2500 : 700);
+  ${singleCardFixture}
   record("baseline WebGL lab", (current) => current.renderer.includes("Three.js WebGL")
     && current.shells === 1 && current.elements.length >= 5
     && ["title", "image", "flavour"].every((id) => current.elements.some((element) => element.name?.startsWith(id)))
@@ -301,7 +319,7 @@ const elementScenario = String.raw`(async () => {
   }, (current) => !current.elements.some((element) => element.name === "image · image")
     && !current.status.includes("animating"));
   await step("add element during flip", async () => {
-    click("#flip");
+    click('[data-flip="1"]');
     await sleep(120);
     click("#add-element");
   }, (current) => current.shells === 2
@@ -344,6 +362,7 @@ const acceptanceScenario = String.raw`(async () => {
   const readX = (status) => Number(status.match(/ · x (-?\d+)/)?.[1]);
 
   await sleep(700);
+  ${singleCardFixture}
   record("baseline WebGL card", (current) => current.renderer.includes("Three.js WebGL")
     && current.status.includes("physical front") && current.shells === 1);
 
@@ -397,7 +416,12 @@ const demoTogglesScenario = String.raw`(async () => {
   const results = [];
   const module = await import([...document.querySelectorAll('script[type="module"]')].at(-1).src);
   const scene = () => module.getScene()?.snapshot();
-  const pose = () => scene()?.visual?.[0]?.pose;
+  const selectedPose = () => {
+    const snapshot = scene();
+    const cardId = snapshot?.selection?.primaryCardId ?? snapshot?.selection?.cardIds?.[0];
+    return snapshot?.visual?.find(({ cardId: visualCardId }) => visualCardId === cardId)?.pose;
+  };
+  const pose = () => selectedPose();
   const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
   const click = (selector) => document.querySelector(selector)?.click();
   await sleep(700);
@@ -430,7 +454,11 @@ const demoTogglesScenario = String.raw`(async () => {
   click("#flip");
   await sleep(500);
   record("flip toggle repeatedly changes the physical face", () => document.querySelector("#flip")?.getAttribute("aria-pressed") === "true"
-    && scene()?.visual?.[0]?.physicalSide === "back");
+    && (() => {
+      const snapshot = scene();
+      const cardId = snapshot?.selection?.primaryCardId ?? snapshot?.selection?.cardIds?.[0];
+      return snapshot?.visual?.find(({ cardId: visualCardId }) => visualCardId === cardId)?.physicalSide === "back";
+    })());
   click("#flip");
 
   click("#move");
@@ -620,6 +648,37 @@ const layoutScenario = String.raw`(async () => {
   record("full-window mode exits cleanly", () => document.body.classList.contains("stage-full-window") === false
     && fullWindowControl?.getAttribute("aria-pressed") === "false"
     && fullWindowControl?.textContent === "Full window");
+  const { getScene } = await import("/examples/card-engine-lab/main.js");
+  const tuningScene = getScene();
+  const tuningBefore = tuningScene.snapshot();
+  const tuningFields = [
+    ["drag-lift-scale", "liftScale", 1.2], ["drag-lift-time", "liftTime", 50],
+    ["drag-response-time", "responseTime", 120], ["drag-damping", "damping", 1],
+    ["drag-dangliness", "dangle", 0], ["drag-max-tilt", "maxTilt", 0],
+    ["drag-max-twist", "maxTwist", 5], ["drag-upright", "upright", 0.5],
+    ["drag-landing-time", "landingTime", 150], ["drag-landing-bounce", "landingBounce", 0.2],
+    ["drag-snap-delay", "landingDelay", 40], ["drag-weight-influence", "weightInfluence", 0.8],
+  ];
+  for (const [id, field, value] of tuningFields) {
+    const control = document.getElementById(id);
+    control.value = String(value);
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    record("live drag control: " + field, () => getScene() === tuningScene
+      && Math.abs(tuningScene.snapshot().dragMotion[field] - value) < 0.001);
+    control.value = String(tuningBefore.dragMotion[field]);
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  record("drag tuning preserves cards and selection", () =>
+    JSON.stringify(tuningScene.snapshot().desired) === JSON.stringify(tuningBefore.desired)
+    && JSON.stringify(tuningScene.snapshot().selection) === JSON.stringify(tuningBefore.selection));
+  const presetControl = document.getElementById("drag-motion-preset");
+  presetControl.value = "crisp";
+  presetControl.dispatchEvent(new Event("change", { bubbles: true }));
+  record("drag preset applies live", () => getScene() === tuningScene
+    && tuningScene.snapshot().dragMotion.preset === "crisp"
+    && tuningScene.snapshot().dragMotion.responseTime === 95);
+  presetControl.value = "natural";
+  presetControl.dispatchEvent(new Event("change", { bubbles: true }));
   document.querySelector("#animation-test")?.click();
   await new Promise((resolve) => setTimeout(resolve, 10200));
   record("ten-second animation test settles", () => document.querySelector("#animation-test")?.disabled === false
@@ -1110,6 +1169,16 @@ const arrangementsScenario = String.raw`(async () => {
   await sleep(700);
   record('new cards use the Ember front face by default', scene.snapshot().desired.cards[0]?.faces?.['face-a']?.backgroundImage?.src?.endsWith('/b1.png'));
   const initialCards = scene.snapshot().desired.cards;
+  const initialZones = scene.snapshot().desired.zones;
+  const initialOceanCard = initialZones.find(({ id }) => id === 'ocean')?.cardIds[0];
+  const initialOceanVisual = scene.snapshot().visual.find(({ cardId }) => cardId === initialOceanCard);
+  record('Lake and Ocean default to columns with Ocean face down', initialZones.find(({ id }) => id === 'lake')?.arrangement.type === 'column'
+    && initialZones.find(({ id }) => id === 'ocean')?.arrangement.type === 'column'
+    && initialOceanVisual?.physicalSide === 'back');
+  record('example card backs contain the Cardinal logo element', initialCards.every((card) => {
+    const logo = card.back?.elements?.find(({ id }) => id === 'cardinal-logo');
+    return logo?.type === 'image' && logo.content?.src?.endsWith('/assets/cards/paint.png');
+  }));
   record('lab includes the new ice and owl card art', initialCards.length === 3
     && initialCards.find((card) => card.id === 'ice-demo')?.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src?.endsWith('/ice.png')
     && initialCards.find((card) => card.id === 'owl-demo')?.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src?.endsWith('/owl.png'));
@@ -1193,6 +1262,22 @@ const arrangementsScenario = String.raw`(async () => {
   const riverPolicy = scene.snapshot().desired.zones.find(({ id }) => id === 'river');
   record('zone controls expose alignment speed, scale, and face policy', Boolean(positionSpeedControl && scaleControl && faceControl)
     && riverPolicy?.motion?.positionSpeed === 2 && riverPolicy.scale === 0.75 && riverPolicy.faceUp === false);
+  const orderControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="orderMode"]');
+  const slotModeControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="slotMode"]');
+  if (orderControl) {
+    orderControl.value = 'locked';
+    orderControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (slotModeControl) {
+    slotModeControl.value = 'fixed';
+    slotModeControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  await sleep(250);
+  const enforcedRiver = scene.snapshot().desired.zones.find(({ id }) => id === 'river');
+  record('zone controls expose optional order and slot enforcement', Boolean(orderControl && slotModeControl)
+    && enforcedRiver?.orderPolicy?.mode === 'locked'
+    && enforcedRiver?.slotPolicy?.mode === 'fixed'
+    && Object.keys(enforcedRiver.slotPolicy.slots).length === enforcedRiver.cardIds.length);
   const handVisual = scene.snapshot().visual
     .filter(({ cardId }) => zone().cardIds.includes(cardId))
     .sort((first, second) => first.pose.x - second.pose.x);

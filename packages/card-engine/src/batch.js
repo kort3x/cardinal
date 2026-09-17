@@ -1,3 +1,5 @@
+import { validateZonePolicies } from './model.js';
+
 // Input is a normalized scene model. Build one final membership permutation;
 // neither preview nor commit may interpret indices against intermediate moves.
 export function resolveBatchMove(snapshot, { cardIds, toZoneId, index, validate = true } = {}) {
@@ -55,6 +57,7 @@ export function resolveBatchMove(snapshot, { cardIds, toZoneId, index, validate 
   destination.cardIds.splice(destinationIndex, 0, ...cardIds);
   if (validate) for (const zone of next.zones) {
     if (zone.cardIds.length > (zone.capacity ?? Infinity)) throw new RangeError(`Zone ${zone.id} exceeds capacity`);
+    validateZonePolicies(zone, zone.cardIds, 'batch move');
   }
   return { sources, destinationIndex, nextSnapshot: next };
 }

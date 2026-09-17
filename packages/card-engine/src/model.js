@@ -19,6 +19,101 @@ const ALIGNMENTS = new Set(["start", "center", "end"]);
 const OVERFLOW_POLICIES = new Set(["scroll", "overlap", "fit", "reject"]);
 const ZONE_MOTION_SPEEDS = ["positionSpeed", "orientationSpeed", "scaleSpeed", "faceSpeed"];
 
+function policyObject(value, name, zoneId) {
+  if (value === undefined || value === null || value === false) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`Zone ${zoneId} ${name} requires an object`);
+  }
+  return value;
+}
+
+function knownPolicyIds(ids, name, zoneId, knownCardIds) {
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id)
+    || new Set(ids).size !== ids.length) {
+    throw new TypeError(`Zone ${zoneId} ${name} requires unique card IDs`);
+  }
+  for (const id of ids) if (!knownCardIds.has(id)) throw new Error(`Zone ${zoneId} ${name} references unknown card ${id}`);
+  return [...ids];
+}
+
+function normalizeSlotMap(slots, zoneId, knownCardIds) {
+  if (!slots || typeof slots !== "object" || Array.isArray(slots)) {
+    throw new TypeError(`Zone ${zoneId} slotPolicy.slots requires an object`);
+  }
+  const normalized = {};
+  const usedSlots = new Set();
+  for (const [cardId, slot] of Object.entries(slots)) {
+    if (!knownCardIds.has(cardId)) throw new Error(`Zone ${zoneId} slotPolicy references unknown card ${cardId}`);
+    if (!Number.isInteger(slot) || slot < 0) throw new RangeError(`Zone ${zoneId} slotPolicy slot for ${cardId} must be a non-negative integer`);
+    if (usedSlots.has(slot)) throw new Error(`Zone ${zoneId} slotPolicy assigns slot ${slot} more than once`);
+    usedSlots.add(slot);
+    normalized[cardId] = slot;
+  }
+  return normalized;
+}
+
+/**
+ * Normalize the public zone policy shape. Policies are deliberately split so
+ * consumers can map a JSON `zonePolicies` object directly onto a zone:
+ *
+ *   orderPolicy: { mode: "locked", order: ["card-a", "card-b"] }
+ *   slotPolicy: { mode: "fixed", slots: { "card-b": 1 } }
+ *
+ * `order` is a canonical relative order and may include cards currently in
+ * another zone. `slots` are absolute destination indices for configured cards.
+ * Omitted policies and explicit `free` modes leave insertion and reorder free.
+ */
+export function normalizeZonePolicies({ zoneId, orderPolicy, slotPolicy, cardIds = [], knownCardIds }) {
+  const known = knownCardIds instanceof Set ? knownCardIds : new Set(knownCardIds ?? cardIds);
+  const orderSource = policyObject(orderPolicy, "orderPolicy", zoneId);
+  const slotSource = policyObject(slotPolicy, "slotPolicy", zoneId);
+  let normalizedOrder;
+  if (orderSource) {
+    const mode = orderSource.mode ?? "locked";
+    if (mode !== "free" && mode !== "locked") throw new TypeError(`Zone ${zoneId} orderPolicy mode must be free or locked`);
+    if (mode === "free") normalizedOrder = { mode: "free" };
+    else {
+      const order = knownPolicyIds(orderSource.order, "orderPolicy.order", zoneId, known);
+      for (const cardId of cardIds) if (!order.includes(cardId)) {
+        throw new Error(`Zone ${zoneId} orderPolicy.order must include current member ${cardId}`);
+      }
+      normalizedOrder = { mode: "locked", order };
+    }
+  }
+  let normalizedSlots;
+  if (slotSource) {
+    const mode = slotSource.mode ?? "fixed";
+    if (mode !== "free" && mode !== "fixed") throw new TypeError(`Zone ${zoneId} slotPolicy mode must be free or fixed`);
+    normalizedSlots = mode === "free" ? { mode: "free" }
+      : { mode: "fixed", slots: normalizeSlotMap(slotSource.slots, zoneId, known) };
+  }
+  return { ...(normalizedOrder === undefined ? {} : { orderPolicy: normalizedOrder }),
+    ...(normalizedSlots === undefined ? {} : { slotPolicy: normalizedSlots }) };
+}
+
+/** Validate the final membership permutation used by previews and commits. */
+export function validateZonePolicies(zone, cardIds = zone.cardIds, context = "operation") {
+  const slotPolicy = zone.slotPolicy;
+  if (slotPolicy?.mode === "fixed") {
+    for (const [cardId, slot] of Object.entries(slotPolicy.slots)) {
+      if (cardIds.includes(cardId) && cardIds[slot] !== cardId) {
+        throw new Error(`Zone ${zone.id} slotPolicy denies ${context}: card ${cardId} must occupy destination slot ${slot}`);
+      }
+    }
+  }
+  const orderPolicy = zone.orderPolicy;
+  if (orderPolicy?.mode === "locked") {
+    let previous = -1;
+    for (const cardId of cardIds) {
+      const rank = orderPolicy.order.indexOf(cardId);
+      if (rank < 0) throw new Error(`Zone ${zone.id} orderPolicy denies ${context}: card ${cardId} is not in the locked order`);
+      if (rank <= previous) throw new Error(`Zone ${zone.id} orderPolicy denies ${context}: membership order must follow ${orderPolicy.order.join(", ")}`);
+      previous = rank;
+    }
+  }
+  return true;
+}
+
 function normalizeDimensions(dimensions) {
   if (!dimensions || !Number.isFinite(dimensions.width) || !Number.isFinite(dimensions.height)) {
     throw new TypeError("Card dimensions require finite width and height");
@@ -234,6 +329,7 @@ export function normalizeSnapshot(snapshot) {
   if (new Set(cards.map((card) => card.id)).size !== cards.length) {
     throw new Error("Card ids must be unique");
   }
+  const knownCardIds = new Set(cards.map((card) => card.id));
 
   const zones = snapshot.zones.map((zone) => {
     if (!zone || typeof zone.id !== "string" || zone.id.length === 0) {
@@ -260,9 +356,14 @@ export function normalizeSnapshot(snapshot) {
     if (zone.faceUp !== undefined && typeof zone.faceUp !== "boolean") throw new TypeError(`Zone ${zone.id} faceUp must be boolean`);
     const arrangement = normalizeArrangement(zone.arrangement);
     const motion = normalizeZoneMotion(zone.motion);
+    const policies = normalizeZonePolicies({ zoneId: zone.id, orderPolicy: zone.orderPolicy, slotPolicy: zone.slotPolicy,
+      cardIds: zone.cardIds, knownCardIds });
     const autoSort = zone.autoSort === undefined || zone.autoSort === null || zone.autoSort === false
       ? undefined : normalizeSortPolicy(zone.autoSort);
-    const normalizedZone = { ...copy(zone), arrangement, ...(motion === undefined ? {} : { motion }) };
+    const normalizedZone = { ...copy(zone), arrangement, ...(motion === undefined ? {} : { motion }), ...policies };
+    if (policies.orderPolicy === undefined) delete normalizedZone.orderPolicy;
+    if (policies.slotPolicy === undefined) delete normalizedZone.slotPolicy;
+    validateZonePolicies(normalizedZone, normalizedZone.cardIds, "initial membership");
     if (autoSort === undefined) delete normalizedZone.autoSort;
     else normalizedZone.autoSort = autoSort;
     return normalizedZone;

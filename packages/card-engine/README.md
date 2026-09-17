@@ -86,7 +86,8 @@ channels survive geometry retargeting.
 
 Zones may also govern the target card presentation. `scale` sets the card scale
 while it belongs to the zone, and optional `faceUp: true` or `faceUp: false`
-sets the physical face side for cards entering the zone. `motion` contains
+locks the physical face side while cards belong to the zone. Direct face and spin
+commands cannot override that policy. `motion` contains
 independent speed multipliers for alignment channels; omitted values default to
 `1.5×`, `1` uses the scene motion duration, values above `1` are faster, and
 values below `1` are slower:
@@ -106,6 +107,25 @@ values below `1` are slower:
   },
 }
 ```
+
+Zones can also enforce membership order and destination slots. Both policies are
+optional and are checked during previews as well as commits, so a rejected drag
+does not briefly show an invalid arrangement:
+
+```js
+{
+  id: "river",
+  cardIds: ["card-a", "card-b"],
+  orderPolicy: { mode: "locked", order: ["card-a", "card-b", "card-c"] },
+  slotPolicy: { mode: "fixed", slots: { "card-b": 1 } },
+}
+```
+
+`orderPolicy.mode: "locked"` keeps members in the relative order supplied by
+`order`; `slotPolicy.mode: "fixed"` pins configured cards to their zero-based
+destination slots. Use `{ mode: "free" }` or omit a policy to allow ordinary
+reordering. A locked order may include cards currently in other zones so a
+later transfer can be validated against the same canonical order.
 
 The zone speed settings apply to position, arrangement orientation, target
 scale, and face transitions independently. Set a channel to `1` when it should
@@ -185,7 +205,7 @@ decides whether a released intent may become a committed move:
 ```js
 const scene = createCardScene({
   element,
-  selection: { multiple: true, max: 10, scope: "scene" },
+  selection: { multiple: true, max: 10, scope: "scene", allowCrossZone: false },
   interaction: {
     touchDrag: false, // opt in before touch contact; otherwise preserve scrolling
     touchSelection: false, // explicit tap-to-toggle selection mode
@@ -230,29 +250,38 @@ ID order. `presentation: "preserve" | "compact"` overrides carrying presentation
 for one session. Compact offsets affect active carrying only: pending approval
 always previews the actual solved destination slots. Cancellation returns every
 survivor and displaced neighbor to the latest committed source layouts.
-Cards are temporarily rendered at `1.12×` scale while carried, then return to
-their resolved scale when the drag ends. This lift is visual interaction state
-and does not change the authored card scale.
+Cards are temporarily rendered at the configured `liftScale` while carried,
+then return to their resolved scale when the drag ends. A separate `liftDepth`
+can move the carried render pose toward the camera without changing logical
+zone depth; `liftDepthTime` controls that pickup. Set `liftScale: 1` to disable
+scaling or `liftDepth: 0` to disable 3D lift, and combine them when both cues
+are wanted. These are visual interaction states and do not change authored card
+scale or zone depth. `liftTime` and `responseTime` tune pickup and free-drag
+response; `dangle`, `maxTilt`, `maxTwist`, `grabPivotTilt`, `maxGrabTilt`, and
+`grabPivotResponse` tune the bounded physical styling.
 During free dragging, the card starts from its current arrangement angle and
 swings toward upright through a damped, weight-sensitive spring. The response
 also uses the distance of the pointer from the card center: an edge grab gives
 the return more leverage while the grab point remains anchored. Filtered
-pointer acceleration adds bounded local tilt and in-plane angular response;
-direction changes carry momentum and settle back through damping. Edge pickup
-hang is currently disabled while its calibration is being retried. Snapping
+pointer motion adds bounded local tilt and in-plane angular response;
+an off-center grab adds an independent pitch and roll around the grabbed point;
+direction changes carry momentum and settle back through damping. The grab pivot
+response is separate from gravity-like edge hang, which remains disabled while
+its calibration is being retried. Snapping
 into a target waits for the configured delay, then uses a smooth position
 landing and weight-scaled orientation overswing before settling on the resolved
 pose. The response clears when the drag ends.
-The interaction option `dragHangFactor` scales the pickup and movement dangle;
-the response is normalized so weight `2.25` with a factor of `2` is the engine
-baseline for movement dangle. Other weights scale by the square root of
-`weight / 2.25`, and the factor scales linearly from that reference. A factor
-of `0` disables pickup and movement dangle. `dragUprightFactor` controls the
-independent free-drag return toward upright; `0` preserves the card's pickup
-angle while still allowing movement dangle. Edge hang remains tracked in
-[issue #19](https://github.com/kort3x/cardinal/issues/19).
-`dragSnapDelay` adds a millisecond pause before pending-drop motion; it defaults
-to `0` in the engine.
+When the pointer becomes quiet, the engine gives the last directional dangle a
+single momentum impulse before damping it back, so a card continues slightly in
+the direction it was dragged before swinging toward rest. The pointer anchor is
+preserved throughout.
+The legacy `dragHangFactor`, `dragUprightFactor`, and `dragSnapDelay` options
+are accepted as aliases for `motion.dangle`, `motion.upright`, and
+`motion.landingDelay` when the corresponding nested field is omitted. The
+nested configuration takes precedence. `landingTime`, `landingBounce`, and
+`landingDelay` tune target landing; zone position, orientation, scale, and face
+speed settings continue to modify their matching landing channels. Edge hang
+remains tracked in [issue #19](https://github.com/kort3x/cardinal/issues/19).
 
 Configure selection through `selection.canSelect({ cardId, zoneId, snapshot })`,
 returning `{ allowed, reason? }`, plus `multiple`, `max`, `scope: "scene" | "zone"`,
@@ -404,6 +433,16 @@ Angles range from 0° to 180°. Without an angle, a face transition ends at 0°
 or 180° and takes the shortest visual path from the current angle. The visual
 snapshot exposes independent `flipX` and `flipY` values.
 
+Zones with faceUp enforce their side by default. Deliberate presentation demos
+or consumer controlled reveals may opt out for one command with
+`{ zoneFacePolicy: "override" }` on transact() or spin(); ordinary movement
+and drag commits continue to enforce the zone policy.
+
+Drag previews preserve a concealed source card's physical back, even when the
+candidate destination enforces face-up cards. The face-up transition starts
+only after the drop is accepted and committed, so hovering over a destination
+or waiting for asynchronous approval cannot reveal hidden information.
+
 For persistent in-place motion, use the spin handle:
 
 ```js
@@ -461,3 +500,56 @@ additional element types through `elementRenderers`; each renderer may provide
 `draw({ context, element, x, y, width, height, images, content })` callbacks.
 The scene emits `renderer-status` with `reason: "asset-load-failed"` when a
 registered card image cannot be loaded.
+
+## Drag motion
+
+Drag response is configured under `interaction.motion`. The engine resolves it
+once at scene creation, keeps the result in `snapshot().dragMotion`, and accepts
+live partial updates through `scene.setDragMotion()` without recreating the
+scene or changing the pointer anchor:
+
+```js
+const scene = createCardScene({
+  interaction: {
+    motion: { preset: "natural", landingDelay: 80 },
+  },
+});
+
+scene.setDragMotion({ responseTime: 140, maxTilt: 18 });
+console.log(scene.snapshot().dragMotion);
+```
+
+The built-in presets are `crisp`, `wizzard`, `natural`, `floaty`, and `dramatic`.
+`wizzard` is a restrained, responsive profile tuned against the supplied MTG
+Arena recording: it uses camera-facing 3D lift without scale enlargement,
+responsive damping, strong movement tilt, direct pointer response, and an
+exaggerated 25° grab pivot tilt. The
+`dramatic` profile is intentionally unrealistic, with 3× dangle response,
+44° tilt, 18° twist, and 0.2 damping so the card visibly overshoots and swings
+past its target.
+A partial update
+inherits the current normalized configuration. Changing `preset` starts from
+that preset's defaults before applying the other fields in the same patch. The
+normalizer returns a fresh flat object and never exposes mutable preset data.
+Natural defaults are `liftScale: 1.12`, `liftTime: 90`, `liftDepth: 0`,
+`liftDepthTime: 80`, `responseTime: 160`,
+`damping: 0.8`, `dangle: 1`, `maxTilt: 14`, `maxTwist: 10`,
+`grabPivotTilt: 0`, `maxGrabTilt: 0`, `grabPivotResponse: 100`, `upright: 1`,
+`landingTime: 180`, `landingBounce: 0.12`, `landingDelay: 0`, and
+`weightInfluence: 0.5`.
+
+`liftScale`, `liftDepth`, `dangle`, and `upright` are finite non-negative
+strengths. `liftTime`, `liftDepthTime`, and `landingDelay` are finite
+non-negative times; `responseTime` and
+`landingTime` are finite positive times. All times are limited to 10 seconds,
+`damping` is finite and positive, `maxTilt` and `maxGrabTilt` are limited to
+90°, `maxTwist` to 180°, and `landingBounce` and `weightInfluence` are in the
+range 0–1. `grabPivotTilt` is non-negative and `grabPivotResponse` is a finite
+positive time.
+
+Card `weight` contributes through the bounded nonlinear `weightInfluence`
+response, so heavier cards can feel slower without making the pointer lose its
+grab point. `upright` controls a free-drag visual style and does not change
+zone membership. `scene.setMotion()` controls authored transitions; drag pickup,
+response, and landing use their own time settings. Each zone's position,
+orientation, scale, and face speed fields modify the matching landing channels.

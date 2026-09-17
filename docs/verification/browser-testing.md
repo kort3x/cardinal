@@ -135,13 +135,13 @@ latency.
 - Preserve the user's existing Chrome window position and dimensions. A reused
   debug browser uses its actual viewport, even with `--headless`; a newly launched
   headless Chrome uses a 2515×1322 page viewport (DPR 1 by default).
-- A visible **show-in-Chrome** demonstration uses a temporary dedicated Chrome
-  profile with an unused debug port. Its profile accent must be Chrome's built-in
-  reddish **Rosé** preset so the user can distinguish the agent's demo window
-  from their normal Chrome. Never change the user's normal profile.
+- A visible **show-in-Chrome** demonstration uses the existing visible Chrome
+  session when possible. If a separate session is necessary, use an unused
+  debug port and leave its profile settings unchanged. Never change the user's
+  normal profile or add profile color setup solely for a demonstration.
 - The visible demo baseline is a 2515×1322 page viewport, a 2515×1409 outer
   Chrome window, DPR 1, and outer top-left position `(screenX 89, screenY 31)`.
-  Launch with those target values when creating the dedicated session, then
+  Launch with those target values when creating a separate session, then
   measure the actual result. macOS may adjust the position by a pixel; report
   the measured values rather than assuming the requested ones.
 - Firefox runs headlessly with a 2500×1300 page viewport and DPR 1.

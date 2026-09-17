@@ -156,7 +156,9 @@ export async function runDragGeometryScenario({ command }) {
       });
       const shieldCorner = projectedHit({
         x: shieldPose.x + shieldPose.width / 2 - 1,
-        y: shieldPose.y - shieldPose.height / 2 + 1,
+        // The tapered lower corner is empty through the full extrusion.
+        // A ray through the rounded upper corner can hit its side in perspective.
+        y: shieldPose.y + shieldPose.height / 2 - 1,
         z: shieldPose.z,
       });
       const front = projectedHit({ x: sidedPose.x, y: sidedPose.y, z: sidedPose.z });
@@ -264,17 +266,41 @@ export async function runDragGeometryScenario({ command }) {
   async function installDragFixture() {
     return evaluate(`(async () => {
       const { createCardScene } = await import(${JSON.stringify(ENGINE_MODULE)});
+      const { createWebGLRenderer, projectGrabPoint } = await import("/packages/card-engine/src/renderers/webgl.js");
       window.__cardinalDragGeometryFixture?.dispose?.();
       const stage = document.createElement("div");
       stage.id = "cardinal-drag-perspective-stage";
       stage.style.cssText = "position:fixed;left:24px;top:24px;width:1200px;height:800px;z-index:2147483000;overflow:visible;background:transparent;isolation:isolate";
       document.body.append(stage);
+      const seamTrace = { captures: [], resolves: [], updates: [] };
+      const renderer = (options) => {
+        const adapter = createWebGLRenderer(options);
+        const capture = adapter.captureGrab?.bind(adapter);
+        const resolve = adapter.resolveGrabPose?.bind(adapter);
+        const update = adapter.update.bind(adapter);
+        adapter.update = (card, pose, updateOptions) => {
+          seamTrace.updates.push({ cardId: card?.id ?? null, pose: structuredClone(pose) });
+          return update(card, pose, updateOptions);
+        };
+        adapter.captureGrab = (...args) => {
+          const token = capture?.(...args) ?? null;
+          seamTrace.captures.push(structuredClone(token));
+          return token;
+        };
+        adapter.resolveGrabPose = (pose, token, clientPoint) => {
+          const result = resolve?.(pose, token, clientPoint) ?? null;
+          seamTrace.resolves.push({ pose: structuredClone(pose), token: structuredClone(token), clientPoint: structuredClone(clientPoint), result: structuredClone(result) });
+          return result;
+        };
+        return adapter;
+      };
       const face = (text) => ({ elements: [{ id: "label", type: "text", content: { text } }] });
       const scene = createCardScene({
         element: stage,
+        renderer,
         templates: { rounded: { width: 180, height: 250, thickness: 14, shape: "rounded-rectangle" } },
         camera: { projection: "perspective", scaleMode: "stage", center: { x: 0, y: 0 }, distance: 1200, fov: 55 },
-        motion: { reducedMotion: true },
+        motion: { duration: 180 },
         interaction: { rules: { canStart: () => ({ allowed: true }), canDrop: () => ({ allowed: true }) } },
       });
       scene.apply({
@@ -300,6 +326,26 @@ export async function runDragGeometryScenario({ command }) {
         scene,
         stage,
         drops,
+        seamTrace,
+        grabAttachment() {
+          const record = seamTrace.resolves.at(-1);
+          if (!record?.result || !record.token?.localPoint || !record.clientPoint) return null;
+          const updated = seamTrace.updates.filter(({ cardId }) => cardId === record.token.cardId).at(-1);
+          if (!updated?.pose) return null;
+          const pose = updated.pose;
+          const world = projectGrabPoint(record.token.localPoint, pose, { x: 0, y: 0 });
+          if (!world) return null;
+          const projected = scene.sceneToClient({ x: world.x, y: -world.y, z: world.z });
+          return {
+            errorPx: Math.hypot(projected.x - record.clientPoint.x, projected.y - record.clientPoint.y),
+            projected,
+            pointer: { ...record.clientPoint },
+            token: structuredClone(record.token),
+            resolveInputPose: structuredClone(record.pose),
+            resolved: structuredClone(record.result),
+            rendererPose: structuredClone(updated.pose),
+          };
+        },
         environment() {
           const rect = stage.getBoundingClientRect();
           return {
@@ -339,11 +385,34 @@ export async function runDragGeometryScenario({ command }) {
   async function installCohortDragFixture() {
     return evaluate(`(async () => {
       const { createCardScene } = await import(${JSON.stringify(ENGINE_MODULE)});
+      const { createWebGLRenderer, projectGrabPoint } = await import("/packages/card-engine/src/renderers/webgl.js");
       window.__cardinalDragGeometryFixture?.dispose?.();
       const stage = document.createElement("div");
       stage.id = "cardinal-drag-perspective-cohort-stage";
       stage.style.cssText = "position:fixed;left:24px;top:24px;width:1200px;height:800px;z-index:2147483000;overflow:visible;background:transparent;isolation:isolate";
       document.body.append(stage);
+      const seamTrace = { captures: [], resolves: [], updates: [] };
+      const renderer = (options) => {
+        const adapter = createWebGLRenderer(options);
+        const capture = adapter.captureGrab?.bind(adapter);
+        const resolve = adapter.resolveGrabPose?.bind(adapter);
+        const update = adapter.update.bind(adapter);
+        adapter.update = (card, pose, updateOptions) => {
+          seamTrace.updates.push({ cardId: card?.id ?? null, pose: structuredClone(pose) });
+          return update(card, pose, updateOptions);
+        };
+        adapter.captureGrab = (...args) => {
+          const token = capture?.(...args) ?? null;
+          seamTrace.captures.push(structuredClone(token));
+          return token;
+        };
+        adapter.resolveGrabPose = (pose, token, clientPoint) => {
+          const result = resolve?.(pose, token, clientPoint) ?? null;
+          seamTrace.resolves.push({ pose: structuredClone(pose), token: structuredClone(token), clientPoint: structuredClone(clientPoint), result: structuredClone(result) });
+          return result;
+        };
+        return adapter;
+      };
       const face = (text) => ({ elements: [{ id: "label", type: "text", content: { text } }] });
       const card = (id, x, y) => ({
         id,
@@ -358,9 +427,10 @@ export async function runDragGeometryScenario({ command }) {
       });
       const scene = createCardScene({
         element: stage,
+        renderer,
         templates: { rounded: { width: 180, height: 250, thickness: 14, shape: "rounded-rectangle" } },
         camera: { projection: "perspective", scaleMode: "stage", center: { x: 0, y: 0 }, distance: 1200, fov: 55 },
-        motion: { reducedMotion: true },
+        motion: { duration: 180 },
         selection: { multiple: true },
         interaction: { rules: { canStart: () => ({ allowed: true }), canDrop: () => ({ allowed: true }) } },
       });
@@ -381,6 +451,26 @@ export async function runDragGeometryScenario({ command }) {
         stage,
         drops,
         ids,
+        seamTrace,
+        grabAttachment() {
+          const record = seamTrace.resolves.at(-1);
+          if (!record?.result || !record.token?.localPoint || !record.clientPoint) return null;
+          const updated = seamTrace.updates.filter(({ cardId }) => cardId === record.token.cardId).at(-1);
+          if (!updated?.pose) return null;
+          const pose = updated.pose;
+          const world = projectGrabPoint(record.token.localPoint, pose, { x: 0, y: 0 });
+          if (!world) return null;
+          const projected = scene.sceneToClient({ x: world.x, y: -world.y, z: world.z });
+          return {
+            errorPx: Math.hypot(projected.x - record.clientPoint.x, projected.y - record.clientPoint.y),
+            projected,
+            pointer: { ...record.clientPoint },
+            token: structuredClone(record.token),
+            resolveInputPose: structuredClone(record.pose),
+            resolved: structuredClone(record.result),
+            rendererPose: structuredClone(updated.pose),
+          };
+        },
         environment() {
           const rect = stage.getBoundingClientRect();
           return {
@@ -573,22 +663,15 @@ export async function runDragGeometryScenario({ command }) {
       || installed.startHit?.cardId !== "perspective-drag-card") {
       throw new Error(`Perspective drag fixture failed setup: ${JSON.stringify(installed)}`);
     }
-    let baselineOffset = null;
     await dragPath(installed.start, installed.destination, async (point) => {
       const sample = await evaluate(`(async () => {
         const fixture = window.__cardinalDragGeometryFixture;
         const snapshot = fixture.scene.snapshot();
         const session = snapshot.interaction.sessions.at(-1);
-        const visual = snapshot.visual.find(({ cardId }) => cardId === "perspective-drag-card");
-        const center = visual ? fixture.scene.sceneToClient(visual.pose) : null;
-        return { phase: session?.phase ?? null, center, pose: visual?.pose ?? null };
+        return { phase: session?.phase ?? null, attachment: fixture.grabAttachment() };
       })()`);
-      if (sample.phase !== "dragging" || !sample.center) return;
-      baselineOffset ??= { x: point.x - sample.center.x, y: point.y - sample.center.y };
-      attachmentErrorPx = Math.max(attachmentErrorPx, Math.hypot(
-        point.x - sample.center.x - baselineOffset.x,
-        point.y - sample.center.y - baselineOffset.y,
-      ));
+      if (sample.phase !== "dragging" || !sample.attachment) return;
+      attachmentErrorPx = Math.max(attachmentErrorPx, sample.attachment.errorPx);
     });
     await waitFor("perspective drag candidate", (state) => state?.interaction?.sessions?.at(-1)?.phase === "dragging"
       && state.interaction.sessions.at(-1).candidate?.toZoneId === "destination"
@@ -600,7 +683,8 @@ export async function runDragGeometryScenario({ command }) {
       && state.desired.zones.find(({ id }) => id === "source")?.cardIds.length === 0);
     if (attachmentErrorPx > 1) throw new Error(`Pointer attachment error ${attachmentErrorPx.toFixed(3)} CSS px exceeds 1 CSS px`);
     if (landed.drops[0].primaryCardId !== "perspective-drag-card") throw new Error(`Unexpected drop intent: ${JSON.stringify(landed.drops[0])}`);
-    return `max attachment error ${attachmentErrorPx.toFixed(3)} CSS px at depth ${dragDepth}`;
+    if (!Number.isFinite(attachmentErrorPx)) throw new Error("No resolved material-point attachment sample was recorded");
+    return `max material-point attachment error ${attachmentErrorPx.toFixed(3)} CSS px at depth ${dragDepth}`;
   });
 
   let resizeAttachmentErrorPx = 0;
@@ -612,18 +696,10 @@ export async function runDragGeometryScenario({ command }) {
     await mousePress(installed.grab);
     const threshold = { x: installed.grab.x + 7, y: installed.grab.y };
     await mouseMove(threshold);
-    let baseline;
     const carrying = await waitFor("nonzero-offset drag pickup", (state) => {
       const session = state?.interaction?.sessions?.at(-1);
       return session?.phase === "dragging";
     });
-    const beforeMove = await evaluate(`(async () => {
-      const fixture = window.__cardinalDragGeometryFixture;
-      const snapshot = fixture.scene.snapshot();
-      const pose = snapshot.visual.find(({ cardId }) => cardId === "perspective-drag-card").pose;
-      return { center: fixture.scene.sceneToClient(pose), pose };
-    })()`);
-    baseline = { x: threshold.x - beforeMove.center.x, y: threshold.y - beforeMove.center.y };
     await mouseMove(installed.cameraCenter);
     await waitFor("camera-center drag", (state) => state?.interaction?.sessions?.at(-1)?.phase === "dragging");
     await evaluate(`(async () => {
@@ -643,15 +719,9 @@ export async function runDragGeometryScenario({ command }) {
     })()`);
     const afterResize = await evaluate(`(async () => {
       const fixture = window.__cardinalDragGeometryFixture;
-      const snapshot = fixture.scene.snapshot();
-      const pose = snapshot.visual.find(({ cardId }) => cardId === "perspective-drag-card").pose;
-      const center = fixture.scene.sceneToClient(pose);
-      return { center, pose, environment: fixture.environment() };
+      return { attachment: fixture.grabAttachment(), environment: fixture.environment() };
     })()`);
-    resizeAttachmentErrorPx = Math.hypot(
-      installed.cameraCenter.x - afterResize.center.x - baseline.x,
-      installed.cameraCenter.y - afterResize.center.y - baseline.y,
-    );
+    resizeAttachmentErrorPx = afterResize.attachment?.errorPx ?? Infinity;
     await pressKey("Escape", "Escape", 27);
     await waitFor("resize probe cancellation", (state) => state?.interaction?.sessions?.length === 0);
     if (resizeAttachmentErrorPx > 1) {
@@ -660,7 +730,7 @@ export async function runDragGeometryScenario({ command }) {
     if (carrying.interaction.sessions.at(-1)?.cardIds?.[0] !== "perspective-drag-card") {
       throw new Error(`Resize probe picked an unexpected card: ${JSON.stringify(carrying.interaction.sessions.at(-1))}`);
     }
-    return `resize attachment error ${resizeAttachmentErrorPx.toFixed(3)} CSS px with a nonzero grab offset`;
+    return `resize material-point attachment error ${resizeAttachmentErrorPx.toFixed(3)} CSS px with a nonzero grab offset`;
   });
 
   let cohortAttachmentErrorPx = 0;
@@ -678,7 +748,6 @@ export async function runDragGeometryScenario({ command }) {
       x: installed.centers[secondaryId].x - installed.centers[primaryId].x,
       y: installed.centers[secondaryId].y - installed.centers[primaryId].y,
     };
-    let baselineOffset = null;
     let resized = false;
     await dragPath(installed.start, installed.destination, async (point, index) => {
       const sample = await evaluate(`(async () => {
@@ -689,16 +758,13 @@ export async function runDragGeometryScenario({ command }) {
           const pose = snapshot.visual.find(({ cardId }) => cardId === id)?.pose;
           return [id, pose ? fixture.scene.sceneToClient(pose) : null];
         }));
-        return { phase: session?.phase ?? null, centers };
+        return { phase: session?.phase ?? null, attachment: fixture.grabAttachment(), centers };
       })()`);
+      if (sample.phase !== "dragging" || !sample.attachment) return;
+      cohortAttachmentErrorPx = Math.max(cohortAttachmentErrorPx, sample.attachment.errorPx);
       const primary = sample.centers[primaryId];
       const secondary = sample.centers[secondaryId];
-      if (sample.phase !== "dragging" || !primary || !secondary) return;
-      baselineOffset ??= { x: point.x - primary.x, y: point.y - primary.y };
-      cohortAttachmentErrorPx = Math.max(cohortAttachmentErrorPx, Math.hypot(
-        point.x - primary.x - baselineOffset.x,
-        point.y - primary.y - baselineOffset.y,
-      ));
+      if (!primary || !secondary) throw new Error("Missing carried cohort center");
       cohortRelativeErrorPx = Math.max(cohortRelativeErrorPx, Math.hypot(
         secondary.x - primary.x - initialDelta.x,
         secondary.y - primary.y - initialDelta.y,
@@ -737,16 +803,14 @@ export async function runDragGeometryScenario({ command }) {
         && installed.ids.every((id) => destination?.cardIds.includes(id));
     });
     if (cohortAttachmentErrorPx > 1 || cohortRelativeErrorPx > 1) {
-      throw new Error(`Perspective cohort attachment errors exceed 1 CSS px: ${JSON.stringify({
-        cohortAttachmentErrorPx,
-        cohortRelativeErrorPx,
-      })}`);
+      throw new Error(`Perspective cohort attachment/relative error exceeds 1 CSS px: ${cohortAttachmentErrorPx}/${cohortRelativeErrorPx}`);
     }
+    if (!Number.isFinite(cohortAttachmentErrorPx)) throw new Error("No resolved cohort material-point attachment sample was recorded");
     const intent = landed.drops[0];
     if (intent.cardIds?.length !== 2 || !installed.ids.every((id) => intent.cardIds.includes(id))) {
       throw new Error(`Unexpected cohort drop intent: ${JSON.stringify(intent)}`);
     }
-    return `max attachment error ${cohortAttachmentErrorPx.toFixed(3)} CSS px; relative error ${cohortRelativeErrorPx.toFixed(3)} CSS px at depths ${JSON.stringify(cohortDepths)}`;
+    return `max material-point attachment error ${cohortAttachmentErrorPx.toFixed(3)} CSS px; relative error ${cohortRelativeErrorPx.toFixed(3)} CSS px at depths ${JSON.stringify(cohortDepths)}`;
   });
 
   await runCase("late image completion is inert after scene disposal", async () => {

@@ -209,7 +209,7 @@ export async function runBatchAcceptance({
       for (const selector of [".scene-column", "#stage", "body", "html"]) {
         const element = document.querySelector(selector) ?? (selector === "body" ? document.body : selector === "html" ? document.documentElement : null);
         if (!element) continue;
-        for (const property of ["height", "width", "maxHeight", "maxWidth", "overflow", "overflowX", "overflowY", "minHeight"]) {
+        for (const property of ["height", "width", "max-height", "max-width", "overflow", "overflow-x", "overflow-y", "min-height"]) {
           element.style.removeProperty(property);
         }
       }
@@ -222,6 +222,20 @@ export async function runBatchAcceptance({
     if (touchSelection) await control("#touch-selection", true);
     if (touchDrag) await control("#drag-touch", true);
     await button("#batch-fixture");
+    await page(`(scene) => {
+      // Lifecycle checks compare centers. Animated material-point attachment is
+      // covered by drag-geometry, including lift and rotation.
+      scene.setDragMotion({ liftScale: 1, dangle: 0, upright: 0 });
+      const desired = structuredClone(scene.snapshot().desired);
+      desired.zones = desired.zones.map((zone) => ({
+        ...zone,
+        arrangement: zone.id === "river"
+          ? { type: "row", gap: 32, alignment: "center" }
+          : { type: "grid", gap: 32 },
+      }));
+      scene.apply(desired);
+      return true;
+    }`);
     // The fixture intentionally defaults to manual approval. Override it after
     // setup for cases whose acceptance endpoint is immediate.
     if (response !== "manual") await control("#drag-response", response);
@@ -277,9 +291,17 @@ export async function runBatchAcceptance({
       const { createCardScene } = await import("/packages/card-engine/src/index.js");
       const scene = getScene();
       const snapshot = scene.snapshot();
-      const reference = createCardScene({ motion: { reducedMotion: true } });
+      // Resolve sizes from the mounted templates, but solve positions afresh
+      // from committed membership and geometry rather than copying live poses.
+      const cards = snapshot.desired.cards.map((card) => {
+        const pose = snapshot.visual.find(({ cardId }) => cardId === card.id)?.pose;
+        if (!pose) throw new Error("Missing measured dimensions for " + card.id);
+        return { ...card, dimensions: { width: pose.width, height: pose.height },
+          thickness: pose.thickness, sizing: { mode: "fixed" } };
+      });
+      const reference = createCardScene({ camera: { projection: snapshot.projection }, motion: { reducedMotion: true } });
       try {
-        reference.apply({ ...snapshot.desired, zones: snapshot.zones.map(({ anchor, ...zone }) => zone) });
+        reference.apply({ cards, zones: snapshot.zones.map(({ anchor, ...zone }) => zone) });
         const referenceState = reference.snapshot();
         return Object.fromEntries(${JSON.stringify(cardIds)}.map((id) => {
           const pose = referenceState.visual.find(({ cardId }) => cardId === id)?.pose;
@@ -416,9 +438,11 @@ export async function runBatchAcceptance({
     if (JSON.stringify(sourceKeys(lastSession(carrying).sources)) !== JSON.stringify(sourceKeys(expectedSources))) {
       throw new Error(`Source order/membership mismatch: ${JSON.stringify(lastSession(carrying).sources)}`);
     }
-    const pickup = pointer.pickupPoint ?? start;
+    // The physical grab starts at pointerdown; the threshold move only starts
+    // the session and must not change the expected center-to-pointer offset.
+    const pickup = start;
     const effectiveGrabOffset = { x: pickup.x - primary.x, y: pickup.y - primary.y };
-    const attachment = await attachmentErrors(ids, before, destination, effectiveGrabOffset);
+    const { errors: attachment } = await waitForAttachment("pointer cohort attachment", ids, before, destination, effectiveGrabOffset);
     measurements.attachmentErrors.push({ case: "pointer", values: attachment });
     if (Object.values(attachment).some((error) => error === null || error > 1)) {
       throw new Error(`Cohort attachment exceeded 1 CSS px: ${JSON.stringify(attachment)}`);
@@ -493,7 +517,7 @@ export async function runBatchAcceptance({
       return scene.select([${JSON.stringify(all[1])}, ${JSON.stringify(all[3])}], { primaryCardId: ${JSON.stringify(all[1])}, anchorCardId: ${JSON.stringify(all[1])} });
     }`);
     const source = await waitFor("same-zone fixture", (current) => zoneCards(current, "lake").length === 4
-      && current.snapshot.selection.cardIds.length === 2);
+      && current.snapshot.selection.cardIds.length === 2 && !current.snapshot.settling);
     const cohort = [...source.snapshot.selection.cardIds];
     const before = [...zoneCards(source, "lake")];
     const primary = await cardPoint(cohort[0]);
@@ -556,7 +580,7 @@ export async function runBatchAcceptance({
       && lastSession(current).phase === "dragging" && !current.snapshot.settling);
     const primary = await cardPoint(ids[0]);
     const secondary = await cardPoint(ids[1]);
-    const pickup = pointer.pickupPoint ?? start;
+    const pickup = start;
     const attachmentError = Math.hypot(primary.x - destination.x + pickup.x - start.x,
       primary.y - destination.y + pickup.y - start.y);
     const compactError = Math.hypot(secondary.x - primary.x - 18, secondary.y - primary.y - 18);
@@ -580,7 +604,7 @@ export async function runBatchAcceptance({
     await pointer.drag(press, nudge, { steps: 1 });
     const carrying = await waitFor("responsive cohort pickup", (current) => lastSession(current)?.phase === "dragging"
       && lastSession(current).cardIds.length === ids.length);
-    const pickup = pointer.pickupPoint ?? nudge;
+    const pickup = press;
     const grabOffset = { x: pickup.x - start.x, y: pickup.y - start.y };
 
     await evaluate(`(async () => {

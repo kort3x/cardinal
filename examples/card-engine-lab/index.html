@@ -51,8 +51,8 @@
       button { cursor: pointer; }
       button:hover, button:focus-visible { border-color: var(--lab-focus); }
       button[aria-pressed="true"], label:has(> input[type="checkbox"]:checked) { border-color: var(--lab-accent); background: #3a3429; color: var(--lab-accent); box-shadow: 0 0 0 1px rgb(229 192 123 / 25%); }
-      #add-card { border-color: #718b5f; background: #3d4b35; color: #bdcda7; box-shadow: 0 0 9px rgb(126 159 93 / 28%); }
-      #add-card:hover, #add-card:focus-visible { border-color: #a5bd85; color: #d9e6c7; background: #485a3d; box-shadow: 0 0 15px rgb(143 181 101 / 48%); }
+      #add-card { border-color: var(--lab-accent); background: var(--lab-panel); color: var(--lab-accent); box-shadow: 0 0 9px rgb(229 192 123 / 25%); }
+      #add-card:hover, #add-card:focus-visible { border-color: #f2d69a; color: #f2d69a; background: #303640; box-shadow: 0 0 15px rgb(229 192 123 / 42%); }
       input[type="checkbox"] { accent-color: var(--lab-accent); }
       label { display: inline-flex; align-items: center; gap: 8px; }
       .control-panel { display: none; }
@@ -71,9 +71,9 @@
       .control-row input[type="range"] { width: 100%; accent-color: var(--lab-accent); }
       .control-row.select-row { grid-template-columns: max-content minmax(0, 1fr); }
       .control-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 8px; }
-      #spawn-zone[data-zone-id="lake"] { color: var(--lab-zone-lake); border-color: var(--lab-zone-lake); }
-      #spawn-zone[data-zone-id="ocean"] { color: var(--lab-zone-ocean); border-color: var(--lab-zone-ocean); }
-      #spawn-zone[data-zone-id="river"] { color: var(--lab-zone-river); border-color: var(--lab-zone-river); }
+      #spawn-zone[data-zone-id="lake"] { color: var(--lab-zone-lake); }
+      #spawn-zone[data-zone-id="ocean"] { color: var(--lab-zone-ocean); }
+      #spawn-zone[data-zone-id="river"] { color: var(--lab-zone-river); }
       #spawn-zone option[data-zone-id="lake"] { color: var(--lab-zone-lake); }
       #spawn-zone option[data-zone-id="ocean"] { color: var(--lab-zone-ocean); }
       #spawn-zone option[data-zone-id="river"] { color: var(--lab-zone-river); }
@@ -96,6 +96,7 @@
       .presets button { padding: 6px 8px; font-size: 0.9rem; }
       #card-list { display: flex; flex-wrap: wrap; gap: 6px; }
       #card-list label { padding: 6px 8px; cursor: pointer; }
+      #card-list label:has(> input[type="checkbox"]:checked) { border-color: #626b78; background: #303640; color: var(--lab-text); box-shadow: inset 0 0 0 1px rgb(229 192 123 / 12%); }
       #card-list .card-z { color: var(--lab-accent); font-variant-numeric: tabular-nums; }
       #card-list .card-zone { font-size: 0.82em; }
       #card-list .card-zone[data-zone-id="lake"] { color: var(--lab-zone-lake); }
@@ -127,9 +128,9 @@
       .zone-row[data-zone-id="river"] .zone-name { color: var(--lab-zone-river); }
       .zone-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
       .zone-actions button { min-width: 0; padding-inline: 7px; }
-      .zone-actions button[data-transfer-zone="lake"] { color: var(--lab-zone-lake); border-color: var(--lab-zone-lake); }
-      .zone-actions button[data-transfer-zone="ocean"] { color: var(--lab-zone-ocean); border-color: var(--lab-zone-ocean); }
-      .zone-actions button[data-transfer-zone="river"] { color: var(--lab-zone-river); border-color: var(--lab-zone-river); }
+      .zone-actions button[data-transfer-zone="lake"] { color: var(--lab-zone-lake); }
+      .zone-actions button[data-transfer-zone="ocean"] { color: var(--lab-zone-ocean); }
+      .zone-actions button[data-transfer-zone="river"] { color: var(--lab-zone-river); }
       .zone-row-controls { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
       .zone-row-controls button { flex: 1 1 auto; min-width: 0; padding: 4px 6px; font-size: 0.8rem; }
       .zone-row-controls select { flex: 1 1 7em; min-width: 0; width: auto; padding: 4px 5px; font-size: 0.78rem; }
@@ -423,6 +424,10 @@
               <span>Touch selection</span>
               <input id="touch-selection" type="checkbox">
             </label>
+            <label class="control-row toggle-row" for="cross-zone-selection">
+              <span title="Allow one selection to contain cards from different zones.">Cross-zone selection</span>
+              <input id="cross-zone-selection" type="checkbox" checked>
+            </label>
             <label class="control-row select-row" for="drag-presentation">
               <span>Carry</span>
               <select id="drag-presentation" aria-label="Selection drag layout">
@@ -430,21 +435,106 @@
                 <option value="compact">Compact bundle</option>
               </select>
             </label>
-            <label class="control-row" for="drag-dangliness">
-              <span title="Pickup hang response">Dangly</span>
-              <input id="drag-dangliness" type="range" min="0" max="2" step="0.1" value="1" aria-describedby="drag-dangliness-value">
-              <output id="drag-dangliness-value" for="drag-dangliness">1×</output>
-            </label>
-            <label class="control-row" for="drag-upright">
-              <span title="How strongly a freely dragged card returns toward upright">Upright</span>
-              <input id="drag-upright" type="range" min="0" max="2" step="0.1" value="1" aria-describedby="drag-upright-value">
-              <output id="drag-upright-value" for="drag-upright">1×</output>
-            </label>
-            <label class="control-row" for="drag-snap-delay">
-              <span title="Pause before a dropped card starts moving to its target">Snap delay</span>
-              <input id="drag-snap-delay" type="range" min="0" max="300" step="10" value="80" aria-describedby="drag-snap-delay-value">
-              <output id="drag-snap-delay-value" for="drag-snap-delay">80 ms</output>
-            </label>
+            <details class="drag-motion-tuning" open>
+              <summary>Motion tuning</summary>
+              <label class="control-row select-row" for="drag-motion-preset">
+                <span title="Choose a complete drag response profile, then tune individual fields below.">Preset</span>
+                <select id="drag-motion-preset" aria-label="Drag motion preset">
+                  <option value="crisp">Crisp</option>
+                  <option value="wizzard">Wizzard</option>
+                  <option value="natural" selected>Natural</option>
+                  <option value="floaty">Floaty</option>
+                  <option value="dramatic">Dramatic dangle</option>
+                  <option value="custom">Custom tuning</option>
+                </select>
+              </label>
+              <label class="control-row" for="drag-lift-scale">
+                <span title="Temporary scale while a card is carried; set to 1× to disable scaling">Lift scale</span>
+                <input id="drag-lift-scale" type="range" min="0.9" max="1.4" step="0.01" value="1.12" aria-describedby="drag-lift-scale-value">
+                <output id="drag-lift-scale-value" for="drag-lift-scale">1.12×</output>
+              </label>
+              <label class="control-row" for="drag-lift-time">
+                <span title="Time for the carried card to reach its lift scale">Lift time</span>
+                <input id="drag-lift-time" type="range" min="0" max="400" step="5" value="90" aria-describedby="drag-lift-time-value">
+                <output id="drag-lift-time-value" for="drag-lift-time">90 ms</output>
+              </label>
+              <label class="control-row" for="drag-lift-depth">
+                <span title="Temporary camera-facing depth while a card is carried; set to 0 to disable 3D lift">3D lift</span>
+                <input id="drag-lift-depth" type="range" min="0" max="100" step="1" value="0" aria-describedby="drag-lift-depth-value">
+                <output id="drag-lift-depth-value" for="drag-lift-depth">0 units</output>
+              </label>
+              <label class="control-row" for="drag-lift-depth-time">
+                <span title="Time for the carried card to reach its camera-facing depth">3D lift time</span>
+                <input id="drag-lift-depth-time" type="range" min="0" max="400" step="5" value="80" aria-describedby="drag-lift-depth-time-value">
+                <output id="drag-lift-depth-time-value" for="drag-lift-depth-time">80 ms</output>
+              </label>
+              <label class="control-row" for="drag-response-time">
+                <span title="How quickly pointer motion changes the card response">Response</span>
+                <input id="drag-response-time" type="range" min="20" max="600" step="5" value="160" aria-describedby="drag-response-time-value">
+                <output id="drag-response-time-value" for="drag-response-time">160 ms</output>
+              </label>
+              <label class="control-row" for="drag-damping">
+                <span title="Damping ratio for free drag motion">Damping</span>
+                <input id="drag-damping" type="range" min="0.1" max="2" step="0.05" value="0.8" aria-describedby="drag-damping-value">
+                <output id="drag-damping-value" for="drag-damping">0.80</output>
+              </label>
+              <label class="control-row" for="drag-dangliness">
+                <span title="Pickup and movement dangle response">Dangly</span>
+                <input id="drag-dangliness" type="range" min="0" max="3" step="0.05" value="1" aria-describedby="drag-dangliness-value">
+                <output id="drag-dangliness-value" for="drag-dangliness">1×</output>
+              </label>
+              <label class="control-row" for="drag-max-tilt">
+                <span title="Maximum local tilt from pointer acceleration">Max tilt</span>
+                <input id="drag-max-tilt" type="range" min="0" max="45" step="1" value="14" aria-describedby="drag-max-tilt-value">
+                <output id="drag-max-tilt-value" for="drag-max-tilt">14°</output>
+              </label>
+              <label class="control-row" for="drag-max-twist">
+                <span title="Maximum in-plane twist from pointer acceleration">Max twist</span>
+                <input id="drag-max-twist" type="range" min="0" max="45" step="1" value="10" aria-describedby="drag-max-twist-value">
+                <output id="drag-max-twist-value" for="drag-max-twist">10°</output>
+              </label>
+              <label class="control-row" for="drag-pivot-tilt">
+                <span title="How strongly the card tilts from the point where it was grabbed, independent of movement dangle">Grab pivot</span>
+                <input id="drag-pivot-tilt" type="range" min="0" max="3" step="0.05" value="0" aria-describedby="drag-pivot-tilt-value">
+                <output id="drag-pivot-tilt-value" for="drag-pivot-tilt">0×</output>
+              </label>
+              <label class="control-row" for="drag-max-pivot-tilt">
+                <span title="Maximum 3D pitch and roll caused by an off-center grab">Max pivot tilt</span>
+                <input id="drag-max-pivot-tilt" type="range" min="0" max="60" step="1" value="0" aria-describedby="drag-max-pivot-tilt-value">
+                <output id="drag-max-pivot-tilt-value" for="drag-max-pivot-tilt">0°</output>
+              </label>
+              <label class="control-row" for="drag-pivot-response">
+                <span title="How quickly the card settles into the tilt caused by the grab point">Pivot response</span>
+                <input id="drag-pivot-response" type="range" min="20" max="600" step="5" value="100" aria-describedby="drag-pivot-response-value">
+                <output id="drag-pivot-response-value" for="drag-pivot-response">100 ms</output>
+              </label>
+              <label class="control-row" for="drag-upright">
+                <span title="How strongly a freely dragged card returns toward upright; this is a style choice">Upright</span>
+                <input id="drag-upright" type="range" min="0" max="2" step="0.05" value="1" aria-describedby="drag-upright-value">
+                <output id="drag-upright-value" for="drag-upright">1×</output>
+              </label>
+              <label class="control-row" for="drag-landing-time">
+                <span title="Time for a dropped card to settle into its target">Landing</span>
+                <input id="drag-landing-time" type="range" min="20" max="600" step="10" value="180" aria-describedby="drag-landing-time-value">
+                <output id="drag-landing-time-value" for="drag-landing-time">180 ms</output>
+              </label>
+              <label class="control-row" for="drag-landing-bounce">
+                <span title="Bounded overshoot at the end of a landing">Bounce</span>
+                <input id="drag-landing-bounce" type="range" min="0" max="1" step="0.01" value="0.12" aria-describedby="drag-landing-bounce-value">
+                <output id="drag-landing-bounce-value" for="drag-landing-bounce">0.12</output>
+              </label>
+              <label class="control-row" for="drag-snap-delay">
+                <span title="Pause before a dropped card starts moving to its target; the lab keeps its original 80 ms example">Delay</span>
+                <input id="drag-snap-delay" type="range" min="0" max="300" step="10" value="80" aria-describedby="drag-snap-delay-value">
+                <output id="drag-snap-delay-value" for="drag-snap-delay">80 ms</output>
+              </label>
+              <label class="control-row" for="drag-weight-influence">
+                <span title="How strongly card weight changes the perceived response and landing">Weight</span>
+                <input id="drag-weight-influence" type="range" min="0" max="1" step="0.05" value="0.5" aria-describedby="drag-weight-influence-value">
+                <output id="drag-weight-influence-value" for="drag-weight-influence">0.50</output>
+              </label>
+              <p>Weight changes perceived response through a bounded nonlinear influence. Upright is a visual style control; zone speed settings still govern ordinary landing channels.</p>
+            </details>
             <label class="control-row select-row" for="drag-denied-card">
               <span>Deny card</span>
               <select id="drag-denied-card" aria-label="Denied batch member">
@@ -499,7 +589,7 @@
               <button type="button" data-transfer-zone="river">River</button>
               <button type="button" data-transfer-zone="ocean">Ocean</button>
             </div>
-            <p>Cycle each populated zone through grids, rows, columns, splay, piles, stacks, and hand-held fans. Reverse checks explicit order; overflow controls the boundary policy.</p>
+            <p>Cycle each populated zone through grids, rows, columns, splay, piles, stacks, and hand-held fans. Arrangement settings also expose target scale, face side, alignment speed, order enforcement, and fixed destination slots.</p>
           </details>
         </aside>
         <div class="scene-column">

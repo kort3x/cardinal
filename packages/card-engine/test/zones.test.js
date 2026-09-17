@@ -58,6 +58,24 @@ test("invalid batches reject membership, capacity and geometry atomically", () =
   scene.destroy();
 });
 
+test("zone order and slot policies reject invalid commits without changing membership", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  const input = initial();
+  input.zones[0].cardIds = ["a", "b"];
+  input.zones[1].cardIds = ["c"];
+  input.zones[1].orderPolicy = { mode: "locked", order: ["c", "b", "a"] };
+  input.zones[1].slotPolicy = { mode: "fixed", slots: { b: 1 } };
+  scene.apply(input);
+  const before = scene.snapshot().desired.zones.map(({ cardIds }) => [...cardIds]);
+  assert.throws(() => scene.transact([{ type: "move", cardId: "b", to: "destination", index: 0 }]), /slotPolicy.*slot 1/);
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), before);
+  scene.transact([{ type: "move", cardId: "b", to: "destination", index: 1 }]);
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), [["a"], ["c", "b"]]);
+  assert.deepEqual(scene.snapshot().desired.zones[1].orderPolicy, { mode: "locked", order: ["c", "b", "a"] });
+  assert.deepEqual(scene.snapshot().desired.zones[1].slotPolicy, { mode: "fixed", slots: { b: 1 } });
+  scene.destroy();
+});
+
 test("an atomic exchange into full zones and reduced motion reach identical states", async () => {
   const input = initial();
   input.zones[0].capacity = 2;

@@ -1,4 +1,5 @@
 import { createCardScene } from "../../packages/card-engine/src/index.js";
+import { normalizeDragMotion } from "../../packages/card-engine/src/drag-motion.js";
 
 const stage = document.querySelector("#stage");
 const rendererStatus = document.querySelector("#renderer-status");
@@ -25,10 +26,26 @@ const transferZoneButtons = [...document.querySelectorAll("[data-transfer-zone]"
 const dragEnabled = document.querySelector("#drag-enabled");
 const touchDrag = document.querySelector("#drag-touch");
 const touchSelection = document.querySelector("#touch-selection");
+const crossZoneSelection = document.querySelector("#cross-zone-selection");
 const dragPresentation = document.querySelector("#drag-presentation");
+const dragMotionPreset = document.querySelector("#drag-motion-preset");
+const dragLiftScale = document.querySelector("#drag-lift-scale");
+const dragLiftTime = document.querySelector("#drag-lift-time");
+const dragLiftDepth = document.querySelector("#drag-lift-depth");
+const dragLiftDepthTime = document.querySelector("#drag-lift-depth-time");
+const dragResponseTime = document.querySelector("#drag-response-time");
+const dragDamping = document.querySelector("#drag-damping");
 const dragDangliness = document.querySelector("#drag-dangliness");
+const dragMaxTilt = document.querySelector("#drag-max-tilt");
+const dragMaxTwist = document.querySelector("#drag-max-twist");
+const dragPivotTilt = document.querySelector("#drag-pivot-tilt");
+const dragMaxPivotTilt = document.querySelector("#drag-max-pivot-tilt");
+const dragPivotResponse = document.querySelector("#drag-pivot-response");
 const dragUpright = document.querySelector("#drag-upright");
+const dragLandingTime = document.querySelector("#drag-landing-time");
+const dragLandingBounce = document.querySelector("#drag-landing-bounce");
 const dragSnapDelay = document.querySelector("#drag-snap-delay");
+const dragWeightInfluence = document.querySelector("#drag-weight-influence");
 const dragSnapDelayValue = document.querySelector("#drag-snap-delay-value");
 const dragDeniedCard = document.querySelector("#drag-denied-card");
 const dragDeniedZone = document.querySelector("#drag-denied-zone");
@@ -66,8 +83,22 @@ const cardWidthValue = document.querySelector("#card-width-value");
 const cardHeightValue = document.querySelector("#card-height-value");
 const cardThicknessValue = document.querySelector("#card-thickness-value");
 const cardWeightValue = document.querySelector("#card-weight-value");
+const dragLiftScaleValue = document.querySelector("#drag-lift-scale-value");
+const dragLiftTimeValue = document.querySelector("#drag-lift-time-value");
+const dragLiftDepthValue = document.querySelector("#drag-lift-depth-value");
+const dragLiftDepthTimeValue = document.querySelector("#drag-lift-depth-time-value");
+const dragResponseTimeValue = document.querySelector("#drag-response-time-value");
+const dragDampingValue = document.querySelector("#drag-damping-value");
 const dragDanglinessValue = document.querySelector("#drag-dangliness-value");
+const dragMaxTiltValue = document.querySelector("#drag-max-tilt-value");
+const dragMaxTwistValue = document.querySelector("#drag-max-twist-value");
+const dragPivotTiltValue = document.querySelector("#drag-pivot-tilt-value");
+const dragMaxPivotTiltValue = document.querySelector("#drag-max-pivot-tilt-value");
+const dragPivotResponseValue = document.querySelector("#drag-pivot-response-value");
 const dragUprightValue = document.querySelector("#drag-upright-value");
+const dragLandingTimeValue = document.querySelector("#drag-landing-time-value");
+const dragLandingBounceValue = document.querySelector("#drag-landing-bounce-value");
+const dragWeightInfluenceValue = document.querySelector("#drag-weight-influence-value");
 const rotateValue = document.querySelector("#rotate-value");
 const scaleValue = document.querySelector("#scale-value");
 const flipXValue = document.querySelector("#flip-x-value");
@@ -91,6 +122,60 @@ const LAB_CAMERA_UNITS_PER_PIXEL = 1;
 // Keep 1× at the lab's original 1.5× timing; the factor still scales
 // proportionally from that baseline (higher is faster, lower is slower).
 const LAB_MOTION_DURATION = 500 / 1.5;
+const DRAG_MOTION_CONTROL_FIELDS = Object.freeze([
+  ["liftScale", dragLiftScale],
+  ["liftTime", dragLiftTime],
+  ["liftDepth", dragLiftDepth],
+  ["liftDepthTime", dragLiftDepthTime],
+  ["responseTime", dragResponseTime],
+  ["damping", dragDamping],
+  ["dangle", dragDangliness],
+  ["maxTilt", dragMaxTilt],
+  ["maxTwist", dragMaxTwist],
+  ["grabPivotTilt", dragPivotTilt],
+  ["maxGrabTilt", dragMaxPivotTilt],
+  ["grabPivotResponse", dragPivotResponse],
+  ["upright", dragUpright],
+  ["landingTime", dragLandingTime],
+  ["landingBounce", dragLandingBounce],
+  ["landingDelay", dragSnapDelay],
+  ["weightInfluence", dragWeightInfluence],
+]);
+
+function readDragMotionControls() {
+  const patch = Object.fromEntries(DRAG_MOTION_CONTROL_FIELDS.map(([field, control]) => [field, Number(control.value)]));
+  if (dragMotionPreset.value !== "custom") patch.preset = dragMotionPreset.value;
+  return patch;
+}
+
+let dragMotionState = normalizeDragMotion(readDragMotionControls());
+
+function syncDragMotionControls(motion, { custom = false } = {}) {
+  for (const [field, control] of DRAG_MOTION_CONTROL_FIELDS) control.value = String(motion[field]);
+  dragMotionPreset.value = custom ? "custom" : motion.preset;
+  updateControlLabels();
+}
+
+function setDragMotionPatch(patch, { custom = true } = {}) {
+  try {
+    const next = scene?.setDragMotion?.(patch) ?? normalizeDragMotion(patch, dragMotionState);
+    dragMotionState = next;
+    syncDragMotionControls(next, { custom });
+    if (scene?.setDragMotion) status.textContent = `Drag motion tuned: ${next.preset}.`;
+  } catch (error) {
+    interactionStatus.textContent = `Drag motion update failed: ${error instanceof Error ? error.message : String(error)}`;
+    syncDragMotionControls(dragMotionState, { custom: dragMotionPreset.value === "custom" });
+  }
+}
+
+function selectDragMotionPreset() {
+  if (dragMotionPreset.value === "custom") return;
+  const next = normalizeDragMotion({ preset: dragMotionPreset.value });
+  // Keep the lab's established 80 ms pause when selecting Natural.
+  if (next.preset === "natural") next.landingDelay = 80;
+  setDragMotionPatch(next, { custom: false });
+}
+
 // Match the lab's single-column mobile layout. This is a spawn default,
 // not a resize rule: existing cards retain their user-selected scale.
 function isMobileViewport() {
@@ -109,14 +194,14 @@ function defaultCardScale() {
 scaleSlider.value = String(defaultCardScale());
 touchDrag.checked = isTouchCapable();
 const LAB_ZONE_DEFINITIONS = Object.freeze([
-  { id: "lake", label: "Lake", anchor: "#zone-lake", arrangement: { type: "grid", gap: 16 } },
-  { id: "river", label: "River", anchor: "#zone-river", arrangement: { type: "hand", curve: "concave" } },
-  { id: "ocean", label: "Ocean", anchor: "#zone-ocean", arrangement: { type: "grid", gap: 16 } },
+  { id: "lake", label: "Lake", anchor: "#zone-lake", arrangement: { type: "column", gap: 16 }, faceUp: true },
+  { id: "river", label: "River", anchor: "#zone-river", arrangement: { type: "hand", curve: "concave" }, faceUp: true },
+  { id: "ocean", label: "Ocean", anchor: "#zone-ocean", arrangement: { type: "column", gap: 16 }, faceUp: false },
 ]);
 const ARRANGEMENT_CYCLE = Object.freeze(["grid", "row", "column", "splay", "pile", "stack", "hand"]);
 const OVERFLOW_POLICIES = Object.freeze(["scroll", "overlap", "fit", "reject"]);
 const zoneArrangements = new Map(LAB_ZONE_DEFINITIONS.map(({ id, arrangement }) => [id, { ...arrangement }]));
-const zonePolicies = new Map(LAB_ZONE_DEFINITIONS.map(({ id }) => [id, {}]));
+const zonePolicies = new Map(LAB_ZONE_DEFINITIONS.map(({ id, faceUp }) => [id, { faceUp }]));
 const zoneArrangementSettingsOpen = new Map();
 const ARRANGEMENT_SETTING_DEFINITIONS = Object.freeze([
   { key: "gap", label: "Gap", types: ["grid", "row", "column", "splay", "stack"], kind: "range", min: 0, max: 80, step: 1, defaultValue: 16, title: "Set the spacing between arranged cards." },
@@ -131,12 +216,14 @@ const ARRANGEMENT_SETTING_DEFINITIONS = Object.freeze([
   { key: "depthStep", label: "Depth", types: ["grid", "row", "column", "splay", "pile", "stack", "hand"], kind: "range", min: 0, max: 40, step: 1, defaultValue: 8, title: "Set the minimum depth separation between cards." },
 ]);
 const ZONE_POLICY_SETTING_DEFINITIONS = Object.freeze([
+  { key: "orderMode", label: "Order", kind: "select", options: [["free", "Free"], ["locked", "Locked"]], defaultValue: "free", title: "Allow free reordering or enforce the zone's current membership order." },
+  { key: "slotMode", label: "Slots", kind: "select", options: [["free", "Free"], ["fixed", "Fixed"]], defaultValue: "free", title: "Allow free insertion or keep configured cards in their assigned destination slots." },
   { key: "scale", label: "Size", kind: "range", min: 0.25, max: 2, step: 0.05, defaultValue: 1, suffix: "×", title: "Set the target card scale governed by this zone." },
   { key: "positionSpeed", label: "Move", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target position." },
   { key: "orientationSpeed", label: "Turn", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target orientation." },
   { key: "scaleSpeed", label: "Scale", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target scale." },
   { key: "faceSpeed", label: "Flip", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's face side." },
-  { key: "faceUp", kind: "select", options: [["", "Keep side"], ["true", "Face up"], ["false", "Face down"]], defaultValue: "", title: "Optionally make cards entering this zone face up or face down." },
+  { key: "faceUp", kind: "select", options: [["", "Keep side"], ["true", "Face up"], ["false", "Face down"]], defaultValue: "", title: "Keep cards in this zone face up or face down." },
 ]);
 
 const LAB_CONTROL_TOOLTIPS = Object.freeze([
@@ -173,9 +260,19 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["#drag-touch", "Enable touch dragging when using a touch-capable device."],
   ["#touch-selection", "Use touch taps to toggle card selection."],
   ["#drag-presentation", "Choose whether a carried selection keeps offsets or compacts."],
-  ["#drag-dangliness", "Set how strongly cards tilt when picked up near their left or right edge."],
-  ["#drag-upright", "Set how strongly a freely dragged card swings back toward upright; weight and grab distance affect the response."],
+  ["#drag-motion-preset", "Choose a complete drag motion profile."],
+  ["#drag-lift-scale", "Set the temporary scale while a card is carried."],
+  ["#drag-lift-time", "Set how quickly the carried card reaches its lift scale."],
+  ["#drag-response-time", "Set how quickly pointer motion changes the card response."],
+  ["#drag-damping", "Set the damping ratio for free drag motion."],
+  ["#drag-dangliness", "Set pickup and movement dangle response."],
+  ["#drag-max-tilt", "Set the maximum local tilt from pointer motion."],
+  ["#drag-max-twist", "Set the maximum in-plane twist from pointer motion."],
+  ["#drag-upright", "Set the visual strength of the free-drag return toward upright."],
+  ["#drag-landing-time", "Set how quickly a dropped card settles into its target."],
+  ["#drag-landing-bounce", "Set the bounded overshoot at the end of a landing."],
   ["#drag-snap-delay", "Pause before a dropped card starts moving to its target."],
+  ["#drag-weight-influence", "Set how strongly card weight changes perceived response and landing."],
   ["#drag-denied-card", "Choose a card that the lab drag rules will deny."],
   ["#drag-denied-zone", "Choose a destination zone that the lab drag rules will deny."],
   ["#drag-response", "Choose whether drops are accepted, rejected, delayed, or manual."],
@@ -522,9 +619,12 @@ const baseCard = {
   faceUp: true,
   back: {
     elements: [
-      { id: "eyebrow", type: "text", content: { text: "CARDINAL CARD ENGINE" }, style: { variant: "flavour", color: "#e5c07b", font: "700 10px ui-monospace, SFMono-Regular, Menlo, monospace", lineHeight: 13 }, layout: { mode: "flow", order: 0 } },
-      { id: "title", type: "text", content: { text: "Card back" }, style: { variant: "title", color: "#f7f4e9", font: "800 21px system-ui, sans-serif", lineHeight: 25 }, layout: { mode: "flow", order: 1 } },
-      { id: "flavour", type: "text", content: { text: "Turn the card to explore another logical face." }, style: { variant: "flavour", color: "#bdcbd0", font: "500 13px system-ui, sans-serif", lineHeight: 18 }, layout: { mode: "flow", order: 2 } },
+      {
+        id: "cardinal-logo",
+        type: "image",
+        content: { src: "/examples/card-engine-lab/assets/cards/paint.png", alt: "Cardinal paint logo" },
+        layout: { mode: "overlay", x: 0.2, y: 0.3, width: 0.6, height: 0.36, zIndex: 1 },
+      },
     ],
     background: "#17212b",
     backgroundImage: { src: "/examples/card-engine-lab/assets/backgrounds/b4.png", fit: "cover" },
@@ -558,7 +658,7 @@ function artCard({ id, zoneId, title, image, alt, flavour, specimen, background,
 const additionalLabCards = [
   artCard({
     id: "ice-demo",
-    zoneId: "lake",
+    zoneId: "ocean",
     title: "The Kingfisher",
     image: "/examples/card-engine-lab/assets/cards/ice.png",
     alt: "A blue kingfisher perched on a branch above a mountain lake",
@@ -569,7 +669,7 @@ const additionalLabCards = [
   }),
   artCard({
     id: "owl-demo",
-    zoneId: "ocean",
+    zoneId: "lake",
     title: "The Owl",
     image: "/examples/card-engine-lab/assets/cards/owl.png",
     alt: "A stylized owl perched on a rocky overlook above a mountain lake",
@@ -597,6 +697,8 @@ let nextElementNumber = 1;
 let renderedElementKey;
 let scene;
 let interactionLifecycle;
+let lastInteractionStatusAt = 0;
+let lastInteractionStatusKey = "";
 let lastDiagnosticsBenchmark = [];
 let zoneVisibility = new Map(LAB_ZONE_DEFINITIONS.map(({ id }) => [id, true]));
 
@@ -1115,6 +1217,19 @@ function zoneSnapshot(cards) {
       arrangement: zoneArrangements.get(id) ?? { type: "grid", gap: 16 },
       visible: zoneVisibility.get(id) !== false,
     };
+    if (zone.orderPolicy?.mode === "locked") {
+      const currentIds = new Set(cards.map(({ id: cardId }) => cardId));
+      const order = zone.orderPolicy.order.filter((cardId) => currentIds.has(cardId));
+      order.push(...cards.map(({ id: cardId }) => cardId).filter((cardId) => !order.includes(cardId)));
+      zone.orderPolicy = { mode: "locked", order };
+    }
+    if (zone.slotPolicy?.mode === "fixed") {
+      const currentIds = new Set(cards.map(({ id: cardId }) => cardId));
+      zone.slotPolicy = {
+        mode: "fixed",
+        slots: Object.fromEntries(Object.entries(zone.slotPolicy.slots).filter(([cardId]) => currentIds.has(cardId))),
+      };
+    }
     if (Object.hasOwn(policy, "faceUp")) {
       if (policy.faceUp === null) delete zone.faceUp;
       else zone.faceUp = policy.faceUp;
@@ -1407,7 +1522,7 @@ async function runFlipCycle(generation) {
     return;
   }
   try {
-    await scene.transact(operations).finished;
+    await scene.transact(operations, { zoneFacePolicy: "override" }).finished;
   } catch {
     return;
   }
@@ -1477,7 +1592,7 @@ async function runRandomCycle(generation) {
     ];
   });
   try {
-    await scene.transact(operations).finished;
+    await scene.transact(operations, { zoneFacePolicy: "override" }).finished;
   } catch (error) {
     if (randomMotion && generation === randomGeneration) console.error("Cardinal random motion stopped", error);
     return;
@@ -1522,7 +1637,7 @@ async function runAnimationTest() {
     const ids = liveCards();
     if (ids.length === 0) return false;
     const operations = createOperations(ids, state);
-    if (operations.length > 0) await scene.transact(operations).finished;
+    if (operations.length > 0) await scene.transact(operations, { zoneFacePolicy: "override" }).finished;
     const remainingStepTime = 700 - (performance.now() - stepStarted);
     if (remainingStepTime > 0 && generation === animationTestGeneration) {
       await new Promise((resolve) => setTimeout(resolve, remainingStepTime));
@@ -1705,6 +1820,31 @@ function prunePendingDrops(lifecycle, interaction) {
   renderPendingDropControls();
 }
 
+function interactionStatusKey(interaction) {
+  return JSON.stringify((interaction?.sessions ?? []).map((session) => ({
+    id: session.id,
+    phase: session.phase,
+    candidate: session.candidate && {
+      toZoneId: session.candidate.toZoneId,
+      index: session.candidate.index,
+      allowed: session.candidate.allowed,
+      reason: session.candidate.reason,
+    },
+  })));
+}
+
+function shouldPaintInteractionStatus(interaction) {
+  const key = interactionStatusKey(interaction);
+  const now = performance.now();
+  const important = key !== lastInteractionStatusKey;
+  if (important || now - lastInteractionStatusAt >= 100) {
+    lastInteractionStatusKey = key;
+    lastInteractionStatusAt = now;
+    return true;
+  }
+  return false;
+}
+
 function interactionZoneLabel(state, zoneId) {
   return state?.zones?.find(({ id }) => id === zoneId)?.label
     ?? state?.desired?.zones?.find(({ id }) => id === zoneId)?.label
@@ -1799,6 +1939,9 @@ function respondToDrop(sceneInstance, lifecycle, intent) {
 function startScene(cards = sceneCards()) {
   const previousSelection = scene?.snapshot().selection;
   const desired = desiredSnapshot(cards);
+  dragMotionState = normalizeDragMotion(readDragMotionControls(), dragMotionState);
+  lastInteractionStatusAt = 0;
+  lastInteractionStatusKey = "";
   disposeInteractionLifecycle();
   stopDemoAnimations();
   scene?.destroy();
@@ -1825,14 +1968,13 @@ function startScene(cards = sceneCards()) {
         reducedMotion: reduced.getAttribute("aria-pressed") === "true",
         duration: LAB_MOTION_DURATION / Number(motionSpeedSlider.value),
       },
+      selection: { allowCrossZone: crossZoneSelection.checked },
       interaction: {
         rules: interactionRules,
         touchDrag: touchDrag.checked,
         touchSelection: touchSelection.checked,
         dragPresentation: dragPresentation.value,
-        dragHangFactor: Number(dragDangliness.value),
-        dragUprightFactor: Number(dragUpright.value),
-        dragSnapDelay: Number(dragSnapDelay.value),
+        motion: readDragMotionControls(),
       },
     });
     scene = createdScene;
@@ -1851,7 +1993,7 @@ function startScene(cards = sceneCards()) {
       if (scene !== createdScene || !lifecycle.active) return;
       observeDragDiagnosticSession(interaction);
       prunePendingDrops(lifecycle, interaction);
-      updateStatus(createdScene.snapshot(), interaction, true);
+      if (shouldPaintInteractionStatus(interaction)) updateStatus(createdScene.snapshot(), interaction, true);
     });
     createdScene.on("drop", (intent) => respondToDrop(createdScene, lifecycle, intent));
     selectedCardIds = new Set([...selectedCardIds].filter((id) => cards.some((card) => card.id === id)));
@@ -2015,7 +2157,11 @@ function renderZones(state = scene.snapshot()) {
       label.title = definition.title;
       const caption = document.createElement("span");
       caption.textContent = definition.label;
-      const value = definition.group === "motion"
+      const value = definition.key === "orderMode"
+        ? zone.orderPolicy?.mode ?? definition.defaultValue
+        : definition.key === "slotMode"
+          ? zone.slotPolicy?.mode ?? definition.defaultValue
+          : definition.group === "motion"
         ? zone.motion?.[definition.key] ?? definition.defaultValue
         : definition.key === "faceUp"
           ? zone.faceUp === undefined ? definition.defaultValue : String(zone.faceUp)
@@ -2073,7 +2219,28 @@ function updateZoneArrangement(zoneId, changes) {
 function updateZonePolicy(zoneId, definition, value) {
   const current = structuredClone(zonePolicies.get(zoneId) ?? {});
   const next = structuredClone(current);
-  if (definition.group === "motion") {
+  if (definition.key === "orderMode") {
+    if (value === "free") delete next.orderPolicy;
+    else {
+      const desired = scene.snapshot().desired;
+      const zone = desired.zones.find(({ id }) => id === zoneId);
+      const allCardIds = desired.cards.map(({ id }) => id);
+      const currentIds = zone?.cardIds ?? [];
+      next.orderPolicy = {
+        mode: "locked",
+        order: [...currentIds, ...allCardIds.filter((cardId) => !currentIds.includes(cardId))],
+      };
+    }
+  } else if (definition.key === "slotMode") {
+    if (value === "free") delete next.slotPolicy;
+    else {
+      const zone = scene.snapshot().desired.zones.find(({ id }) => id === zoneId);
+      next.slotPolicy = {
+        mode: "fixed",
+        slots: Object.fromEntries((zone?.cardIds ?? []).map((cardId, index) => [cardId, index])),
+      };
+    }
+  } else if (definition.group === "motion") {
     next.motion = { ...(next.motion ?? {}), [definition.key]: value };
   } else if (definition.key === "faceUp") {
     next.faceUp = value;
@@ -2100,8 +2267,24 @@ function reverseZoneOrder(zoneId) {
   const snapshot = structuredClone(scene.snapshot().desired);
   const zone = snapshot.zones.find(({ id }) => id === zoneId);
   if (!zone || zone.cardIds.length < 2) return;
+  const previousPolicy = structuredClone(zonePolicies.get(zoneId) ?? {});
   zone.cardIds.reverse();
-  scene.apply(snapshot);
+  const policy = structuredClone(previousPolicy);
+  if (policy?.orderPolicy?.mode === "locked") {
+    const reversed = [...zone.cardIds];
+    policy.orderPolicy = {
+      ...policy.orderPolicy,
+      order: [...reversed, ...policy.orderPolicy.order.filter((cardId) => !reversed.includes(cardId))],
+    };
+    zone.orderPolicy = policy.orderPolicy;
+  }
+  try {
+    zonePolicies.set(zoneId, policy);
+    scene.apply(snapshot);
+  } catch (error) {
+    zonePolicies.set(zoneId, previousPolicy);
+    showStatusMessage(`Order update failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function renderCardList() {
@@ -2457,7 +2640,9 @@ function startFullSpin() {
       angle: visual?.pose[axis === "x" ? "flipX" : "flipY"] ?? 0,
     }];
   }));
-  spinHandles = new Map(cards.map(({ id }) => [id, scene.spin(id, { axis, direction: 1, speed: 360 })]));
+  spinHandles = new Map(cards.map(({ id }) => [id, scene.spin(id, {
+    axis, direction: 1, speed: 360, zoneFacePolicy: "override",
+  })]));
   spinning = [...spinHandles.values()].some((handle) => handle.active);
   updateSpinButton();
   if (!spinning) return;
@@ -2485,9 +2670,23 @@ function updateControlLabels() {
   cardHeightValue.textContent = cardHeightSlider.value;
   cardThicknessValue.textContent = cardThicknessSlider.value;
   cardWeightValue.textContent = `${Number(cardWeightSlider.value)}×`;
-  dragDanglinessValue.textContent = `${Number(dragDangliness.value).toFixed(1)}×`;
-  dragUprightValue.textContent = `${Number(dragUpright.value).toFixed(1)}×`;
+  dragLiftScaleValue.textContent = `${Number(dragLiftScale.value).toFixed(2)}×`;
+  dragLiftTimeValue.textContent = `${dragLiftTime.value} ms`;
+  dragLiftDepthValue.textContent = `${dragLiftDepth.value} units`;
+  dragLiftDepthTimeValue.textContent = `${dragLiftDepthTime.value} ms`;
+  dragResponseTimeValue.textContent = `${dragResponseTime.value} ms`;
+  dragDampingValue.textContent = Number(dragDamping.value).toFixed(2);
+  dragDanglinessValue.textContent = `${Number(dragDangliness.value)}×`;
+  dragMaxTiltValue.textContent = `${dragMaxTilt.value}°`;
+  dragMaxTwistValue.textContent = `${dragMaxTwist.value}°`;
+  dragPivotTiltValue.textContent = `${Number(dragPivotTilt.value).toFixed(2)}×`;
+  dragMaxPivotTiltValue.textContent = `${dragMaxPivotTilt.value}°`;
+  dragPivotResponseValue.textContent = `${dragPivotResponse.value} ms`;
+  dragUprightValue.textContent = `${Number(dragUpright.value)}×`;
+  dragLandingTimeValue.textContent = `${dragLandingTime.value} ms`;
+  dragLandingBounceValue.textContent = Number(dragLandingBounce.value).toFixed(2);
   dragSnapDelayValue.textContent = `${dragSnapDelay.value} ms`;
+  dragWeightInfluenceValue.textContent = Number(dragWeightInfluence.value).toFixed(2);
   cardHeightSlider.disabled = cardSizing.value === "content";
   rotateValue.textContent = `${rotateSlider.value}°`;
   scaleValue.textContent = `${Math.round(scale * 100)}%`;
@@ -2518,6 +2717,10 @@ function updateMotionSpeed() {
   const speed = Number(motionSpeedSlider.value);
   scene.setMotion({ duration: LAB_MOTION_DURATION / speed });
   updateControlLabels();
+}
+
+function updateDragMotionField(field, control) {
+  setDragMotionPatch({ [field]: Number(control.value) });
 }
 
 function applySelectedWeight() {
@@ -2672,7 +2875,9 @@ function queueControl(channel, { immediate = true } = {}) {
     pendingModes = new Map();
     const operations = controlOperations(channels);
     const animated = [...channels].some((name) => modes.get(name) === "animated");
-    if (operations.length > 0) run(operations, animated ? undefined : { immediate: true });
+    const options = animated ? {} : { immediate: true };
+    if (channels.has("flip")) options.zoneFacePolicy = "override";
+    if (operations.length > 0) run(operations, options);
   });
 }
 
@@ -2684,7 +2889,7 @@ function applyPresetControl(channel) {
   pendingChannels = new Set();
   pendingModes = new Map();
   const operations = controlOperations(new Set([channel]));
-  if (operations.length > 0) run(operations);
+  if (operations.length > 0) run(operations, channel === "flip" ? { zoneFacePolicy: "override" } : undefined);
 }
 
 moveButton.addEventListener("click", () => {
@@ -2723,7 +2928,7 @@ spinButton.addEventListener("click", () => {
   stopFlipAnimation();
   spinHandles = new Map(selectedCardIdsArray().map((cardId) => [
     cardId,
-    scene.spin(cardId, { axis: flipAxis.value, direction: 1, speed: 180 }),
+    scene.spin(cardId, { axis: flipAxis.value, direction: 1, speed: 180, zoneFacePolicy: "override" }),
   ]));
   spinning = [...spinHandles.values()].some((handle) => handle.active);
   updateSpinButton();
@@ -2924,17 +3129,16 @@ dragDeniedZone.addEventListener("change", invalidateInteractionRules);
 dragDeniedCard.addEventListener("change", invalidateInteractionRules);
 touchDrag.addEventListener("change", () => startScene());
 touchSelection.addEventListener("change", () => startScene());
+crossZoneSelection.addEventListener("change", () => startScene());
 dragPresentation.addEventListener("change", () => startScene());
-dragDangliness.addEventListener("input", updateControlLabels);
-dragDangliness.addEventListener("change", () => startScene());
-dragUpright.addEventListener("input", updateControlLabels);
-dragUpright.addEventListener("change", () => startScene());
-dragSnapDelay.addEventListener("input", updateControlLabels);
-dragSnapDelay.addEventListener("change", () => startScene());
+dragMotionPreset.addEventListener("change", selectDragMotionPreset);
+for (const [field, control] of DRAG_MOTION_CONTROL_FIELDS) {
+  control.addEventListener("input", () => updateDragMotionField(field, control));
+}
 
 document.querySelector("#flip-selection").addEventListener("click", () => {
   stopContinuousFlip();
-  run(flipSelectedOperations());
+  run(flipSelectedOperations(), { zoneFacePolicy: "override" });
 });
 
 document.querySelector("#batch-fixture").addEventListener("click", () => {

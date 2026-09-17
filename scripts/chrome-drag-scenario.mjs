@@ -182,13 +182,16 @@ export async function runDragScenario({ command }) {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       const scene = getScene();
       if (!scene) throw new Error("Cardinal lab scene is not ready");
+      // These lifecycle checks measure a fixed pointer-to-center offset.
+      // Animated material-point attachment has its own drag-geometry fixture.
+      scene.setDragMotion({ liftScale: 1, dangle: 0, upright: 0 });
       document.body.classList.remove("stage-full-window");
       document.querySelector("#full-window-control")?.setAttribute("aria-pressed", "false");
       document.querySelector("#full-window-control")?.replaceChildren(document.createTextNode("Full window"));
       for (const selector of [".scene-column", "#stage", "body", "html"]) {
         const element = document.querySelector(selector) ?? (selector === "body" ? document.body : selector === "html" ? document.documentElement : null);
         if (!element) continue;
-        for (const property of ["height", "width", "maxHeight", "maxWidth", "overflow", "overflowX", "overflowY", "minHeight"]) {
+        for (const property of ["height", "width", "max-height", "max-width", "overflow", "overflow-x", "overflow-y", "min-height"]) {
           element.style.removeProperty(property);
         }
       }
@@ -260,6 +263,7 @@ export async function runDragScenario({ command }) {
         zones: current.zones.map((zone) => ({
           ...zone,
           visible: true,
+          ...(zone.id === "river" ? { arrangement: { type: "row", gap: 20 } } : {}),
           cardIds: zone.id === "river" ? cards.map(({ id }) => id) : [],
         })),
       };
@@ -385,7 +389,14 @@ export async function runDragScenario({ command }) {
       const snapshot = getScene().snapshot();
       const reference = createCardScene({ motion: { reducedMotion: true } });
       try {
-        reference.apply({ ...snapshot.desired, zones: snapshot.zones.map(({ anchor, ...zone }) => zone) });
+        // Use measured dimensions so the reference uses the lab's template
+        // sizes without depending on its renderer or copying its positions.
+        const dimensions = new Map(snapshot.visual.map(({ cardId, pose }) => [cardId, { width: pose.width, height: pose.height }]));
+        reference.apply({
+          ...snapshot.desired,
+          cards: snapshot.desired.cards.map((card) => ({ ...card, dimensions: dimensions.get(card.id), sizing: { mode: "fixed" } })),
+          zones: snapshot.zones.map(({ anchor, ...zone }) => zone),
+        });
         return reference.snapshot().visual.find(({ cardId }) => cardId === ${JSON.stringify(metric.cardId)})?.pose ?? null;
       } finally { reference.destroy(); }
     })()`);

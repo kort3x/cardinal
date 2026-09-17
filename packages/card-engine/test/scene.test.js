@@ -664,6 +664,84 @@ test("zone policies govern scale, face side, and alignment channel speeds", asyn
   scene.destroy();
 });
 
+test("entering a face-down zone conceals before movement animation begins", async () => {
+  const timer = testClock();
+  const scene = createCardScene({ motion: { clock: timer, duration: 100 } });
+  scene.apply({
+    cards: [card],
+    zones: [
+      { ...zone, id: "source", cardIds: [card.id], geometry: { ...zone.geometry, x: 0 } },
+      { ...zone, id: "ocean", cardIds: [], faceUp: false, geometry: { ...zone.geometry, x: 700 } },
+    ],
+  });
+
+  const transition = scene.transact([{ type: "move", cardId: card.id, to: "ocean", index: 0 }]);
+  let state = scene.snapshot();
+  let visual = state.visual.find(({ cardId }) => cardId === card.id);
+  assert.equal(state.desired.cards[0].faceUp, false);
+  assert.equal(visual.physicalSide, "back");
+  assert.equal(visual.pose.flipX, 0);
+  assert.equal(visual.pose.flipY, 180);
+
+  timer.tick(50);
+  state = scene.snapshot();
+  visual = state.visual.find(({ cardId }) => cardId === card.id);
+  assert.equal(visual.physicalSide, "back");
+  assert.equal(visual.pose.flipY, 180);
+  timer.tick(100);
+  await transition.finished;
+  scene.destroy();
+});
+
+test("zone face policies cannot be bypassed by direct flips or spins", async () => {
+  const timer = testClock();
+  const scene = createCardScene({ motion: { clock: timer, duration: 100 } });
+  scene.apply({
+    cards: [card],
+    zones: [{ ...zone, id: "ocean", cardIds: [card.id], faceUp: false }],
+  });
+
+  scene.transact([{ type: "face", cardId: card.id, face: "faceUp", axis: "y" }], { immediate: true });
+  let state = scene.snapshot();
+  assert.equal(state.desired.cards[0].faceUp, false);
+  assert.equal(state.visual[0].physicalSide, "back");
+  assert.equal(state.visual[0].pose.flipY, 180);
+
+  const spin = scene.spin(card.id, { axis: "y", speed: 360 });
+  assert.equal(spin.active, false);
+  assert.equal(scene.snapshot().spinning, false);
+
+  const transition = scene.transact([{ type: "face", cardId: card.id, face: "faceDown", axis: "x", angle: 0 }]);
+  timer.tick(100);
+  await transition.finished;
+  state = scene.snapshot();
+  assert.equal(state.desired.cards[0].faceUp, false);
+  assert.equal(state.visual[0].physicalSide, "back");
+  assert.equal(state.visual[0].pose.flipX, 0);
+  assert.equal(state.visual[0].pose.flipY, 180);
+  scene.destroy();
+
+  const reconfigured = createCardScene({ motion: { reducedMotion: false } });
+  reconfigured.apply({ cards: [card], zones: [{ ...zone, id: "ocean", cardIds: [card.id] }] });
+  assert.equal(reconfigured.spin(card.id, { axis: "y", speed: 360 }).active, true);
+  reconfigured.apply({ cards: [card], zones: [{ ...zone, id: "ocean", cardIds: [card.id], faceUp: false }] });
+  assert.equal(reconfigured.snapshot().spinning, false);
+  reconfigured.destroy();
+
+  const override = createCardScene({ motion: { reducedMotion: false } });
+  override.apply({ cards: [card], zones: [{ ...zone, id: "ocean", cardIds: [card.id], faceUp: false }] });
+  override.transact([{ type: "face", cardId: card.id, face: "faceUp", axis: "y" }], {
+    immediate: true,
+    zoneFacePolicy: "override",
+  });
+  assert.equal(override.snapshot().desired.cards[0].faceUp, true);
+  assert.equal(override.snapshot().visual[0].physicalSide, "front");
+  const overrideSpin = override.spin(card.id, { axis: "y", speed: 360, zoneFacePolicy: "override" });
+  assert.equal(overrideSpin.active, true);
+  overrideSpin.stop();
+  override.destroy();
+});
+
 test("moving a card out of a hand refans the remaining cards", async () => {
   const cards = [card, { ...card, id: "card-2" }, { ...card, id: "card-3" }, { ...card, id: "card-4" }];
   const scene = createCardScene({ motion: { reducedMotion: true } });

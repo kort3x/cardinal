@@ -123,6 +123,13 @@ concealed back presentation. The physical card still has only two surfaces.
 Changing the active content face does not reveal a face-down card. See the
 content-face contract below.
 
+Zone membership may optionally carry an `orderPolicy` and a `slotPolicy`.
+`orderPolicy: { mode: "locked", order }` defines the canonical relative order
+for members, while `slotPolicy: { mode: "fixed", slots }` assigns zero-based
+destination slots to selected card IDs. Both policies are enforced against the
+complete hypothetical result before a preview or commit is accepted; omitted or
+`free` policies preserve ordinary user-controlled insertion and reordering.
+
 A card belongs to exactly one zone in a committed scene. Zone membership is stored
 once as a sequence of IDs. A stack uses that sequence as explicit bottom-to-top
 order; a pile has deterministic visual scatter keyed by card ID. Stable ordering
@@ -491,17 +498,46 @@ independent of uniform visual scale; scale multiplies the configured thickness
 when calculating rendered depth.
 
 Cards may also provide a positive finite `weight`, defaulting to `1`. The
-weight multiplies the duration of target position, orientation, scale, and face
-transitions. During free dragging, the current arrangement angle returns toward
-upright through a damped spring. The response slows with weight and increases
-with pointer distance from the card center, while the grab point stays attached
-to the pointer. `dragUprightFactor` controls that return and defaults to `1`;
-`0` preserves the pickup angle. Movement dangle separately uses the normalized
-baseline `sqrt(weight / 2.25) * (dragHangFactor / 2)`, so weight `2.25` and
-factor `2` are the reference response. Edge pickup hang is currently disabled
-while its calibration is retried in issue #19. Weight does not change the
-resolved target pose, layout depth, or the direct pointer attachment during a
-drag.
+weight contributes to drag response through a bounded nonlinear
+`weightInfluence`, so a heavier card can feel slower without losing its pointer
+anchor. It also modifies the duration of target position, orientation, scale,
+and face transitions. The normalized drag motion configuration is entered under
+`interaction.motion`, resolved in `snapshot().dragMotion`, and can be patched
+live with `scene.setDragMotion()` without rebuilding the scene or jumping the
+active gesture. The `crisp`, `wizzard`, `natural`, `floaty`, and `dramatic` presets provide complete
+starting profiles; changing a preset resets its defaults before applying
+explicit fields in the same patch.
+The `wizzard` profile is a restrained, responsive profile tuned against the
+MTG Arena interaction research in
+`docs/research/mtg-arena-drag-motion-2026-09-17.md`; it uses quick pickup,
+responsive damping, strong movement tilt, no landing delay, no bounce, a
+camera-facing 3D lift without scale enlargement, and an exaggerated grab-pivot
+tilt.
+The `dramatic` profile intentionally exaggerates free-drag dangle: it uses a
+3× response, 0.2 damping, and larger tilt and twist limits so the spring
+overshoots and visibly swings past its target.
+
+Natural drag motion uses `liftScale: 1.12`, `liftTime: 90`, `liftDepth: 0`,
+`liftDepthTime: 80`,
+`responseTime: 160`, `damping: 0.8`, `dangle: 1`, `maxTilt: 14`,
+`maxTwist: 10`, `grabPivotTilt: 0`, `maxGrabTilt: 0`,
+`grabPivotResponse: 100`, `upright: 1`, `landingTime: 180`, `landingBounce: 0.12`,
+`landingDelay: 0`, and `weightInfluence: 0.5`. Strengths are finite and
+non-negative; lift time and landing delay are finite and non-negative; response
+and landing times are finite and positive, each at most 10 seconds. Damping is
+finite and positive, tilt is limited to 90°, twist to 180°, and bounce and
+weight influence are limited to 0–1. The free-drag upright response is a
+stylistic choice. `scene.setMotion()` remains the base timing for authored
+programmatic transitions; drag `responseTime` and `landingTime` govern the
+interaction channels, while card weight and destination-zone speed fields
+modify the matching landing channels.
+
+Landing position uses smoothstep. Landing angle and tilt use an analytical
+damped spring whose bounded overshoot is controlled by `landingBounce`; its
+nominal `landingTime` may run through a bounded three-times tail before rest.
+Edge pickup hang remains tracked in issue #19. Weight does not change the
+resolved target pose, layout depth, zone membership, or direct pointer
+attachment during a drag.
 
 Movement alone preserves the current internal geometry. Explicit content or
 presentation changes may reshape the card, including during movement. Depth uniformly scales
@@ -781,19 +817,38 @@ At pickup, sample every member's current pose. Preserve offsets from the primary
 card by default so the selected cards follow the pointer without jumping into a
 new arrangement. A project can opt into an animated compact drag bundle for widely
 separated selections. Both preserve individual scene shells, face, and attachments.
-Temporarily render each carried card at `1.12×` its resolved scale to communicate
+Temporarily render each carried card at its configured `liftScale` to communicate
 that it has been lifted from the table, then return it to the resolved scale when
-the gesture ends. This presentation effect does not mutate authored card scale.
+the gesture ends. `liftTime` controls the scale transition. A separate
+`liftDepth` moves only the carried render pose toward the camera, and
+`liftDepthTime` controls that transition; it leaves logical zone depth and
+authored card scale unchanged. Consumers can use either cue or both: set
+`liftScale: 1` to disable scale lift and `liftDepth: 0` to disable 3D lift.
+An off-center pointer grab can add a separate bounded pitch and roll around the
+grabbed point through `grabPivotTilt`, capped by `maxGrabTilt` and eased by
+`grabPivotResponse`. This pivot response is independent of movement dangle and
+does not alter the card's logical position.
 During free dragging, begin the in-plane angle at the card's current pose and
-spring it toward upright. Scale the return by `dragUprightFactor`, card weight,
-and pointer distance from the card center so an edge grab has more leverage.
-Derive filtered pointer acceleration and use it to drive bounded local tilt and
+spring it toward upright. Scale the return by `upright`, bounded nonlinear card
+weight influence, and pointer distance from the card center so an edge grab has
+more leverage.
+Derive filtered pointer motion and use it to drive bounded local tilt and
 additional in-plane angular momentum. Direction changes carry momentum and
-settle through damping; constant-speed movement does not accumulate tilt. Keep
-the card's grab point anchored to the pointer while applying the rotation. Keep
-edge pickup hang disabled while its calibration is retried, and clear the
-temporary physics when the gesture ends. Pending target motion may pause before landing,
-then uses smooth position easing and weighted orientation overswing.
+settle through `damping`; `responseTime`, `dangle`, `maxTilt`, and `maxTwist`
+bound that movement response. Use the grab point as a separate 3D pivot:
+`grabPivotTilt` controls its strength, `maxGrabTilt` caps it, and
+`grabPivotResponse` controls its spring. Keep the card's grab point anchored to
+the pointer while applying both rotations. Keep gravity-like edge pickup hang
+disabled while its calibration is retried, and clear the temporary physics when
+the gesture ends. Pending target
+motion may pause for `landingDelay`, then uses smooth position easing and an
+analytical damped spring for angle and tilt. `landingTime` is the nominal spring
+time and `landingBounce` controls its bounded overshoot; card weight and zone
+channel speeds modify the resulting landing.
+When pointer input is quiet for the stop grace period, give the last directional
+dangle a single momentum impulse before damping it toward rest. This makes the
+card continue slightly in the drag direction after the pointer stops while
+keeping the grab point anchored.
 The position channel of each member follows the drag; its independent rotate,
 scale, and flip channels continue. Give visible count/selection feedback and expose
 the count accessibly. During the active drag and any pending approval, elevate the

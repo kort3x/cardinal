@@ -104,3 +104,33 @@ test('deferred capacity never defers unrelated ID, membership or capacity-shape 
     assert.throws(() => resolveBatchMove(snapshot, { cardIds: ['A'], toZoneId: 'source', validate: false }));
   }
 });
+
+test('locked order and fixed destination slots reject invalid hypothetical moves', () => {
+  const snapshot = normalizeSnapshot({
+    cards: ['A', 'B', 'C'].map((id) => ({ id, activeFaceId: 'front', faces: { front: { elements: [] } } })),
+    zones: [
+      { id: 'source', cardIds: ['A', 'B'], geometry: { x: 0, y: 0, width: 300, height: 300, depth: 0 } },
+      { id: 'target', cardIds: ['C'], geometry: { x: 400, y: 0, width: 300, height: 300, depth: 0 },
+        orderPolicy: { mode: 'locked', order: ['C', 'B', 'A'] },
+        slotPolicy: { mode: 'fixed', slots: { B: 1 } } },
+    ],
+  });
+  assert.throws(() => resolveBatchMove(snapshot, { cardIds: ['B'], toZoneId: 'target', index: 0 }), /slotPolicy.*slot 1/);
+  const result = resolveBatchMove(snapshot, { cardIds: ['B'], toZoneId: 'target', index: 1 });
+  assert.deepEqual(result.nextSnapshot.zones[1].cardIds, ['C', 'B']);
+  assert.deepEqual(result.nextSnapshot.zones[1].orderPolicy, { mode: 'locked', order: ['C', 'B', 'A'] });
+  assert.deepEqual(result.nextSnapshot.zones[1].slotPolicy, { mode: 'fixed', slots: { B: 1 } });
+});
+
+test('free zone policies preserve ordinary insertion behavior', () => {
+  const snapshot = normalizeSnapshot({
+    cards: ['A', 'B'].map((id) => ({ id, activeFaceId: 'front', faces: { front: { elements: [] } } })),
+    zones: [
+      { id: 'source', cardIds: ['A'], geometry: { x: 0, y: 0, width: 300, height: 300, depth: 0 } },
+      { id: 'target', cardIds: ['B'], geometry: { x: 400, y: 0, width: 300, height: 300, depth: 0 },
+        orderPolicy: { mode: 'free' }, slotPolicy: { mode: 'free' } },
+    ],
+  });
+  const result = resolveBatchMove(snapshot, { cardIds: ['A'], toZoneId: 'target', index: 0 });
+  assert.deepEqual(result.nextSnapshot.zones[1].cardIds, ['A', 'B']);
+});

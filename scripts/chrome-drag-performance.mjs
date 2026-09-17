@@ -154,9 +154,12 @@ export async function runDragPerformanceScenario({ command }) {
         cardIds: zone.id === "river" ? cardIds : [],
       }));
       scene.apply({ cards, zones });
-      const cohortIds = cardIds.slice(0, ${cohortSize});
-      scene.select(cohortIds, { primaryCardId: cardIds[0] });
-      return { cardIds, cohortIds, primaryCardId: cardIds[0] };
+      // Include the exposed end of the Hand before input, then retain this
+      // exact cohort throughout pickup and transfer verification.
+      const cohortIds = cardIds.slice(-${cohortSize});
+      const primaryCardId = cohortIds.at(-1);
+      scene.select(cohortIds, { primaryCardId });
+      return { cardIds, cohortIds, primaryCardId };
     })()`);
     await waitFor(`fixture with ${count} mounted cards`, (current) =>
       current.snapshot?.renderer === "webgl"
@@ -319,23 +322,81 @@ export async function runDragPerformanceScenario({ command }) {
       current.snapshot?.spinning === false && !current.snapshot?.settling);
   }
 
-  async function coordinates(cardId) {
+  async function coordinates(cardIds) {
     return evaluate(`(async () => {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       const scene = getScene();
-      const visual = scene.snapshot().visual.find(({ cardId: id }) => id === ${JSON.stringify(cardId)});
+      const requestedCardIds = ${JSON.stringify(cardIds)};
+      const visuals = new Map(scene.snapshot().visual.map((entry) => [entry.cardId, entry]));
       const destination = document.querySelector("#zone-ocean")?.getBoundingClientRect();
-      if (!visual?.pose || !destination || destination.width <= 0 || destination.height <= 0) {
+      const stage = document.querySelector("#stage")?.getBoundingClientRect();
+      const river = document.querySelector("#zone-river")?.getBoundingClientRect();
+      if (!destination || destination.width <= 0 || destination.height <= 0
+        || !stage || !river || stage.width <= 0 || stage.height <= 0) {
         throw new Error("Missing drag card or destination geometry");
       }
-      const start = scene.sceneToClient(visual.pose);
-      return {
-        start,
-        destination: {
-          x: destination.left + destination.width / 2,
-          y: destination.top + destination.height / 2,
-        },
+      const hitAt = (client) => {
+        const point = scene.clientToScene(client, 0);
+        return point ? scene.hitTest(point) : null;
       };
+      const fractions = [0, -0.42, 0.42, -0.28, 0.28, -0.14, 0.14];
+      const attempts = [];
+      for (const cardId of requestedCardIds) {
+        const pose = visuals.get(cardId)?.pose;
+        if (!pose) continue;
+        const center = scene.sceneToClient(pose);
+        const centerHit = hitAt(center)?.cardId ?? null;
+        const scale = (pose.scale ?? 1) * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
+        const angle = (pose.angle ?? 0) * Math.PI / 180;
+        const tested = [{ point: center, hitCardId: centerHit }];
+        let pickup = centerHit === cardId ? center : null;
+        for (const yFraction of fractions) {
+          for (const xFraction of fractions) {
+            if (xFraction === 0 && yFraction === 0) continue;
+            const localX = xFraction * pose.width * scale;
+            const localY = yFraction * pose.height * scale;
+            const point = scene.sceneToClient({
+              x: pose.x + localX * Math.cos(angle) + localY * Math.sin(angle),
+              y: pose.y - localX * Math.sin(angle) + localY * Math.cos(angle),
+              z: pose.z ?? 0,
+            });
+            const hitCardId = hitAt(point)?.cardId ?? null;
+            tested.push({ point, hitCardId });
+            if (!pickup && hitCardId === cardId) pickup = point;
+          }
+          if (pickup) break;
+        }
+        attempts.push({ cardId, centerHit, testedPoints: tested.length });
+        if (pickup) {
+          const zones = [...document.querySelectorAll(".lab-zone-anchor:not([hidden])")]
+            .map((element) => element.getBoundingClientRect());
+          const freeCandidates = [
+            { x: stage.left + stage.width * 0.45, y: river.top - 120 },
+            { x: stage.left + stage.width * 0.60, y: river.top - 160 },
+            { x: stage.left + stage.width * 0.52, y: river.top - 70 },
+          ].filter((point) => point.x >= stage.left && point.x <= stage.right
+            && point.y >= stage.top && point.y <= stage.bottom
+            && zones.every((zone) => point.x < zone.left || point.x > zone.right
+              || point.y < zone.top || point.y > zone.bottom));
+          if (freeCandidates.length < 2) {
+            throw new Error("Performance recovery workload has no two free-space points");
+          }
+          return {
+            cardId,
+            start: pickup,
+            pickup: { centerHit, resolvedHit: cardId, testedPoints: tested.length, attempts },
+            destination: {
+              x: destination.left + destination.width / 2,
+              y: destination.top + destination.height / 2,
+            },
+            recoveryPath: [freeCandidates[0], freeCandidates[1], freeCandidates[0], {
+              x: destination.left + destination.width / 2,
+              y: destination.top + destination.height / 2,
+            }],
+          };
+        }
+      }
+      throw new Error("No real hit-test point for requested cards: " + JSON.stringify({ requestedCardIds, attempts }));
     })()`);
   }
 
@@ -382,22 +443,29 @@ export async function runDragPerformanceScenario({ command }) {
     }
   }
 
-  async function dragThrough(start, destination) {
+  async function dragThrough(start, destinations, { stepsPerSegment = DRAG_STEPS, stepMs = DRAG_STEP_MS } = {}) {
+    const path = Array.isArray(destinations) ? destinations : [destinations];
     await mousePress(start);
     try {
-      for (let index = 1; index <= DRAG_STEPS; index += 1) {
-        const fraction = index / DRAG_STEPS;
-        await mouseMove({
-          x: start.x + (destination.x - start.x) * fraction,
-          y: start.y + (destination.y - start.y) * fraction,
-        });
-        if (index === 1) {
-          await waitFor("pointer drag pickup", (current) =>
-            current.snapshot?.interaction?.sessions?.some((session) => session.phase === "dragging"));
+      let previous = start;
+      let pickupObserved = false;
+      for (const destination of path) {
+        for (let index = 1; index <= stepsPerSegment; index += 1) {
+          const fraction = index / stepsPerSegment;
+          await mouseMove({
+            x: previous.x + (destination.x - previous.x) * fraction,
+            y: previous.y + (destination.y - previous.y) * fraction,
+          });
+          if (!pickupObserved) {
+            await waitFor("pointer drag pickup", (current) =>
+              current.snapshot?.interaction?.sessions?.some((session) => session.phase === "dragging"));
+            pickupObserved = true;
+          }
+          await delay(stepMs);
         }
-        await delay(DRAG_STEP_MS);
+        previous = destination;
       }
-      await mouseRelease(destination);
+      await mouseRelease(previous);
     } catch (error) {
       await mouseRelease().catch(() => {});
       throw error;
@@ -449,9 +517,25 @@ export async function runDragPerformanceScenario({ command }) {
     return measurement(count, "existing-motion", sample);
   }
 
-  async function measureDrag(count, cohortSize = 1) {
+  async function measureDrag(count, cohortSize = 1, { condition = "pointer-drag", recovery = false } = {}) {
     const fixture = await configureFixture(count, cohortSize);
-    const points = await coordinates(fixture.primaryCardId);
+    const pickupCandidates = [fixture.primaryCardId,
+      ...fixture.cohortIds.filter((id) => id !== fixture.primaryCardId)];
+    const points = await coordinates(pickupCandidates);
+    if (points.cardId !== fixture.primaryCardId) {
+      await evaluate(String.raw`(async () => {
+        const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
+        getScene().select(${JSON.stringify(fixture.cohortIds)}, {
+          primaryCardId: ${JSON.stringify(points.cardId)},
+          anchorCardId: ${JSON.stringify(points.cardId)},
+        });
+        return true;
+      })()`);
+      fixture.primaryCardId = points.cardId;
+      await waitFor("hit-test-selected primary", (current) =>
+        current.snapshot?.selection?.primaryCardId === points.cardId
+        && JSON.stringify(current.snapshot.selection.cardIds) === JSON.stringify(fixture.cohortIds));
+    }
     await installProbe(fixture.primaryCardId);
     await evaluate(`(() => {
       const button = document.querySelector("#record-drag");
@@ -461,7 +545,12 @@ export async function runDragPerformanceScenario({ command }) {
     })()`);
     await beginProbe();
     try {
-      await dragThrough(points.start, points.destination);
+      await dragThrough(points.start, recovery ? points.recoveryPath : points.destination, recovery
+        ? { stepsPerSegment: 24, stepMs: 35 }
+        : undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${message}; pickup=${JSON.stringify(points.pickup)}; start=${JSON.stringify(points.start)}`);
     } finally {
       await mouseRelease().catch(() => {});
     }
@@ -469,18 +558,20 @@ export async function runDragPerformanceScenario({ command }) {
     const landed = await waitFor("complete cohort to finish in Ocean", (current) =>
       current.snapshot?.interaction?.sessions?.length === 0
       && !current.snapshot?.settling
-      && fixture.cohortIds.every((id) => current.snapshot?.desired?.zones
-        ?.find((zone) => zone.id === "ocean")?.cardIds?.includes(id)));
+      && JSON.stringify(current.snapshot?.desired?.zones
+        ?.find((zone) => zone.id === "ocean")?.cardIds) === JSON.stringify(fixture.cohortIds));
     const sampled = await waitFor("lab drag diagnostic sample", (current) =>
       current.diagnostics?.lab?.dragCapture?.lastSample?.cardId === fixture.primaryCardId
-      && current.diagnostics?.lab?.dragCapture?.lastSample?.pointerType === "mouse");
+      && current.diagnostics?.lab?.dragCapture?.lastSample?.pointerType === "mouse"
+      && JSON.stringify(current.diagnostics.lab.dragCapture.lastSample.cardIds) === JSON.stringify(fixture.cohortIds));
     return {
-      ...measurement(count, "pointer-drag", sample),
+      ...measurement(count, condition, sample),
       cohortSize,
       transfer: {
         cardId: fixture.primaryCardId,
         cardIds: fixture.cohortIds,
         toZoneId: landed.snapshot.desired.zones.find((zone) => zone.id === "ocean")?.id ?? null,
+        pickup: points.pickup,
       },
       labDragSample: sampled.diagnostics.lab.dragCapture.lastSample,
     };
@@ -492,7 +583,7 @@ export async function runDragPerformanceScenario({ command }) {
     try {
       const details = await action();
       measurements.push(details);
-      const inputObserved = details.condition !== "pointer-drag"
+      const inputObserved = !details.transfer
         || details.pointerMoves > 0 && details.observedMotionFrames > 0
           && details.transfer?.toZoneId === "ocean"
           && details.labDragSample?.cardCount === details.cards
@@ -525,6 +616,8 @@ export async function runDragPerformanceScenario({ command }) {
         await record(`${count} mounted cards, ${cohortSize}-card cohort drag sample`, () => measureDrag(count, cohortSize));
       }
     }
+    await record("10 mounted cards, 5-card free-space exit/reentry recovery workload", () =>
+      measureDrag(10, 5, { condition: "free-space-recovery", recovery: true }));
   } finally {
     try {
       await mouseRelease();

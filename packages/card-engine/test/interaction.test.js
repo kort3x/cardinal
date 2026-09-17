@@ -54,6 +54,7 @@ function input({ source = ["a", "b", "c", "d"], destination = [], cards = ["a", 
 function sceneWith({ rules, reducedMotion = true, timer = clock(), duration = 100, renderer } = {}) {
   const scene = createCardScene({
     motion: { clock: timer, reducedMotion, duration },
+    selection: { allowCrossZone: true },
     interaction: rules === undefined ? undefined : { rules },
     renderer,
   });
@@ -168,6 +169,134 @@ test("drag updates move the visual preview without changing committed membership
   scene.destroy();
 });
 
+test("zone policy denial is visible on a drag candidate and valid destination slots remain discoverable", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
+  scene.apply(input({ source: ["a", "c", "d"], destination: ["b"], zones: {
+    destination: {
+      orderPolicy: { mode: "locked", order: ["b", "a", "c", "d"] },
+      slotPolicy: { mode: "fixed", slots: { a: 1 } },
+    },
+  } }));
+  const session = start(scene);
+  const denied = session.update({ toZoneId: "destination", index: 0 });
+  assert.equal(denied.candidate.allowed, false);
+  assert.match(denied.candidate.reason, /slotPolicy.*slot 1/);
+  const allowed = session.update({ toZoneId: "destination", index: 1 });
+  assert.equal(allowed.candidate.allowed, true);
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), [["a", "c", "d"], ["b"]]);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("face-down drag preview keeps the concealed physical side while dangle physics runs", () => {
+  const timer = clock();
+  const scene = createCardScene({ motion: { clock: timer, reducedMotion: false }, interaction: { rules: permissiveRules() } });
+  const next = input();
+  next.cards[0].faceUp = false;
+  scene.apply(next);
+  const session = start(scene, ["a"], { x: 75, y: 80 });
+  session.update({ point: { x: 115, y: 145 } });
+  timer.tick(80);
+  const visual = scene.snapshot().visual.find(({ cardId }) => cardId === "a");
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === "a").faceUp, false);
+  assert.equal(visual.physicalSide, "back");
+  assert.equal(visual.pose.flipY, 180);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("same-zone drag cannot exploit a face policy after a direct face command", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
+  scene.apply(input({ zones: { source: { faceUp: false } } }));
+  scene.transact([{ type: "face", cardId: "a", face: "faceUp" }], { immediate: true });
+
+  const session = start(scene, ["a"]);
+  session.update({ toZoneId: "source", index: 0 });
+  const intent = session.release();
+  assert.ok(intent);
+  assert.equal(scene.resolveDrop(intent.id, { accepted: true }).status, "accepted");
+
+  const state = scene.snapshot();
+  assert.equal(state.desired.cards.find(({ id }) => id === "a").faceUp, false);
+  assert.equal(state.visual.find(({ cardId }) => cardId === "a").physicalSide, "back");
+  scene.destroy();
+});
+
+test("cancelling a face-up card drag restores the logical face after a face-down zone preview", () => {
+  const timer = clock();
+  const scene = createCardScene({ motion: { clock: timer, reducedMotion: false, duration: 100 }, interaction: { rules: permissiveRules() } });
+  const next = input({ zones: { destination: { faceUp: false } } });
+  scene.apply(next);
+
+  const session = start(scene, ["a"], { x: 40, y: 50 });
+  session.update({ toZoneId: "destination", index: 0 });
+  timer.tick(80);
+  assert.equal(session.snapshot().candidate.toZoneId, "destination");
+  assert.equal(pose(scene, "a").flipY, 180);
+
+  session.update({ point: { x: 700, y: 700 } });
+  timer.tick(100);
+  assert.equal(session.snapshot().candidate, null);
+  assert.equal(session.release(), null);
+  timer.tick(300);
+
+  const visual = scene.snapshot().visual.find(({ cardId }) => cardId === "a");
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === "a").faceUp, true);
+  assert.equal(visual.physicalSide, "front");
+  assert.equal(visual.pose.flipY, 0);
+  scene.destroy();
+});
+
+test("a concealed source stays concealed during face-up preview and pending rejection", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
+  scene.apply(input({ zones: {
+    source: { faceUp: false },
+    destination: { faceUp: true },
+  } }));
+
+  const session = start(scene, ["a"]);
+  const preview = session.update({ toZoneId: "destination", index: 0 });
+  assert.equal(preview.candidate.allowed, true);
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === "a").faceUp, false);
+  assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === "a").physicalSide, "back");
+  assert.equal(pose(scene, "a").flipY, 180);
+
+  session.update({ point: { x: 1000, y: 700 } });
+  assert.equal(session.snapshot().candidate, null);
+  assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === "a").physicalSide, "back");
+
+  session.update({ toZoneId: "destination", index: 0 });
+
+  const intent = session.release();
+  assert.ok(intent);
+  assert.equal(scene.snapshot().interaction.sessions[0].phase, "pending");
+  assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === "a").physicalSide, "back");
+
+  assert.equal(scene.resolveDrop(intent.id, { accepted: false }).status, "rejected");
+  assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === "a").physicalSide, "back");
+  scene.destroy();
+});
+
+test("a concealed source flips only after an accepted face-up move", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
+  scene.apply(input({ zones: {
+    source: { faceUp: false },
+    destination: { faceUp: true },
+  } }));
+
+  const session = start(scene, ["a"]);
+  session.update({ toZoneId: "destination", index: 0 });
+  const intent = session.release();
+  assert.ok(intent);
+  assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === "a").physicalSide, "back");
+
+  assert.equal(scene.resolveDrop(intent.id, { accepted: true }).status, "accepted");
+  const state = scene.snapshot();
+  assert.equal(state.desired.cards.find(({ id }) => id === "a").faceUp, true);
+  assert.equal(state.visual.find(({ cardId }) => cardId === "a").physicalSide, "front");
+  scene.destroy();
+});
+
 test("edge pickup hang stays disabled while the card remains pointer anchored", () => {
   const { scene } = sceneWith({ rules: permissiveRules() });
   const card = pose(scene, "a");
@@ -208,9 +337,34 @@ test("zero dangliness disables pickup and movement dangle", () => {
   scene.destroy();
 });
 
+test("an off-center grab creates pivot tilt independently of movement dangle", () => {
+  const timer = clock();
+  const scene = createCardScene({
+    motion: { clock: timer, reducedMotion: false },
+    interaction: {
+      rules: permissiveRules(),
+      motion: { dangle: 0, maxTilt: 0, maxTwist: 0, grabPivotTilt: 1, maxGrabTilt: 10, grabPivotResponse: 80 },
+    },
+  });
+  scene.apply(input());
+  const initial = pose(scene, "a");
+  const session = scene.drag({
+    cardIds: ["a"],
+    point: { x: initial.x + initial.width * 0.45, y: initial.y },
+  });
+
+  timer.tick(80);
+
+  assert.ok(Math.abs(pose(scene, "a").tiltY) > 0.5, "an off-center grab should tilt around the pointer");
+  assert.ok(Math.abs(pose(scene, "a").tiltY) <= 10, "pivot tilt should respect its independent cap");
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
 test("free pointer dragging eases a card upright until a zone target is found", () => {
-  const { scene, timer } = sceneWith({ rules: permissiveRules() });
+  const { scene, timer } = sceneWith({ rules: permissiveRules(), reducedMotion: false });
   scene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
+  timer.tick(100);
   const session = start(scene);
 
   session.update({ point: { x: 1000, y: 600 } });
@@ -219,8 +373,116 @@ test("free pointer dragging eases a card upright until a zone target is found", 
   assert.ok(pose(scene, "a").angle > 0);
   assert.ok(pose(scene, "a").angle < 35);
 
+  const beforeZone = pose(scene, "a").angle;
   session.update({ toZoneId: "destination", index: 0 });
-  assert.ok(Math.abs(pose(scene, "a").angle - 35) < 0.001);
+  assert.ok(Math.abs(pose(scene, "a").angle - beforeZone) < 0.001);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("pointer orientation springs continuously through hand zone entry, exit, and reentry", () => {
+  const timer = clock();
+  const hand = { type: "hand", spread: 100, radius: 240, curve: "concave" };
+  const scene = createCardScene({
+    motion: { clock: timer, reducedMotion: false },
+    interaction: { rules: permissiveRules() },
+  });
+  scene.apply(input({
+    source: ["a"], destination: ["b", "c"], cards: ["a", "b", "c"],
+    zones: { source: { arrangement: hand }, destination: { arrangement: hand } },
+  }));
+  const left = pose(scene, "a");
+  const rightTarget = pose(scene, "c");
+  const session = scene.drag({ cardIds: ["a"], primaryCardId: "a", point: { x: left.x, y: left.y } });
+  session.update({ point: { x: rightTarget.x, y: rightTarget.y } });
+  for (let frame = 0; frame < 18; frame += 1) timer.tick(16);
+  const inZone = pose(scene, "a").angle;
+  const inZoneTilt = pose(scene, "a").tiltY;
+  assert.ok(inZone < -0.1);
+
+  session.update({ point: { x: 1000, y: 600 } });
+  const outside = pose(scene, "a").angle;
+  const outsideTilt = pose(scene, "a").tiltY;
+  assert.ok(Math.abs(outside - inZone) < 0.000001);
+  assert.ok(Math.abs(outsideTilt - inZoneTilt) < 0.000001);
+
+  session.update({ point: { x: rightTarget.x, y: rightTarget.y } });
+  const reentered = pose(scene, "a").angle;
+  const reenteredTilt = pose(scene, "a").tiltY;
+  assert.ok(Math.abs(reentered - outside) < 0.000001);
+  assert.ok(Math.abs(reenteredTilt - outsideTilt) < 0.000001);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("pointer zone orientation speed scales the preview spring", () => {
+  function sample(speed) {
+    const timer = clock();
+    const hand = { type: "hand", spread: 100, radius: 240, curve: "concave" };
+    const scene = createCardScene({
+      motion: { clock: timer, reducedMotion: false },
+      interaction: { rules: permissiveRules() },
+    });
+    scene.apply(input({
+      source: ["a"], destination: ["b", "c"], cards: ["a", "b", "c"],
+      zones: { source: { arrangement: hand }, destination: { arrangement: hand, motion: { orientationSpeed: speed } } },
+    }));
+    const initial = pose(scene, "a");
+    const target = pose(scene, "c");
+    const session = scene.drag({ cardIds: ["a"], primaryCardId: "a", point: { x: initial.x, y: initial.y } });
+    session.update({ point: { x: target.x, y: target.y } });
+    timer.tick(40);
+    const result = pose(scene, "a").angle;
+    session.cancel("test cleanup");
+    scene.destroy();
+    return { result, target: target.angle };
+  }
+  const slow = sample(0.5);
+  const fast = sample(3);
+  assert.ok(fast.result < slow.result, JSON.stringify({ slow, fast }));
+});
+
+test("pointer physics follows elapsed movement time across 30, 60, and 120 Hz", () => {
+  function sampleAt(rate) {
+    const timer = clock();
+    const scene = createCardScene({
+      motion: { clock: timer, reducedMotion: false },
+      interaction: { rules: permissiveRules(), motion: { upright: 0 } },
+    });
+    scene.apply(input());
+    const initial = pose(scene, "a");
+    const session = scene.drag({ cardIds: ["a"], point: { x: initial.x, y: initial.y } });
+    const frameCount = Math.round(rate * 0.3);
+    let peak = 0;
+    for (let frame = 1; frame <= frameCount; frame += 1) {
+      timer.tick(1000 / rate);
+      session.update({ point: { x: initial.x + 300 * frame / frameCount, y: initial.y } });
+      peak = Math.max(peak, Math.abs(pose(scene, "a").tiltY));
+    }
+    const result = peak;
+    session.cancel("test cleanup");
+    scene.destroy();
+    return result;
+  }
+  const samples = [30, 60, 120].map(sampleAt);
+  assert.ok(samples.every((value) => value > 0));
+  assert.ok(Math.max(...samples) / Math.min(...samples) < 1.25, `${samples.join(", ")}`);
+});
+
+test("reduced motion targets the pointer spring directly without physics frames", () => {
+  const timer = clock();
+  const scene = createCardScene({
+    motion: { clock: timer, reducedMotion: true },
+    interaction: { rules: permissiveRules() },
+  });
+  scene.apply(input());
+  const initial = pose(scene, "a");
+  const session = scene.drag({ cardIds: ["a"], point: { x: initial.x, y: initial.y } });
+  session.update({ point: { x: 1000, y: 600 } });
+  assert.equal(timer.pending(), 0);
+  timer.tick(160);
+  assert.equal(timer.pending(), 0);
+  assert.equal(scene.snapshot().settling, false);
   session.cancel("test cleanup");
   scene.destroy();
 });
@@ -228,29 +490,33 @@ test("free pointer dragging eases a card upright until a zone target is found", 
 test("upright return can be disabled and responds more strongly to an edge grab", () => {
   const centerTimer = clock();
   const centerScene = createCardScene({
-    motion: { clock: centerTimer, reducedMotion: true },
+    motion: { clock: centerTimer, reducedMotion: false },
     interaction: { rules: permissiveRules(), dragUprightFactor: 1 },
   });
   centerScene.apply(input());
   centerScene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
+  centerTimer.tick(100);
   const centerPose = pose(centerScene, "a");
   const centerSession = centerScene.drag({ cardIds: ["a"], point: { x: centerPose.x, y: centerPose.y } });
 
   const edgeTimer = clock();
   const edgeScene = createCardScene({
-    motion: { clock: edgeTimer, reducedMotion: true },
+    motion: { clock: edgeTimer, reducedMotion: false },
     interaction: { rules: permissiveRules(), dragUprightFactor: 1 },
   });
   edgeScene.apply(input());
   edgeScene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
+  edgeTimer.tick(100);
   const edgePose = pose(edgeScene, "a");
   const edgeSession = edgeScene.drag({
     cardIds: ["a"],
     point: { x: edgePose.x + edgePose.width * 0.45, y: edgePose.y },
   });
 
-  centerSession.update({ point: { x: 1000, y: 600 } });
-  edgeSession.update({ point: { x: 1000, y: 600 } });
+  // Keep the movement horizontal so this assertion isolates upright response
+  // from the separate edge dangle twist channel.
+  centerSession.update({ point: { x: 1000, y: centerPose.y } });
+  edgeSession.update({ point: { x: 1000, y: edgePose.y } });
   centerTimer.tick(80);
   edgeTimer.tick(80);
   assert.ok(Math.abs(pose(edgeScene, "a").angle) < Math.abs(pose(centerScene, "a").angle));
@@ -313,6 +579,42 @@ test("free dragging tilts with direction changes and clears tilt at a target", (
   assert.equal(pose(scene, "a").tiltY, 0);
   session.cancel("test cleanup");
   scene.destroy();
+});
+
+test("dramatic motion carries directional dangle past the pointer stop", () => {
+  const directions = [
+    { dx: 700, dy: 0, axis: "tiltY", sign: 1 },
+    { dx: -700, dy: 0, axis: "tiltY", sign: -1 },
+    { dx: 0, dy: 700, axis: "tiltX", sign: -1 },
+    { dx: 0, dy: -700, axis: "tiltX", sign: 1 },
+  ];
+
+  for (const { dx, dy, axis, sign } of directions) {
+    const timer = clock();
+    const scene = createCardScene({
+      motion: { clock: timer, reducedMotion: false },
+      interaction: { rules: permissiveRules(), motion: { preset: "dramatic" } },
+    });
+    scene.apply(input());
+    const initial = pose(scene, "a");
+    const session = scene.drag({ cardIds: ["a"], point: { x: initial.x, y: initial.y } });
+    session.update({ point: { x: initial.x + dx, y: initial.y + dy } });
+    timer.tick(16);
+
+    const beforeStop = pose(scene, "a")[axis];
+    const samples = [];
+    for (let frame = 0; frame < 24; frame += 1) {
+      timer.tick(16);
+      samples.push(pose(scene, "a")[axis]);
+    }
+
+    assert.equal(Math.sign(beforeStop), sign, `${axis} should follow pointer direction`);
+    assert.ok(Math.abs(samples[0]) > Math.abs(beforeStop), `${axis} should keep moving after the pointer stops`);
+    const furthest = sign > 0 ? Math.max(...samples) : Math.min(...samples);
+    assert.ok(sign * furthest > sign * beforeStop, `${axis} should overswing after the pointer stops`);
+    session.cancel("test cleanup");
+    scene.destroy();
+  }
 });
 
 test("pending drops wait for the configured snap delay before landing", () => {
@@ -484,6 +786,47 @@ test("an active drag renders above every arrangement and restores its depth on c
     assert.equal(rendered.get("a").z, restingDepth.get("a"), `${type}: cancel should restore resting depth`);
     scene.destroy();
   }
+});
+
+test("scaling and camera-facing lift are independent drag presentation options", () => {
+  const timer = clock();
+  const rendered = new Map();
+  const scene = createCardScene({
+    motion: { clock: timer },
+    interaction: { rules: permissiveRules(), motion: { preset: "wizzard" } },
+    renderer: () => ({
+      type: "test",
+      update(cardValue, renderedPose) { rendered.set(cardValue.id, { ...renderedPose }); },
+      remove() {},
+      render() {},
+      destroy() {},
+      sceneToClient: (point) => ({ x: point.x, y: point.y }),
+      clientToScene: (point) => ({ x: point.x, y: point.y }),
+    }),
+  });
+  scene.apply(input());
+  timer.tick(0);
+  const resting = pose(scene, "a");
+  const restingDepth = resting.z;
+  const restingScale = resting.scale;
+  const session = scene.drag({ cardIds: ["a"], point: { x: resting.x, y: resting.y } });
+  timer.tick(0);
+  const pickup = rendered.get("a");
+
+  assert.equal(pose(scene, "a").z, restingDepth, "3D lift must not mutate logical depth");
+  assert.equal(pose(scene, "a").scale, restingScale, "Wizzard disables scale lift");
+  assert.ok(pickup.z > restingDepth, "carried cards still render above resting cards");
+  timer.tick(40);
+  assert.ok(rendered.get("a").z > pickup.z, "camera-facing lift animates toward its target depth");
+  timer.tick(40);
+  session.update({ point: { x: resting.x, y: resting.y } });
+  timer.tick(0);
+  assert.ok(Math.abs(rendered.get("a").z - pickup.z - 40) < 0.001, "camera-facing lift reaches the configured depth");
+
+  session.cancel("test cleanup");
+  timer.tick(0);
+  assert.equal(rendered.get("a").z, restingDepth, "cancel returns render depth to the logical card depth");
+  scene.destroy();
 });
 
 test("an ineligible foreground zone blocks a zone behind it, while transparent targeting passes through", () => {
@@ -1019,12 +1362,13 @@ test('compact carry animates on the engine clock and pending uses actual destina
   session.update({ point: { x: 870, y: 120 } });
   const intent = session.release();
   assert.equal(session.snapshot().phase, 'pending');
-  timer.tick(100);
+  // Natural landing is 180 ms, scaled by the default zone position speed 1.5.
+  timer.tick(120);
   const targets = session.snapshot().targetPoses;
   for (const id of ['b', 'd']) for (const key of ['x', 'y', 'z']) assert.equal(pose(scene, id)[key], targets[id][key]);
   assert.notEqual(targets.d.x - targets.b.x, 18);
   scene.resolveDrop(intent.id, { accepted: false });
-  timer.tick(100);
+  timer.tick(120);
   assertResting(scene);
   scene.destroy();
   assert.equal(timer.pending(), 0);
@@ -1158,7 +1502,7 @@ test('every moving cohort member keeps independent rotation, scale and spin on p
   scene.spin('d', { axis: 'y', speed: 180 });
   timer.tick(40);
   const before = new Map(['b', 'd'].map((id) => [id, pose(scene, id)]));
-  const session = scene.drag({ cardIds: ['b', 'd'], primaryCardId: 'b', point: before.get('b') });
+  const session = scene.drag({ cardIds: ['b', 'd'], primaryCardId: 'b' });
   for (const id of ['b', 'd']) for (const key of ['x', 'y', 'z', 'angle', 'scale', 'flipX', 'flipY']) {
     assert.equal(pose(scene, id)[key], before.get(id)[key]);
   }
