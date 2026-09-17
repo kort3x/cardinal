@@ -98,7 +98,7 @@ needed for the package/examples are permitted; existing application wiring is ou
 | Concept | Responsibility |
 | --- | --- |
 | Card | Stable ID, content faces, optional logical face cycle, template, active face, independent faceUp/faceDown state |
-| Zone | Arbitrary ID, spatial area and depth, membership, arrangement, presentation policy |
+| Zone | Arbitrary ID, spatial area and depth, membership, arrangement, presentation policy, optional automatic sort policy |
 | Arrangement | Grid, aligned row/column, splay, pile, stack, or hand |
 | Presentation | Visibility, internal layout, and content-driven dimensions of the card |
 | Attachment | Independently identified card element added, updated, or removed at runtime |
@@ -139,6 +139,14 @@ when cards that started apart are moved into overlap. WebGL treats each resolved
 card layer as an ordered rendering layer: it clears the previous card's depth
 buffer before drawing the next card, preserving intentional overlap even while a
 card rotates or flips.
+
+The engine exposes `sortBy()` for a one-time animated reorder and `autoSort` for
+a zone-owned order policy. Sort keys can read card fields, face fields such as
+`background` or `backgroundImage.src`, and paths inside exact elements selected
+by ID. The active logical face is the default source; named faces and the back
+are explicit choices. Missing values sort last by default, equal values preserve
+current order, and automatic sorting re-evaluates after authoritative content,
+membership, or policy changes.
 
 The initial spatial model is a projected 2.5D stage: x/y plus real continuous depth
 in the scene model. A scene has no intrinsic rectangular bounds. Card and zone
@@ -298,6 +306,7 @@ Keep application integration behind the same interface as features grow:
 | --- | --- |
 | `apply(snapshot)` | Reconcile authoritative cards, zones, relationships, and capabilities |
 | `transact(operations, { choreography })` | Validate/commit changes and optionally describe their visual sequence |
+| `sortBy(request, options)` | Sort one zone by card, face, or element data and animate the reorder |
 | `inspect(cardId, options)` | Open an inspection session; its handle can close it |
 | `select(cardIds, options)` | Replace/add/toggle/remove selection within project-defined limits |
 | `target(request)` | Start an eligible-target selection session; return intent without committing a move |
@@ -483,7 +492,11 @@ when calculating rendered depth.
 
 Cards may also provide a positive finite `weight`, defaulting to `1`. The
 weight multiplies the duration of target position, orientation, scale, and face
-transitions. During free dragging, movement dangle response uses the normalized
+transitions. During free dragging, the current arrangement angle returns toward
+upright through a damped spring. The response slows with weight and increases
+with pointer distance from the card center, while the grab point stays attached
+to the pointer. `dragUprightFactor` controls that return and defaults to `1`;
+`0` preserves the pickup angle. Movement dangle separately uses the normalized
 baseline `sqrt(weight / 2.25) * (dragHangFactor / 2)`, so weight `2.25` and
 factor `2` are the reference response. Edge pickup hang is currently disabled
 while its calibration is retried in issue #19. Weight does not change the
@@ -767,12 +780,15 @@ separated selections. Both preserve individual scene shells, face, and attachmen
 Temporarily render each carried card at `1.12×` its resolved scale to communicate
 that it has been lifted from the table, then return it to the resolved scale when
 the gesture ends. This presentation effect does not mutate authored card scale.
-During free dragging, derive filtered pointer acceleration and use it to drive
-bounded local tilt and in-plane angular momentum. Direction changes carry
-momentum and settle through damping; constant-speed movement does not accumulate
-tilt. Keep the card's grab point anchored to the pointer while applying the
-rotation. Keep edge pickup hang disabled while its calibration is retried, and
-clear the temporary physics when the gesture ends. Pending target motion may pause before landing,
+During free dragging, begin the in-plane angle at the card's current pose and
+spring it toward upright. Scale the return by `dragUprightFactor`, card weight,
+and pointer distance from the card center so an edge grab has more leverage.
+Derive filtered pointer acceleration and use it to drive bounded local tilt and
+additional in-plane angular momentum. Direction changes carry momentum and
+settle through damping; constant-speed movement does not accumulate tilt. Keep
+the card's grab point anchored to the pointer while applying the rotation. Keep
+edge pickup hang disabled while its calibration is retried, and clear the
+temporary physics when the gesture ends. Pending target motion may pause before landing,
 then uses smooth position easing and weighted orientation overswing.
 The position channel of each member follows the drag; its independent rotate,
 scale, and flip channels continue. Give visible count/selection feedback and expose

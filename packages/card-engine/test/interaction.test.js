@@ -208,16 +208,87 @@ test("zero dangliness disables pickup and movement dangle", () => {
   scene.destroy();
 });
 
-test("free pointer dragging turns cards upright until a zone target is found", () => {
-  const { scene } = sceneWith({ rules: permissiveRules() });
+test("free pointer dragging eases a card upright until a zone target is found", () => {
+  const { scene, timer } = sceneWith({ rules: permissiveRules() });
   scene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
   const session = start(scene);
 
   session.update({ point: { x: 1000, y: 600 } });
-  assert.equal(pose(scene, "a").angle, 0);
+  assert.equal(pose(scene, "a").angle, 35);
+  timer.tick(80);
+  assert.ok(pose(scene, "a").angle > 0);
+  assert.ok(pose(scene, "a").angle < 35);
 
   session.update({ toZoneId: "destination", index: 0 });
-  assert.equal(pose(scene, "a").angle, 35);
+  assert.ok(Math.abs(pose(scene, "a").angle - 35) < 0.001);
+  session.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("upright return can be disabled and responds more strongly to an edge grab", () => {
+  const centerTimer = clock();
+  const centerScene = createCardScene({
+    motion: { clock: centerTimer, reducedMotion: true },
+    interaction: { rules: permissiveRules(), dragUprightFactor: 1 },
+  });
+  centerScene.apply(input());
+  centerScene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
+  const centerPose = pose(centerScene, "a");
+  const centerSession = centerScene.drag({ cardIds: ["a"], point: { x: centerPose.x, y: centerPose.y } });
+
+  const edgeTimer = clock();
+  const edgeScene = createCardScene({
+    motion: { clock: edgeTimer, reducedMotion: true },
+    interaction: { rules: permissiveRules(), dragUprightFactor: 1 },
+  });
+  edgeScene.apply(input());
+  edgeScene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
+  const edgePose = pose(edgeScene, "a");
+  const edgeSession = edgeScene.drag({
+    cardIds: ["a"],
+    point: { x: edgePose.x + edgePose.width * 0.45, y: edgePose.y },
+  });
+
+  centerSession.update({ point: { x: 1000, y: 600 } });
+  edgeSession.update({ point: { x: 1000, y: 600 } });
+  centerTimer.tick(80);
+  edgeTimer.tick(80);
+  assert.ok(Math.abs(pose(edgeScene, "a").angle) < Math.abs(pose(centerScene, "a").angle));
+  centerSession.cancel("test cleanup");
+  edgeSession.cancel("test cleanup");
+  centerScene.destroy();
+  edgeScene.destroy();
+
+  const disabledTimer = clock();
+  const disabledScene = createCardScene({
+    motion: { clock: disabledTimer, reducedMotion: true },
+    interaction: { rules: permissiveRules(), dragUprightFactor: 0 },
+  });
+  disabledScene.apply(input());
+  disabledScene.transact([{ type: "rotate", cardId: "a", angle: 35 }]);
+  const disabledSession = start(disabledScene);
+  disabledSession.update({ point: { x: 1000, y: 600 } });
+  disabledTimer.tick(160);
+  assert.equal(pose(disabledScene, "a").angle, 35);
+  disabledSession.cancel("test cleanup");
+  disabledScene.destroy();
+});
+
+test("leaving a zone after a long preview cannot turn the free-drag card repeatedly", () => {
+  const { scene, timer } = sceneWith({ rules: permissiveRules() });
+  scene.apply(input({
+    zones: { source: { arrangement: { type: "hand", spread: 60, radius: 240, curve: "concave" } } },
+  }));
+  const initial = pose(scene, "c");
+  const session = scene.drag({ cardIds: ["c"], point: { x: initial.x + 20, y: initial.y + 10 } });
+
+  for (let frame = 0; frame < 30; frame += 1) {
+    session.update({ point: { x: initial.x + 20 + frame, y: initial.y + 10 } });
+    timer.tick(16);
+  }
+  session.update({ point: { x: 1000, y: 600 } });
+  assert.ok(Math.abs(pose(scene, "c").angle) < 90);
+
   session.cancel("test cleanup");
   scene.destroy();
 });

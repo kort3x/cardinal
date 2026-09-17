@@ -1,3 +1,5 @@
+import { normalizeSortPolicy } from "./sort.js";
+
 export const DEFAULT_POSE = Object.freeze({
   x: 0,
   y: 0,
@@ -258,7 +260,12 @@ export function normalizeSnapshot(snapshot) {
     if (zone.faceUp !== undefined && typeof zone.faceUp !== "boolean") throw new TypeError(`Zone ${zone.id} faceUp must be boolean`);
     const arrangement = normalizeArrangement(zone.arrangement);
     const motion = normalizeZoneMotion(zone.motion);
-    return { ...copy(zone), arrangement, ...(motion === undefined ? {} : { motion }) };
+    const autoSort = zone.autoSort === undefined || zone.autoSort === null || zone.autoSort === false
+      ? undefined : normalizeSortPolicy(zone.autoSort);
+    const normalizedZone = { ...copy(zone), arrangement, ...(motion === undefined ? {} : { motion }) };
+    if (autoSort === undefined) delete normalizedZone.autoSort;
+    else normalizedZone.autoSort = autoSort;
+    return normalizedZone;
   });
 
   const cardIds = new Set();

@@ -12,7 +12,8 @@ const DRAG_ACCELERATION_GAIN = 0.00022;
 const DRAG_SPRING_STIFFNESS = 520;
 const DRAG_SPRING_DAMPING = 42;
 const DRAG_INPUT_DECAY = 0.1;
-const DRAG_MAX_STEP = 0.05;
+const DRAG_MAX_STEP = 0.01;
+const DRAG_UPRIGHT_GRAB_BASE = 0.7;
 const authoredPosition = (card) => JSON.stringify([card.positionMode, card.pose?.x, card.pose?.y, card.pose?.z]);
 function immutable(value) {
   if (value && typeof value === 'object') {
@@ -31,7 +32,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 // Gesture state and hypothetical layouts never mutate committed membership.
 export function createInteraction({ state, solve, sample, refresh, takePosition, present, commit, emit, rules, toClient, fromClient,
   isSelectable = () => true, now = () => 0, reducedMotion = () => false, requestFrame = () => {}, defaultPresentation = 'preserve',
-  dragHangFactor = 1, dragSnapDelay = 0 }) {
+  dragHangFactor = 1, dragUprightFactor = 1, dragSnapDelay = 0 }) {
   const sessions = new Map();
   let sequence = 0;
   let revision = 0;
@@ -159,6 +160,16 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       physics.input.angle *= decay;
       physics.input.tiltX *= decay;
       physics.input.tiltY *= decay;
+      if (session.uprightResponse > 0) {
+        const uprightAcceleration = (DRAG_SPRING_STIFFNESS * session.uprightResponse * -physics.uprightAngle
+          - damping * physics.velocity.uprightAngle) / weight;
+        physics.velocity.uprightAngle += uprightAcceleration * elapsed;
+        physics.uprightAngle += physics.velocity.uprightAngle * elapsed;
+        if (Math.abs(physics.uprightAngle) < 0.01 && Math.abs(physics.velocity.uprightAngle) < 0.01) {
+          physics.uprightAngle = 0;
+          physics.velocity.uprightAngle = 0;
+        }
+      }
       for (const axis of ["angle", "tiltX", "tiltY"]) {
         const acceleration = (DRAG_SPRING_STIFFNESS * (physics.input[axis] - physics[axis])
           - damping * physics.velocity[axis]) / weight;
@@ -178,16 +189,18 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
 
   function physicsNeedsFrame(session) {
     const physics = session.physics;
-    return ["angle", "tiltX", "tiltY"].some((axis) =>
+    return (session.uprightResponse > 0 && (Math.abs(physics.uprightAngle) > 0.01
+      || Math.abs(physics.velocity.uprightAngle) > 0.01))
+      || ["angle", "tiltX", "tiltY"].some((axis) =>
       Math.abs(physics[axis]) > 0.01 || Math.abs(physics.velocity[axis]) > 0.01 || Math.abs(physics.input[axis]) > 0.01);
   }
 
   function publish() {
     const time = now();
     for (const session of sessions.values()) {
-      if (session.data.phase === 'dragging' && !session.explicit && !session.data.candidate?.allowed) {
-        advancePhysics(session, time);
-      }
+      if (session.data.phase !== 'dragging') continue;
+      if (!session.explicit && !session.data.candidate?.allowed) advancePhysics(session, time);
+      else session.physics.lastAt = time;
     }
     const restPoses = resting();
     const positions = new Map();
@@ -217,7 +230,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       }
       if (session.data.phase === 'dragging' && (!session.explicit || session.data.candidate?.allowed)) {
         const primaryTarget = session.explicit ? session.data.targetPose : null;
-        const freeAngle = session.physics.angle;
+        const freeAngle = session.physics.uprightAngle + session.physics.angle;
         const currentPrimaryPose = state().visual.get(session.data.primaryCardId);
         session.currentScaleRatio = ((currentPrimaryPose?.scale ?? 1) * (currentPrimaryPose?.layoutScale ?? 1)) / session.grabScale;
         const anchorAngle = (freeAngle - session.initialAngle) * Math.PI / 180;
@@ -409,11 +422,17 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     const weight = current.desired.cards.find((card) => card.id === id)?.weight ?? 1;
     const hangResponse = Math.sqrt(weight / DRAG_HANG_REFERENCE_WEIGHT)
       * dragHangFactor / DRAG_HANG_REFERENCE_FACTOR;
+    const grabDistance = clamp(Math.hypot(
+      (client.x - center.x) / halfWidth,
+      (client.y - center.y) / halfHeight,
+    ), 0, 1);
+    const uprightResponse = dragUprightFactor * (DRAG_UPRIGHT_GRAB_BASE + (1 - DRAG_UPRIGHT_GRAB_BASE) * grabDistance);
     const session = { data, client, members, cohort: new Set(cardIds), startedAt: now(), compactSettled: false,
       offset: { x: client.x - center.x, y: client.y - center.y },
       initialAngle: pose.angle ?? 0,
       tiltHalfSize: { width: halfWidth, height: halfHeight },
       hangResponse,
+      uprightResponse,
       // TODO(#19): Retry the edge pickup hang after the dangle calibration is settled.
       hangTiltY: 0,
       grabScale: (pose.scale ?? 1) * (pose.layoutScale ?? 1),
@@ -421,9 +440,10 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       weight,
       physics: {
         angle: 0,
+        uprightAngle: pose.angle ?? 0,
         tiltX: 0,
         tiltY: 0,
-        velocity: { angle: 0, tiltX: 0, tiltY: 0 },
+        velocity: { angle: 0, uprightAngle: 0, tiltX: 0, tiltY: 0 },
         input: { angle: 0, tiltX: 0, tiltY: 0 },
         lastAt: now(),
         lastPointerAt: now(),

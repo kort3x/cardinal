@@ -27,6 +27,7 @@ const touchDrag = document.querySelector("#drag-touch");
 const touchSelection = document.querySelector("#touch-selection");
 const dragPresentation = document.querySelector("#drag-presentation");
 const dragDangliness = document.querySelector("#drag-dangliness");
+const dragUpright = document.querySelector("#drag-upright");
 const dragSnapDelay = document.querySelector("#drag-snap-delay");
 const dragSnapDelayValue = document.querySelector("#drag-snap-delay-value");
 const dragDeniedCard = document.querySelector("#drag-denied-card");
@@ -66,6 +67,7 @@ const cardHeightValue = document.querySelector("#card-height-value");
 const cardThicknessValue = document.querySelector("#card-thickness-value");
 const cardWeightValue = document.querySelector("#card-weight-value");
 const dragDanglinessValue = document.querySelector("#drag-dangliness-value");
+const dragUprightValue = document.querySelector("#drag-upright-value");
 const rotateValue = document.querySelector("#rotate-value");
 const scaleValue = document.querySelector("#scale-value");
 const flipXValue = document.querySelector("#flip-x-value");
@@ -172,6 +174,7 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["#touch-selection", "Use touch taps to toggle card selection."],
   ["#drag-presentation", "Choose whether a carried selection keeps offsets or compacts."],
   ["#drag-dangliness", "Set how strongly cards tilt when picked up near their left or right edge."],
+  ["#drag-upright", "Set how strongly a freely dragged card swings back toward upright; weight and grab distance affect the response."],
   ["#drag-snap-delay", "Pause before a dropped card starts moving to its target."],
   ["#drag-denied-card", "Choose a card that the lab drag rules will deny."],
   ["#drag-denied-zone", "Choose a destination zone that the lab drag rules will deny."],
@@ -1828,6 +1831,7 @@ function startScene(cards = sceneCards()) {
         touchSelection: touchSelection.checked,
         dragPresentation: dragPresentation.value,
         dragHangFactor: Number(dragDangliness.value),
+        dragUprightFactor: Number(dragUpright.value),
         dragSnapDelay: Number(dragSnapDelay.value),
       },
     });
@@ -2482,6 +2486,7 @@ function updateControlLabels() {
   cardThicknessValue.textContent = cardThicknessSlider.value;
   cardWeightValue.textContent = `${Number(cardWeightSlider.value)}×`;
   dragDanglinessValue.textContent = `${Number(dragDangliness.value).toFixed(1)}×`;
+  dragUprightValue.textContent = `${Number(dragUpright.value).toFixed(1)}×`;
   dragSnapDelayValue.textContent = `${dragSnapDelay.value} ms`;
   cardHeightSlider.disabled = cardSizing.value === "content";
   rotateValue.textContent = `${rotateSlider.value}°`;
@@ -2922,6 +2927,8 @@ touchSelection.addEventListener("change", () => startScene());
 dragPresentation.addEventListener("change", () => startScene());
 dragDangliness.addEventListener("input", updateControlLabels);
 dragDangliness.addEventListener("change", () => startScene());
+dragUpright.addEventListener("input", updateControlLabels);
+dragUpright.addEventListener("change", () => startScene());
 dragSnapDelay.addEventListener("input", updateControlLabels);
 dragSnapDelay.addEventListener("change", () => startScene());
 

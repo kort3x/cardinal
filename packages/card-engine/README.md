@@ -111,6 +111,41 @@ The zone speed settings apply to position, arrangement orientation, target
 scale, and face transitions independently. Set a channel to `1` when it should
 use the scene's base motion duration.
 
+Use `scene.sortBy()` for a one-time animated reorder. Sort keys can read card
+fields, face fields such as `background` or `backgroundImage.src`, and a path
+inside an exact element on the active face, a named face, or the back:
+
+```js
+scene.sortBy({
+  zoneId: "river",
+  by: { source: "element", face: "active", elementId: "specimen", path: "content.text" },
+  direction: "asc",
+});
+```
+
+Set `zone.autoSort` to keep a zone ordered whenever its cards, relevant element
+content, or sort policy changes. Missing values sort last by default, equal
+values retain their current order, and the policy remains part of the zone
+snapshot:
+
+```js
+{
+  id: "river",
+  cardIds: [],
+  autoSort: {
+    by: { source: "face", face: "active", path: "background" },
+    direction: "asc",
+    missing: "last",
+  },
+}
+```
+
+Sorting changes zone membership order atomically and reuses the normal layout
+motion. One-time `sortBy()` calls may instead provide `getValue({ card, cardId,
+zone, snapshot })` for a project-specific key. Automatic policies use the
+declarative `by` form so they remain serializable; the exported `sortCardIds()`
+helper plus a `reorder` transaction covers the same custom-key case.
+
 Cards may provide an optional positive `weight`, which defaults to `1`. Target
 position, orientation, scale, and face transitions multiply their duration by
 the card's weight: `2` takes twice as long and `0.5` takes half as long. Direct
@@ -198,19 +233,23 @@ survivor and displaced neighbor to the latest committed source layouts.
 Cards are temporarily rendered at `1.12×` scale while carried, then return to
 their resolved scale when the drag ends. This lift is visual interaction state
 and does not change the authored card scale.
-During free dragging, filtered pointer acceleration drives a bounded local tilt
-and in-plane angular response. Direction changes carry momentum and settle back
-through damping; constant-speed movement does not keep increasing the tilt. The
-card remains anchored at the pointer grab point. Edge pickup hang is currently
-disabled while its calibration is being retried. Snapping into a target waits
-for the configured delay, then uses a smooth position landing and weight-scaled orientation
-overswing before settling on the resolved pose. The response clears when the
-drag ends.
+During free dragging, the card starts from its current arrangement angle and
+swings toward upright through a damped, weight-sensitive spring. The response
+also uses the distance of the pointer from the card center: an edge grab gives
+the return more leverage while the grab point remains anchored. Filtered
+pointer acceleration adds bounded local tilt and in-plane angular response;
+direction changes carry momentum and settle back through damping. Edge pickup
+hang is currently disabled while its calibration is being retried. Snapping
+into a target waits for the configured delay, then uses a smooth position
+landing and weight-scaled orientation overswing before settling on the resolved
+pose. The response clears when the drag ends.
 The interaction option `dragHangFactor` scales the pickup and movement dangle;
 the response is normalized so weight `2.25` with a factor of `2` is the engine
 baseline for movement dangle. Other weights scale by the square root of
 `weight / 2.25`, and the factor scales linearly from that reference. A factor
-of `0` disables all drag-induced dangle. Edge hang remains tracked in
+of `0` disables pickup and movement dangle. `dragUprightFactor` controls the
+independent free-drag return toward upright; `0` preserves the card's pickup
+angle while still allowing movement dangle. Edge hang remains tracked in
 [issue #19](https://github.com/kort3x/cardinal/issues/19).
 `dragSnapDelay` adds a millisecond pause before pending-drop motion; it defaults
 to `0` in the engine.
