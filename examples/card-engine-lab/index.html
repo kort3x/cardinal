@@ -81,6 +81,11 @@
       .drag-group .control-row { margin: 5px 0; }
       .drag-group .toggle-row { grid-template-columns: minmax(0, 1fr) max-content; }
       .drag-group .toggle-row input { margin: 0; accent-color: var(--lab-accent); }
+      .drag-motion-tuning { margin: 10px 0; padding: 8px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); background: var(--lab-panel); }
+      .drag-motion-tuning > summary { color: var(--lab-focus); cursor: pointer; font-size: 0.9rem; }
+      .drag-motion-tuning[open] > summary { margin-bottom: 6px; }
+      .drag-motion-tuning .control-row { grid-template-columns: minmax(76px, max-content) minmax(75px, 1fr) max-content; }
+      .drag-motion-tuning p { margin: 6px 0 8px; font-size: 0.78rem; }
       .drag-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
       .drag-actions button { min-width: 0; padding: 6px 8px; }
       #interaction-status { min-height: 2.7em; margin: 8px 0 0; color: var(--lab-accent); }
