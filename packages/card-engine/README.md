@@ -255,7 +255,12 @@ angle while still allowing movement dangle. Edge hang remains tracked in
 to `0` in the engine.
 
 Configure selection through `selection.canSelect({ cardId, zoneId, snapshot })`,
-returning `{ allowed, reason? }`, plus `multiple`, `max`, and `scope: "scene" | "zone"`.
+returning `{ allowed, reason? }`, plus `multiple`, `max`, `scope: "scene" | "zone"`,
+and `allowCrossZone`. Cross-zone selection is denied by default; consumers must
+set `allowCrossZone: true` to permit a selection spanning more than one zone.
+`allowCrossZone: false` rejects any replace, add, toggle, or range request that
+would contain cards from more than one zone and leaves the previous selection
+unchanged.
 The callback receives the desired model. Changing permissions requires
 `scene.invalidateRules()`, which reconciles selection and invalidates drag rules.
 Selection is presentation state and never grants move permission.

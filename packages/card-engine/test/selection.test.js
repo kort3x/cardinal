@@ -13,12 +13,21 @@ function fixture(config) {
 }
 
 test("replace/add/toggle/remove preserve ordered sets, primary and an independent anchor", () => {
-  const { selection: s } = fixture();
+  const { selection: s } = fixture({ allowCrossZone: true });
   assert.deepEqual(s.select(["c", "a", "c"]), { cardIds: ["c", "a"], primaryCardId: "a", anchorCardId: "a", accepted: true });
   assert.deepEqual(s.select(["b", "a"], { mode: "add" }), { cardIds: ["c", "a", "b"], primaryCardId: "b", anchorCardId: "a", accepted: true });
   assert.deepEqual(s.select(["a", "d"], { mode: "toggle" }), { cardIds: ["c", "b", "d"], primaryCardId: "d", anchorCardId: "a", accepted: true });
   assert.deepEqual(s.select(["d"], { mode: "remove" }), { cardIds: ["c", "b"], primaryCardId: "c", anchorCardId: "a", accepted: true });
   assert.deepEqual(s.select([]), { cardIds: [], primaryCardId: null, anchorCardId: null, accepted: true });
+});
+
+test("cross-zone selection is denied by default until explicitly enabled", () => {
+  const { selection: s } = fixture();
+  assert.equal(s.select(["a"]).accepted, true);
+  const denied = s.select(["d"], { mode: "add" });
+  assert.equal(denied.accepted, false);
+  assert.match(denied.reason, /cannot span multiple zones/);
+  assert.deepEqual(s.snapshot().cardIds, ["a"]);
 });
 
 test("snapshots and change events are detached and no-op calls emit nothing", () => {
@@ -50,6 +59,23 @@ test("limits deny whole requests without changing selection or emitting events",
   const { selection } = fixture({ max: 0 });
   assert.equal(selection.select(["a"]).accepted, false);
   assert.equal(selection.select([]).accepted, true);
+});
+
+test("allowCrossZone denies cross-zone add, toggle, and range requests atomically", () => {
+  const { selection: s, events } = fixture({ allowCrossZone: false, rangeOrder: ["a", "b", "c", "d", "e"] });
+  assert.equal(s.select(["a"]).accepted, true);
+  const before = s.snapshot();
+  for (const request of [
+    ["d", { mode: "add" }],
+    ["d", { mode: "toggle" }],
+    ["d", { mode: "range", anchorCardId: "a" }],
+  ]) {
+    const denied = s.select([request[0]], request[1]);
+    assert.equal(denied.accepted, false);
+    assert.match(denied.reason, /cannot span multiple zones/);
+    assert.deepEqual(s.snapshot(), before);
+  }
+  assert.equal(events.length, 1);
 });
 
 test("eligibility checks live existence, visibility, and project policy without leaking model mutation", () => {
@@ -102,7 +128,7 @@ test("cross-zone ranges need explicit card order, independently of zone order", 
   const base = fixture({ zoneOrder: ["river", "lake"] }).selection;
   base.select(["a"]);
   assert.equal(base.select(["d"], { mode: "range" }).accepted, false);
-  const s = fixture({ rangeOrder: ["e", "d", "c", "b", "a"] }).selection;
+  const s = fixture({ allowCrossZone: true, rangeOrder: ["e", "d", "c", "b", "a"] }).selection;
   s.select(["b"]);
   assert.deepEqual(s.select(["d"], { mode: "range" }).cardIds, ["d", "c", "b"]);
   const constrained = fixture({ scope: "zone", rangeOrder: ["a", "b", "c", "d", "e"] }).selection;
@@ -169,7 +195,7 @@ test("zone reconciliation retains the first survivor's zone and repairs an exter
 });
 
 test("configuration and explicit primary/anchor are validated", () => {
-  for (const config of [{ max: -1 }, { max: 1.5 }, { multiple: "yes" }, { scope: "unknown" }, { canSelect: true }, { rangeOrder: ["a", "a"] }]) {
+  for (const config of [{ max: -1 }, { max: 1.5 }, { multiple: "yes" }, { allowCrossZone: "yes" }, { scope: "unknown" }, { canSelect: true }, { rangeOrder: ["a", "a"] }]) {
     assert.throws(() => fixture(config));
   }
   const s = fixture().selection;

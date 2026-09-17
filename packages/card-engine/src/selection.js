@@ -7,7 +7,11 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
   const multiple = config.multiple ?? true;
   const max = config.max ?? Infinity;
   const scope = config.scope ?? "scene";
+  // Cross-zone cohorts can move or act on cards from different ownership
+  // contexts, so consumers must explicitly opt into them.
+  const allowCrossZone = config.allowCrossZone ?? false;
   if (typeof multiple !== "boolean") throw new TypeError("Selection multiple must be boolean");
+  if (typeof allowCrossZone !== "boolean") throw new TypeError("Selection allowCrossZone must be boolean");
   if (max !== Infinity && (!Number.isInteger(max) || max < 0)) throw new RangeError("Selection max must be a non-negative integer or Infinity");
   if (!["scene", "zone"].includes(scope)) throw new TypeError("Selection scope must be scene or zone");
   if (config.canSelect !== undefined && typeof config.canSelect !== "function") throw new TypeError("Selection canSelect must be a function");
@@ -139,6 +143,10 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
       const scopeId = zoneFor(retained || preferredPrimary || rangeAnchor || anchorCardId || primaryCardId)?.id;
       if (next.some((id) => zoneFor(id)?.id !== scopeId)) return denied("Selection must stay within one zone");
       if (zoneFor(anchorCardId)?.id !== scopeId) anchorCardId = primaryCardId;
+    }
+    if (!allowCrossZone && next.length > 1 && !onlyRemoving) {
+      const zoneIds = new Set(next.map((id) => zoneFor(id)?.id).filter(Boolean));
+      if (zoneIds.size > 1) return denied("Selection cannot span multiple zones");
     }
     return { ...publish(next.length ? { cardIds: next, primaryCardId, anchorCardId } : empty()), accepted: true };
   }

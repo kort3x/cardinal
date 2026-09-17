@@ -558,7 +558,7 @@ function selectionInput({ config, options } = {}) {
 }
 
 test("plain click collapses only on release; Ctrl/Cmd toggle and Shift selects logical ranges", (t) => {
-  const f = selectionInput(); t.after(() => f.adapter.destroy());
+  const f = selectionInput({ config: { allowCrossZone: true } }); t.after(() => f.adapter.destroy());
   f.selection.select(["a", "b"]);
   f.send("pointerdown", "a");
   assert.deepEqual(f.selection.snapshot().cardIds, ["a", "b"]);
@@ -573,7 +573,7 @@ test("plain click collapses only on release; Ctrl/Cmd toggle and Shift selects l
 });
 
 test("pickup preserves full selection and anchor, sets picked primary, and freezes the drag request", (t) => {
-  const f = selectionInput(); t.after(() => f.adapter.destroy());
+  const f = selectionInput({ config: { allowCrossZone: true } }); t.after(() => f.adapter.destroy());
   f.selection.select(["a", "c", "d"], { primaryCardId: "d", anchorCardId: "a" });
   f.pickup("c");
   assert.deepEqual(f.calls[0], ["drag", { cardIds: ["a", "c", "d"], primaryCardId: "c", point: { x: 20, y: 30 } }]);
@@ -609,7 +609,7 @@ test("denied selection prevents pickup and announces the reason without changing
 });
 
 test("idle keyboard navigation uses eligibility context and supports range, toggle, select-all and clear", (t) => {
-  const f = selectionInput({ config: { canSelect: ({ cardId }) => ({ allowed: cardId !== "b" }) } });
+  const f = selectionInput({ config: { allowCrossZone: true, canSelect: ({ cardId }) => ({ allowed: cardId !== "b" }) } });
   t.after(() => f.adapter.destroy());
   f.send("keydown", "a", { key: "ArrowRight" });
   assert.equal(f.shells.get("c").focusCalls.length, 1);
@@ -679,7 +679,7 @@ test("touch selection without touch dragging toggles taps and preserves native s
 });
 
 test("combined touch mode carries the selection without applying a tap toggle first", (t) => {
-  const f = selectionInput({ options: { touchDrag: true, touchSelection: true } }); t.after(() => f.adapter.destroy());
+  const f = selectionInput({ config: { allowCrossZone: true }, options: { touchDrag: true, touchSelection: true } }); t.after(() => f.adapter.destroy());
   f.tap("a", { pointerType: "touch" });
   f.tap("d", { pointerType: "touch" });
   f.pickup("a", { pointerType: "touch" });

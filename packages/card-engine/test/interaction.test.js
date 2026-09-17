@@ -957,7 +957,7 @@ test('secondary removal, reorder, authored position, visibility and batch moves 
 test('selection eligibility loss cancels the full cohort while unrelated selection changes do not', () => {
   let denied = false;
   const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() },
-    selection: { canSelect: ({ cardId }) => ({ allowed: !(denied && cardId === 'd') }) } });
+    selection: { allowCrossZone: true, canSelect: ({ cardId }) => ({ allowed: !(denied && cardId === 'd') }) } });
   scene.apply(threeZones());
   const session = start(scene, ['b', 'd']);
   scene.select(['a']);
@@ -1232,7 +1232,7 @@ test('a single compact card still receives the drag lift', () => {
 
 test('batch acceptance preserves mounted shell identities and each card face and pivot', () => {
   const shells = new Map();
-  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() },
+  const scene = createCardScene({ motion: { reducedMotion: true }, selection: { allowCrossZone: true }, interaction: { rules: permissiveRules() },
     renderer: () => ({
       update(card) { if (!shells.has(card.id)) shells.set(card.id, { id: card.id }); },
       remove(id) { shells.delete(id); }, destroy() {},

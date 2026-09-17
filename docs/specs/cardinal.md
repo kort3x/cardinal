@@ -742,7 +742,11 @@ Selection is a first-class ordered set of card IDs, with a primary card for focu
 and dragging and an anchor for range selection. It is independent of persistent
 card groups, zone membership, face, and content. A project configures selectable
 cards, single/multiple selection, maximum count, and whether selection may span
-zones. Selection alone neither moves cards nor grants permission to act on them.
+zones. Cross-zone selection is denied by default; `allowCrossZone: true` is an
+explicit opt-in. `allowCrossZone: false` rejects any atomic selection request
+that would span zones, including range requests, without changing the current
+selection.
+Selection alone neither moves cards nor grants permission to act on them.
 Reconcile invalid/removed selections when project state changes and emit one
 coherent selection-change event. Keep valid selected IDs across accepted moves
 unless the project explicitly clears them.
