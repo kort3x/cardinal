@@ -28,6 +28,7 @@ const replacements = {
   ],
   "main.js": [
     ["../../packages/card-engine/src/index.js", "./packages/card-engine/src/index.js"],
+    ["../../packages/card-engine/src/drag-motion.js", "./packages/card-engine/src/drag-motion.js"],
     ["/examples/card-engine-lab/", "./"],
   ],
   "zones.html": [

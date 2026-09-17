@@ -505,7 +505,7 @@ function updateFps(now) {
 }
 requestAnimationFrame(updateFps);
 
-const CARDINAL_FLAVOUR_POOL = Object.freeze([
+const CARDINAL_QUIP_POOL = Object.freeze([
   "Bright wing.\nSharp song.",
   "Red feather.\nBold heart.",
   "Wait. Watch.\nTake flight.",
@@ -524,8 +524,152 @@ const CARDINAL_FLAVOUR_POOL = Object.freeze([
   "Bright eyes.\nBrighter feathers.",
   "Winter bows to\na flash of red.",
   "Take the\nopen sky.",
+  "A scarlet spark\nin the pines.",
+  "Song first.\nQuestions later.",
+  "Red wings know\nthe shortest way.",
+  "Perch lightly.\nLeave boldly.",
+  "A little flame\nwith feathers.",
+  "Look up.\nThe red is there.",
+  "Branch, breeze,\nand bright eyes.",
+  "The forest keeps\na crimson secret.",
+  "Flap once.\nMake it count.",
+  "Dawn finds me\nalready singing.",
+  "A flash of red\nbeats winter gray.",
+  "Small bird.\nLarge announcement.",
+  "The boldest color\nchooses quiet woods.",
+  "Keep watch.\nKeep warm.",
+  "Feathers bright\nas a morning ember.",
+  "No map needed\nfor the open branch.",
+  "A red note\nthrough the trees.",
+  "Still wings.\nSudden sky.",
+  "The snow remembers\nwhere I landed.",
+  "A bright answer\nto a gray day.",
+  "Find a branch.\nFind your song.",
+  "Red among leaves.\nHome among clouds.",
+  "The wind turns.\nI turn with it.",
+  "One clear note\ncan wake the woods.",
+  "Scarlet feathers,\nsteady courage.",
+  "A quiet perch\nfor a loud heart.",
+  "Fly toward\nthe warmer light.",
+  "The forest blushes\nwhen I arrive.",
+  "Bright beak.\nBrighter morning.",
+  "A wingbeat away\nfrom wonder.",
+  "Red travels\nwell through snow.",
+  "Sing softly.\nStand out anyway.",
 ]);
-const defaultCardinalFlavour = CARDINAL_FLAVOUR_POOL[Math.floor(Math.random() * CARDINAL_FLAVOUR_POOL.length)];
+const KINGFISHER_QUIP_POOL = Object.freeze([
+  "Blue fire over\nstill water.",
+  "Dive fast.\nRise brighter.",
+  "The river keeps\nmy best secrets.",
+  "A flash of blue\nacross the current.",
+  "Still branch.\nSudden splash.",
+  "Wait for the\nperfect ripple.",
+  "Water below.\nSky within.",
+  "The shallows\nknow my name.",
+  "One dive.\nOne bright answer.",
+  "Blue wings\nfollow clear water.",
+  "The current bends.\nI follow.",
+  "Quiet perch.\nQuick plunge.",
+  "A silver flash\nunder open sky.",
+  "Patience makes\nthe best splash.",
+  "The river moves.\nI wait.",
+  "Deep blue\nand a sharp eye.",
+  "Catch the light.\nCatch the moment.",
+  "A ripple starts\nthe whole story.",
+  "Cold water.\nWarm sun.",
+  "The lake holds\na thousand reflections.",
+  "Blue over stone.\nGold under wing.",
+  "Look down.\nThen dive.",
+  "The fastest path\nis through the water.",
+  "A bright wingbeat\nagainst the reeds.",
+  "River glass.\nKingfisher spark.",
+  "Wait where\nthe shadows gather.",
+  "The current carries\nwhat courage begins.",
+  "A clear sky\nfor a clear dive.",
+  "Small bird.\nPerfect timing.",
+  "Blue feathers\nmake their own weather.",
+  "The water speaks\nin silver circles.",
+  "One quiet minute.\nOne sudden flight.",
+  "The branch bends.\nThe beak points.",
+  "A splash of blue\nfinds the sun.",
+  "Follow the river\nuntil it shines.",
+  "The lake waits.\nSo do I.",
+  "Bright wings\nprefer bright mornings.",
+  "Dive beneath\nthe ordinary.",
+  "A blue spark\nwith a steady aim.",
+  "Water below.\nWonder ahead.",
+  "The reeds part\nfor one quick flash.",
+  "Still water\nrewards stillness.",
+  "A silver turn\nunder a blue sky.",
+  "Find the ripple.\nFind the fish.",
+  "The river runs.\nThe wing follows.",
+  "Clear eyes.\nClean dive.",
+  "Blue light\ntravels fast.",
+  "From branch\nto bright water.",
+  "A quiet hunter\nwith a loud entrance.",
+  "The lake reflects\nwhat the wing remembers.",
+]);
+const OWL_QUIP_POOL = Object.freeze([
+  "Night keeps watch\nover the wild.",
+  "Moon above.\nSilence below.",
+  "The dark has\nexcellent details.",
+  "Quiet wings\nknow every path.",
+  "Stay still.\nSee everything.",
+  "The forest whispers.\nI listen.",
+  "Stars out.\nEyes open.",
+  "A soft flight\nthrough colder air.",
+  "The dusk belongs\nto patient watchers.",
+  "Look twice.\nThe night moves.",
+  "Moonlit branch.\nPerfect view.",
+  "Silence is\na useful signal.",
+  "The wild sleeps.\nI do not.",
+  "Dark feathers.\nSharp questions.",
+  "A quiet turn\nthrough the pines.",
+  "Night knows\nwhere the trails lead.",
+  "One blink.\nOne hundred clues.",
+  "The moon rises.\nThe watch begins.",
+  "Soft wings\nleave no footnote.",
+  "A patient gaze\nfinds the hidden path.",
+  "The woods grow\nclearer after sunset.",
+  "Still branch.\nRestless stars.",
+  "Listen first.\nFly second.",
+  "The dark keeps\nits own company.",
+  "Night air\nsharpens every sound.",
+  "A pale moon\nand a darker forest.",
+  "Watch the branch.\nTrust the silence.",
+  "The smallest rustle\ncan tell a story.",
+  "Twilight opens\nthe hidden world.",
+  "Quiet eyes\ncarry far.",
+  "The pines hold\nold midnight secrets.",
+  "A shadow moves.\nI already saw it.",
+  "Cold stars.\nWarm feathers.",
+  "The night is\nwide awake.",
+  "Perch high.\nListen low.",
+  "Darkness brings\nits own lanterns.",
+  "The forest settles.\nI remain.",
+  "A silent wing\ncan cross a thought.",
+  "Moonlight makes\nevery branch honest.",
+  "Watchful by nature.\nCurious by choice.",
+  "The trail ends.\nThe story does not.",
+  "A hush between\ntwo heartbeats.",
+  "Night sees\nwhat daylight misses.",
+  "Feathers soft.\nFocus sharp.",
+  "Every shadow\nhas a direction.",
+  "The owl knows\nwhen the wind changes.",
+  "Stars overhead.\nWild below.",
+  "A quiet perch\nfor a careful thought.",
+  "Dusk falls.\nAttention rises.",
+  "The woods speak\nin very small sounds.",
+]);
+const QUIP_POOLS = Object.freeze({
+  cardinal: CARDINAL_QUIP_POOL,
+  kingfisher: KINGFISHER_QUIP_POOL,
+  owl: OWL_QUIP_POOL,
+});
+function randomQuip(kind = "cardinal") {
+  const pool = QUIP_POOLS[kind] ?? CARDINAL_QUIP_POOL;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 const logicalFaceDefinitions = [
   {
@@ -554,7 +698,7 @@ const logicalFaceDefinitions = [
       {
         id: "flavour",
         type: "text",
-        content: { text: defaultCardinalFlavour },
+        content: { text: "" },
         style: { variant: "flavour", color: "#d7dee8", font: "500 13px system-ui, sans-serif", lineHeight: 18 },
         layout: { mode: "flow", order: 3 },
       },
@@ -617,6 +761,7 @@ const baseCard = {
   id: "cardinal-demo",
   activeFaceId: "face-a",
   faceUp: true,
+  quipPool: "cardinal",
   back: {
     elements: [
       {
@@ -634,10 +779,11 @@ const baseCard = {
   template: "illustrated",
 };
 
-function artCard({ id, zoneId, title, image, alt, flavour, specimen, background, backgroundImage }) {
+function artCard({ id, zoneId, title, image, alt, quipPool, flavour, specimen, background, backgroundImage }) {
   return {
     ...baseCard,
     id,
+    quipPool,
     pose: { scale: defaultCardScale() },
     faces: {
       "face-a": {
@@ -646,7 +792,7 @@ function artCard({ id, zoneId, title, image, alt, flavour, specimen, background,
         elements: [
           { id: "title", content: { text: title } },
           { id: "image", content: { src: image, alt } },
-          { id: "flavour", content: { text: flavour } },
+          { id: "flavour", content: { text: flavour ?? randomQuip(quipPool) } },
           { id: "specimen", content: { text: specimen } },
         ],
       },
@@ -659,10 +805,10 @@ const additionalLabCards = [
   artCard({
     id: "ice-demo",
     zoneId: "ocean",
+    quipPool: "kingfisher",
     title: "The Kingfisher",
     image: "/examples/card-engine-lab/assets/cards/ice.png",
     alt: "A blue kingfisher perched on a branch above a mountain lake",
-    flavour: "Blue fire over\nstill water.",
     specimen: "SPECIMEN · 002",
     background: "#123f5a",
     backgroundImage: "/examples/card-engine-lab/assets/backgrounds/b2.png",
@@ -670,10 +816,10 @@ const additionalLabCards = [
   artCard({
     id: "owl-demo",
     zoneId: "lake",
+    quipPool: "owl",
     title: "The Owl",
     image: "/examples/card-engine-lab/assets/cards/owl.png",
     alt: "A stylized owl perched on a rocky overlook above a mountain lake",
-    flavour: "Night keeps watch\nover the wild.",
     specimen: "SPECIMEN · 003",
     background: "#483323",
     backgroundImage: "/examples/card-engine-lab/assets/backgrounds/b3.png",
@@ -1145,19 +1291,33 @@ function mergeFace(defaultFace, sourceFace = {}) {
 }
 
 function configuredCard(sourceCard) {
-  const faces = logicalFaceDefinitions.slice(0, Number(faceCount.value)).map((face) => ({
-    ...mergeFace(face, sourceCard.faces?.[face.id]),
-  }));
+  const faces = logicalFaceDefinitions.slice(0, Number(faceCount.value)).map((face) => {
+    const sourceFace = sourceCard.faces?.[face.id];
+    const merged = mergeFace(face, sourceFace);
+    if (face.id === "face-a" && !sourceFace) {
+      const flavour = merged.elements.find(({ id }) => id === "flavour");
+      if (flavour) flavour.content = { ...flavour.content, text: randomQuip(sourceCard.quipPool) };
+    }
+    return merged;
+  });
   const card = {
     ...sourceCard,
     faces: Object.fromEntries(faces.map((face) => [face.id, face])),
     template: shape.value,
     sizing: cardSizing.value === "content" ? { mode: "content", minHeight: 120, maxHeight: 480 } : { mode: "fixed" },
   };
+  delete card.quipPool;
   delete card.faceCycleNextFaceId;
   if (!faces.some(({ id }) => id === card.activeFaceId)) card.activeFaceId = faces[0].id;
   if (faces.length > 1) card.faceCycle = faces.map(({ id }) => id);
   else delete card.faceCycle;
+  return card;
+}
+
+function randomizeCardQuip(sourceCard) {
+  const card = structuredClone(sourceCard);
+  const flavour = card.faces?.["face-a"]?.elements?.find(({ id }) => id === "flavour");
+  if (flavour) flavour.content = { ...flavour.content, text: randomQuip(card.quipPool) };
   return card;
 }
 
@@ -2968,10 +3128,10 @@ addCardButton.addEventListener("click", () => {
   const cards = sceneCards();
   const id = `cardinal-demo-${nextCardNumber}`;
   nextCardNumber += 1;
-  const prototype = LAB_CARD_PROTOTYPES[Math.floor(Math.random() * LAB_CARD_PROTOTYPES.length)];
+  const prototype = randomizeCardQuip(LAB_CARD_PROTOTYPES[Math.floor(Math.random() * LAB_CARD_PROTOTYPES.length)]);
   cardZoneIds.set(id, spawnZone.value);
   cards.push({
-    ...structuredClone(prototype),
+    ...prototype,
     id,
     template: shape.value,
     pose: { scale: defaultCardScale() },
