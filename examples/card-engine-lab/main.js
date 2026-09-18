@@ -1179,7 +1179,7 @@ async function runDiagnosticsBenchmark() {
       cardZoneIds = new Map(cards.map(({ id }) => [id, "river"]));
       selectedCardIds = new Set(cards.map(({ id }) => id));
       const setupStart = performance.now();
-      applyLabCards(cards);
+      applyLabCards(cards, { singleFace: true });
       const setupMs = performance.now() - setupStart;
       const ready = await waitForReady(count);
       const readyDiagnostics = ready.rendererDiagnostics ?? {};
@@ -1217,7 +1217,7 @@ async function runDiagnosticsBenchmark() {
         assets: readyDiagnostics.imageSources ?? null,
         startHandlerMs: Number(startHandlerMs.toFixed(1)),
         firstFrameMs: Number((firstFrameMs ?? 0).toFixed(1)),
-        workload: "selected cards; random move, rotate and flip; warm images",
+        workload: "selected cards; random move, rotate and physical flip; warm active face and back",
         sampleMs: Number(elapsedMs.toFixed(1)),
         workWindowMs: Number(workWindowMs.toFixed(1)),
         renderer: sampledRenderer ? {
@@ -1473,8 +1473,11 @@ function mergeFace(defaultFace, sourceFace = {}) {
   return { ...defaultFace, ...sourceFace, elements: [...elements, ...extras] };
 }
 
-function configuredCard(sourceCard) {
-  const faces = logicalFaceDefinitions.slice(0, Number(faceCount.value)).map((face) => {
+function configuredCard(sourceCard, { singleFace = false } = {}) {
+  const definitions = singleFace
+    ? logicalFaceDefinitions.filter(({ id }) => id === sourceCard.activeFaceId)
+    : logicalFaceDefinitions.slice(0, Number(faceCount.value));
+  const faces = definitions.map((face) => {
     const sourceFace = sourceCard.faces?.[face.id];
     const merged = mergeFace(face, sourceFace);
     if (face.id === "face-a" && !sourceFace) {
@@ -1586,9 +1589,9 @@ function zoneSnapshot(cards) {
   });
 }
 
-function desiredSnapshot(cards = sceneCards()) {
+function desiredSnapshot(cards = sceneCards(), options = {}) {
   return {
-    cards: cards.map(configuredCard),
+    cards: cards.map((card) => configuredCard(card, options)),
     zones: zoneSnapshot(cards),
   };
 }
@@ -2394,10 +2397,10 @@ function startScene(cards = sceneCards()) {
   }
 }
 
-function applyLabCards(cards) {
+function applyLabCards(cards, options = {}) {
   const previousSelection = scene.snapshot().selection;
   const requestedSelection = [...selectedCardIds].filter((id) => cards.some((card) => card.id === id));
-  scene.apply(desiredSnapshot(cards));
+  scene.apply(desiredSnapshot(cards, options));
   selectLabCards(requestedSelection, requestedSelection.includes(previousSelection.primaryCardId) ? {
     primaryCardId: previousSelection.primaryCardId,
     anchorCardId: previousSelection.anchorCardId,

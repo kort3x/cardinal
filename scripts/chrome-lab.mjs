@@ -1168,6 +1168,9 @@ const diagnosticsScenario = String.raw`(async () => {
       && parsed.lab?.benchmark?.every((result) => result.assets?.total > 0
         && result.assets.pending === 0
         && result.assets.failed === 0
+        && result.workload?.includes("physical flip")
+        && result.renderer?.work?.textureCreates <= 2
+        && result.renderer?.work?.textureDraws <= 2
         && result.renderer?.textures?.active > 0
         && result.renderer?.work?.textureUploads >= 0
         && result.renderer?.lastRender?.calls > 0
