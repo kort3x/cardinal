@@ -1504,6 +1504,12 @@ export function createCardScene(config = {}) {
     dragAnchor = normalizeDragAnchor(value);
     return dragAnchor;
   }
+  function setSelectionHighlightVisible(visible) {
+    if (destroyed) throw new Error("Scene is destroyed");
+    if (typeof visible !== "boolean") throw new TypeError("Selection highlight visibility must be boolean");
+    renderer.setSelectionHighlightVisible?.(visible);
+    return visible;
+  }
   function invalidateRules() {
     // Cancel an ineligible frozen cohort before exposing its pruned selection.
     interaction.invalidateRules();
@@ -1535,7 +1541,7 @@ export function createCardScene(config = {}) {
       emit("inspection-change", detail);
     },
   });
-  const api = { apply, transact, sortBy, spin, stopSpin, select, hitTest, target, setMotion, setDragMotion, snapshot, viewport, refreshGeometry, rendererDiagnostics: () => renderer.diagnostics?.() ?? null, on, destroy,
+  const api = { apply, transact, sortBy, spin, stopSpin, select, hitTest, target, setMotion, setDragMotion, setSelectionHighlightVisible, snapshot, viewport, refreshGeometry, rendererDiagnostics: () => renderer.diagnostics?.() ?? null, on, destroy,
     clientToScene, sceneToClient, drag, setDragAnchor, isSelectable: selection.isSelectable,
     resolveDrop: interaction.resolveDrop, invalidateRules, inspect, closeInspection };
   feedback = createFeedback({ element: config.element, scene: api });

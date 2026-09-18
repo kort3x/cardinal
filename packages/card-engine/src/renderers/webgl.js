@@ -762,6 +762,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   const cards = new Map();
   const readyTextures = new WeakSet();
   let imageRenderFrame = null;
+  let selectionHighlightVisible = true;
   const imageCache = new Map();
   const texturePool = createTexturePool();
   // Cumulative counters are sampled explicitly, never through scene snapshots.
@@ -1514,10 +1515,22 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityShell.dataset.primary = String(isPrimary);
       mounted.bodyMaterial.color.setHex(selected ? (isPrimary ? 0xe5c07b : 0xc9af76) : 0xffffff);
       mounted.selectionFrameMaterial.color.setHex(isPrimary ? 0xffd166 : 0x61afef);
-      mounted.selectionFront.visible = selected;
-      mounted.selectionBack.visible = selected;
+      mounted.selectionFront.visible = selected && selectionHighlightVisible;
+      mounted.selectionBack.visible = selected && selectionHighlightVisible;
     }
     if (changed) render();
+  }
+
+  function setSelectionHighlightVisible(visible) {
+    if (typeof visible !== "boolean") throw new TypeError("Selection highlight visibility must be boolean");
+    if (selectionHighlightVisible === visible) return;
+    selectionHighlightVisible = visible;
+    for (const mounted of cards.values()) {
+      const selected = mounted.accessibilityShell.dataset.selected === "true";
+      mounted.selectionFront.visible = selected && visible;
+      mounted.selectionBack.visible = selected && visible;
+    }
+    render();
   }
 
   function remove(cardId) {
@@ -1584,6 +1597,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     resolveGrabPose,
     updateInteraction,
     updateSelection,
+    setSelectionHighlightVisible,
     render,
     diagnostics() {
       const sources = new Set();

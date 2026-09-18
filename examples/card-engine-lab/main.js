@@ -1164,6 +1164,7 @@ async function runDiagnosticsBenchmark() {
   try {
     stopRandomMotion();
     stopDemoAnimations();
+    scene.setSelectionHighlightVisible(false);
     const source = structuredClone(originalCards[0] ?? initialCards()[0]);
     for (const count of [1, 5, 10, 50, 100]) {
       const cards = [];
@@ -1245,6 +1246,7 @@ async function runDiagnosticsBenchmark() {
     stopDemoAnimations();
     cardZoneIds = originalZoneMembership;
     selectedCardIds = new Set(originalSelection);
+    scene.setSelectionHighlightVisible(true);
     if (!restored) applyLabCards(originalCards);
     runDiagnosticsBenchmarkButton.disabled = false;
     collectDiagnosticsButton.disabled = false;
