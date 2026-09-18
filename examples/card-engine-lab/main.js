@@ -3550,39 +3550,83 @@ addElementButton.addEventListener("click", () => {
 });
 
 document.querySelector("#element-demo").addEventListener("click", async () => {
+  const demoButton = document.querySelector("#element-demo");
   const card = currentCard();
   if (!card) return;
+  const baseline = structuredClone(scene.snapshot().desired);
+  const baselineSelection = structuredClone(scene.snapshot().selection);
   const face = card.faces?.[card.activeFaceId];
   if (!face) return;
   const original = structuredClone(face.elements ?? []);
   const flavour = original.find(({ id }) => id === "flavour");
   const image = original.find(({ id }) => id === "image");
   const imageIndex = original.findIndex(({ id }) => id === "image");
-  const customId = "shape-demo-field";
-  const destination = scene.snapshot().desired.zones.find(({ id }) => id !== scene.snapshot().desired.zones.find((zone) => zone.cardIds.includes(card.id))?.id);
+  const sourceZone = baseline.zones.find(({ cardIds }) => cardIds.includes(card.id));
+  const destination = baseline.zones.find((zone) => zone.id !== sourceZone?.id
+    && zone.visible !== false && zone.faceUp !== false
+    && (zone.capacity === undefined || zone.cardIds.length < zone.capacity));
+  if (card.faceUp === false || !sourceZone) return;
+  const customId = original.some(({ id }) => id === "shape-demo-field") ? "shape-demo-field-run" : "shape-demo-field";
+  const sourceIndex = sourceZone.cardIds.indexOf(card.id);
+  const neighborIds = Array.from({ length: Math.max(0, 3 - sourceZone.cardIds.length) }, (_, index) => `shape-demo-neighbor-${index + 1}`);
+  const neighborCards = neighborIds.map((id) => ({
+    ...structuredClone(card),
+    id,
+    faceUp: true,
+    pose: { ...structuredClone(card.pose), angle: 0 },
+  }));
+  const demoSnapshot = structuredClone(baseline);
+  demoSnapshot.cards.push(...neighborCards);
+  const demoSourceZone = demoSnapshot.zones.find(({ id }) => id === sourceZone.id);
+  if (demoSourceZone) {
+    demoSourceZone.cardIds = [...demoSourceZone.cardIds, ...neighborIds];
+    demoSourceZone.arrangement = { type: "row", gap: 24, alignment: "center" };
+    delete demoSourceZone.orderPolicy;
+    delete demoSourceZone.slotPolicy;
+    delete demoSourceZone.capacity;
+  }
+  const refreshDemo = () => {
+    renderCardList();
+    syncControlsFromSelection();
+    updateStatus();
+  };
+  const moveToDestination = destination ? { type: "move", cardId: card.id, to: destination.id } : null;
+  const moveBack = destination ? { type: "move", cardId: card.id, to: sourceZone.id, index: sourceIndex } : null;
   try {
-    document.querySelector("#element-demo").disabled = true;
+    demoButton.disabled = true;
+    demoButton.dataset.demoState = "running";
+    scene.apply(demoSnapshot);
+    selectLabCards([card.id], { primaryCardId: card.id, anchorCardId: card.id });
+    refreshDemo();
     const first = [
       ...(flavour ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "hide", elementId: "flavour" }] : []),
       ...(image ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "remove", elementId: "image" }] : []),
       { type: "element", cardId: card.id, faceId: card.activeFaceId, action: "add", elementId: customId,
         element: { type: "text", content: { text: "Custom field added while the card reshapes." }, layout: { mode: "flow" } } },
     ];
-    await scene.transact(first).finished;
-    if (destination) await scene.transact([{ type: "move", cardId: card.id, to: destination.id }]).finished;
-    await new Promise((resolve) => setTimeout(resolve, 260));
+    const firstTransition = scene.transact(moveToDestination ? [...first, moveToDestination] : first);
+    await new Promise((resolve) => setTimeout(resolve, 180));
     const restore = [
-      ...(flavour ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "show", elementId: "flavour" }] : []),
+      ...(flavour ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: flavour.visible === false ? "hide" : "show", elementId: "flavour" }] : []),
       { type: "element", cardId: card.id, faceId: card.activeFaceId, action: "remove", elementId: customId },
       ...(image ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "add", elementId: "image", element: image }] : []),
       ...(image ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "reorder", elementId: "image", index: imageIndex }] : []),
     ];
-    await scene.transact(restore).finished;
-    inspectionStatus.textContent = "Shape demo complete: retained content was restored.";
+    const secondTransition = scene.transact(moveBack ? [...restore, moveBack] : restore);
+    await Promise.all([firstTransition.finished, secondTransition.finished]);
+    scene.apply(baseline);
+    selectLabCards([...baselineSelection.cardIds], {
+      primaryCardId: baselineSelection.primaryCardId,
+      anchorCardId: baselineSelection.anchorCardId,
+    });
+    refreshDemo();
+    demoButton.dataset.demoState = "complete";
+    showStatusMessage("Reshape demo complete: the card and neighboring layout were restored.");
   } catch (error) {
-    showStatusMessage(`Shape demo failed: ${error.message}`);
+    demoButton.dataset.demoState = "failed";
+    showStatusMessage(`Reshape demo failed: ${error.message}`);
   } finally {
-    document.querySelector("#element-demo").disabled = false;
+    demoButton.disabled = false;
   }
 });
 

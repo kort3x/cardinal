@@ -183,7 +183,7 @@ the physical side. Concealed cards show their sleeve and their front element
 editor is disabled until the card is revealed. This prevents the Lab from
 editing or exposing concealed front content accidentally.
 
-## Elements and the shape demo
+## Elements and the reshape demo
 
 Elements belong to the selected cards' active logical face. In **Elements**:
 
@@ -198,10 +198,12 @@ Elements belong to the selected cards' active logical face. In **Elements**:
 - Apply a background to the active face or the physical back, using a URL or a
   preset.
 
-Click **Run shape demo** with a revealed card selected to hide its flavour,
-remove its image, add a custom field, move it to another zone, and restore the
-original content. Use **Auto height** to see the shell resize during the
-sequence.
+Click **Run reshape demo** with a revealed card selected. The Lab temporarily
+places the card in a three-card row, hides its flavour, removes its image, adds
+a custom field, and moves it while neighboring cards reflow. The demo reverses
+those changes during travel, then restores the original card and zone fixture.
+Use **Auto height** and **Fixed size** to compare content-driven shell changes
+with a stable shell while the same element controls are used.
 
 The element list is intentionally unavailable while the selected card is
 concealed. Reveal the card before editing its front content.

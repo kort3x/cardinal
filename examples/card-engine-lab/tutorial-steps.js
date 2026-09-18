@@ -67,7 +67,7 @@ export const LAB_TUTORIAL_STEPS = [
   {
     id: "elements-and-shape",
     title: "See elements reflow and change shape",
-    body: "Faces contain elements such as text, images, and spacers. Hide keeps content for Show to restore; Remove deletes the element. Hidden flow elements can Reflow or Preserve space. Auto height follows flow content; overlay elements add no height. Run shape demo changes content, moves the card, and restores it. Reveal a card before editing its front.",
+    body: "Faces contain elements such as text, images, and spacers. Hide keeps content for Show to restore; Remove deletes the element. Hidden flow elements can Reflow or Preserve space. Auto height follows flow content; Fixed size keeps the shell dimensions. Run reshape demo changes content while the card moves with neighbors, then restores it. Reveal a card before editing its front.",
     target: "#element-demo",
   },
   {

@@ -171,6 +171,9 @@ const elementScenario = String.raw`(async () => {
   const showDemo = new URLSearchParams(location.search).has("show-demo");
   const stepPause = showDemo ? 1800 : 850;
   const results = [];
+  const labModule = await import([...document.querySelectorAll('script[type="module"]')].at(-1).src);
+  const liveScene = () => labModule.getScene();
+  let reshapeDebug;
   const state = () => ({
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
     status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
@@ -192,6 +195,8 @@ const elementScenario = String.raw`(async () => {
     backgroundSide: document.querySelector("#background-side")?.value,
     backgroundImage: document.querySelector("#background-image")?.value,
     text: [...document.querySelectorAll(".cardinal-webgl-card")].map((card) => card.textContent),
+    demoState: document.querySelector("#element-demo")?.dataset.demoState ?? "",
+    scene: liveScene()?.snapshot?.() ?? null,
   });
   const click = (selector) => document.querySelector(selector)?.click();
   const setValue = (selector, value, eventName = "change") => {
@@ -209,12 +214,31 @@ const elementScenario = String.raw`(async () => {
     .find((candidate) => candidate.querySelector(".element-name")?.textContent.startsWith(prefix));
   const record = (label, predicate) => {
     const current = state();
-    results.push({ label, pass: typeof predicate === "function" ? Boolean(predicate(current)) : Boolean(predicate), status: current.status, pointer: current.pointer });
+    const pass = typeof predicate === "function" ? Boolean(predicate(current)) : Boolean(predicate);
+    results.push({ label, pass, status: current.status, pointer: current.pointer,
+      ...(label === "reshape while moving with neighbors" && !pass ? { details: reshapeDebug } : {}) });
   };
   const step = async (label, action, predicate) => {
     await action();
     await sleep(stepPause);
     record(label, predicate);
+  };
+  const applySingleCardFixture = () => {
+    const fixtureScene = liveScene();
+    const desired = fixtureScene.snapshot().desired;
+    const card = desired.cards[0];
+    fixtureScene.apply({
+      cards: [card],
+      zones: desired.zones.map((zone) => ({ ...zone,
+        cardIds: zone.id === "river" ? [card.id] : [],
+        arrangement: { type: "grid", gap: 16 },
+      })),
+    });
+    fixtureScene.select([card.id]);
+  };
+  const selectedVisual = (snapshot = liveScene()?.snapshot()) => {
+    const cardId = snapshot?.selection?.primaryCardId ?? snapshot?.desired?.cards?.[0]?.id;
+    return snapshot?.visual?.find(({ cardId: visualCardId }) => visualCardId === cardId);
   };
 
   await sleep(showDemo ? 2500 : 700);
@@ -231,6 +255,46 @@ const elementScenario = String.raw`(async () => {
     })()
     && current.fps.includes("FPS:")
     && current.diagnostics.includes("devicePixelRatio") && current.diagnostics.includes("webgl"));
+  const baselineDesired = structuredClone(liveScene().snapshot().desired);
+  const baselineElementIds = baselineDesired.cards[0].faces[baselineDesired.cards[0].activeFaceId].elements.map(({ id }) => id);
+  await step("empty active face remains a valid card", async () => {
+    const fixtureScene = liveScene();
+    await fixtureScene.transact(baselineElementIds.map((elementId) => ({
+      type: "element", cardId: baselineDesired.cards[0].id, action: "remove", elementId,
+    }))).finished;
+  }, (current) => current.scene?.desired.cards[0]?.faces?.[current.scene.desired.cards[0].activeFaceId]?.elements?.length === 0
+    && current.shells === 1 && selectedVisual(current.scene)?.pose?.height >= 120);
+  await step("restore after empty face", () => {
+    liveScene().apply(baselineDesired);
+    liveScene().select([baselineDesired.cards[0].id]);
+  }, (current) => current.scene?.desired.cards[0]?.faces?.[current.scene.desired.cards[0].activeFaceId]?.elements?.length === baselineElementIds.length
+    && current.shells === 1);
+  await step("all elements can be hidden together", async () => {
+    const fixtureScene = liveScene();
+    await fixtureScene.transact(baselineElementIds.map((elementId) => ({
+      type: "element", cardId: baselineDesired.cards[0].id, action: "hide", elementId,
+    }))).finished;
+  }, (current) => current.scene?.desired.cards[0]?.faces?.[current.scene.desired.cards[0].activeFaceId]?.elements?.every(({ visible }) => visible === false)
+    && current.shells === 1);
+  await step("restore hidden elements", () => {
+    liveScene().apply(baselineDesired);
+    liveScene().select([baselineDesired.cards[0].id]);
+  }, (current) => current.scene?.desired.cards[0]?.faces?.[current.scene.desired.cards[0].activeFaceId]?.elements?.every(({ visible }) => visible !== false));
+  await step("fixed sizing keeps the shell height", () => {
+    setValue("#card-sizing", "fixed");
+    applySingleCardFixture();
+  }, (current) => current.scene?.desired.cards[0]?.sizing?.mode === "fixed"
+    && Number.isFinite(selectedVisual(current.scene)?.pose?.height));
+  const fixedHeight = selectedVisual().pose.height;
+  await step("fixed sizing survives flavour removal", () => row("flavour")?.querySelector('input[type="checkbox"]')?.click(), (current) => {
+    const flavour = current.scene?.desired.cards[0]?.faces?.[current.scene.desired.cards[0].activeFaceId]?.elements?.find(({ id }) => id === "flavour");
+    return flavour?.visible === false && selectedVisual(current.scene)?.pose?.height === fixedHeight;
+  });
+  await step("content sizing follows flow height", () => {
+    setValue("#card-sizing", "content");
+    applySingleCardFixture();
+  }, (current) => current.scene?.desired.cards[0]?.sizing?.mode === "content"
+    && selectedVisual(current.scene)?.pose?.height < fixedHeight);
   await step("deselect all cards", () => click("#deselect-all"), (current) => current.selection === "0 of 1 selected");
   await step("select all cards", () => click("#select-all"), (current) => current.selection === "1 of 1 selected");
   await step("track pointer coordinates", () => {
@@ -248,6 +312,53 @@ const elementScenario = String.raw`(async () => {
     const pointer = JSON.parse(document.querySelector("#pointer-status").dataset.pointerState);
     return pointer.status === "observed" && pointer.insideStage === true
       && pointer.target?.kind === "card-element" && pointer.target.elementId === "image";
+  });
+  const reshapeSamples = [];
+  let reshapeBaseline;
+  await step("reshape while moving with neighbors", async () => {
+    reshapeBaseline = structuredClone(liveScene().snapshot().desired);
+    click("#element-demo");
+    for (let index = 0; index < 24; index += 1) {
+      const snapshot = liveScene().snapshot();
+      reshapeSamples.push({
+        settling: snapshot.settling,
+        cardIds: snapshot.desired.cards.map(({ id }) => id),
+        positions: snapshot.visual.map(({ cardId, pose }) => ({ cardId, x: pose.x, y: pose.y, width: pose.width, height: pose.height })),
+      });
+      await sleep(45);
+    }
+  }, (current) => {
+    const finalElements = current.scene?.desired.cards[0]?.faces?.[current.scene.desired.cards[0].activeFaceId]?.elements ?? [];
+    const reshapeBaselineCard = reshapeBaseline?.cards?.find(({ id }) => id === current.scene?.desired.cards[0]?.id);
+    const baselineElements = reshapeBaselineCard?.faces?.[reshapeBaselineCard.activeFaceId]?.elements ?? [];
+    const neighborPositions = reshapeSamples.flatMap(({ positions }) => positions.filter(({ cardId }) => cardId.startsWith("shape-demo-neighbor-")));
+    reshapeDebug = {
+      demoState: current.demoState,
+      cardCount: current.scene?.desired.cards.length,
+      shells: current.shells,
+      stable: current.status.includes("stable"),
+      settlingSamples: reshapeSamples.filter(({ settling }) => settling).length,
+      neighborSamples: neighborPositions.length,
+      neighborPositionCount: new Set(neighborPositions.map(({ x, y }) => x + ":" + y)).size,
+      finalIds: finalElements.map(({ id }) => id),
+      baselineIds: baselineElements.map(({ id }) => id),
+      finalImage: finalElements.find(({ id }) => id === "image")?.content?.src,
+      baselineImage: baselineElements.find(({ id }) => id === "image")?.content?.src,
+      finalFlavourVisible: finalElements.find(({ id }) => id === "flavour")?.visible,
+      baselineFlavourVisible: baselineElements.find(({ id }) => id === "flavour")?.visible,
+    };
+    return current.demoState === "complete"
+      && current.scene?.desired.cards.length === 1
+      && current.shells === 1
+      && current.status.includes("stable")
+      && reshapeDebug.settlingSamples > 0
+      && reshapeSamples.some(({ cardIds }) => cardIds.some((id) => id.startsWith("shape-demo-neighbor-")))
+      && finalElements.map(({ id }) => id).join(",") === baselineElements.map(({ id }) => id).join(",")
+      && finalElements.find(({ id }) => id === "image")?.content?.src === baselineElements.find(({ id }) => id === "image")?.content?.src
+      && finalElements.find(({ id }) => id === "flavour")?.visible === reshapeDebug.baselineFlavourVisible
+      && !finalElements.some(({ id }) => id.startsWith("shape-demo-field"))
+      && neighborPositions.length > 2
+      && reshapeDebug.neighborPositionCount > 1;
   });
   await step("hide image", () => click('#element-list input[aria-label="Show image"]'), (current) => {
     const image = current.elements.find((element) => element.name?.startsWith("image"));
