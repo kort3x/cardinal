@@ -472,6 +472,21 @@ showing, or adding one animates the shell to its new height; overlay elements
 and reflow-collapsed elements do not contribute. Fixed-size cards keep their
 configured dimensions while their remaining content reflows.
 
+Element visibility on the card is the retained baseline. A zone can override
+that baseline while a card is resident, without changing the card data:
+
+```js
+scene.transact([{
+  type: "zone",
+  zoneId: "table",
+  changes: { presentation: { visibility: { flavour: false } } },
+}]);
+```
+
+Leaving the zone restores the card baseline unless the next zone supplies its
+own override. Use `visibilityMode: "preserve-space"` when a hidden element
+should retain its flow geometry; the default `"reflow"` mode removes its space.
+
 Physical depth defaults to `6` scene units and can be set on a template or
 overridden per card. It can also be changed through a transaction:
 
@@ -646,3 +661,77 @@ grab point. `upright` controls a free-drag visual style and does not change
 zone membership. `scene.setMotion()` controls authored transitions; drag pickup,
 response, and landing use their own time settings. Each zone's position,
 orientation, scale, and face speed fields modify the matching landing channels.
+
+## Inspection and content-face selection
+
+Select a named content face independently of concealment:
+
+```js
+scene.transact([
+  { type: "contentFace", cardId: "card-7", faceId: "details" },
+], { origin: "user" });
+```
+
+User-origin selection requires `interaction.rules.canChangeFace` to return
+`{ allowed: true }`. It preserves membership and independent movement/scale;
+concealed cards remain concealed. A subsequent reveal shows the selected face.
+Explicit selection supersedes the optional automatic face cycle's pending
+selection. A back-only unknown card can omit `faces` and `activeFaceId` while
+concealed; it cannot be revealed until the consumer supplies a known content face.
+
+Inspection is a presentation session:
+
+```js
+const scene = createCardScene({
+  element,
+  inspection: {
+    input: { dwell: 650, dismissDelay: 180, touchHold: 550 },
+    rules: {
+      canInspect: ({ cardId }) => ({ allowed: permittedIds.has(cardId) }),
+      canInspectConcealed: () => ({ allowed: false }),
+    },
+  },
+});
+scene.apply({ cards, zones });
+const view = scene.inspect("card-7", {
+  mode: "preview", // or "inPlace"
+  modal: true,
+  relatedCardIds: ["card-8"],
+});
+view.navigate("card-8");
+view.close();
+```
+
+Preview content is read-only, has a separate view ID, and adds no logical card or
+editable gameplay controls. Nonmodal previews preserve focus; modal previews
+restore a still-valid focus target when dismissed. Escape dismisses inspection.
+Opt-in inspection input supports hover/focus dwell, the I key, and touch hold;
+moving a touch beyond its threshold cancels the hold so scrolling/dragging can
+proceed. In-place inspection temporarily raises and enlarges the existing shell;
+closing uses current state rather than a saved pose. Both modes update live and
+close when their source is removed or becomes unavailable.
+
+A concealed card shows only its sleeve by default. `canInspectConcealed` must
+explicitly allow displaying supplied content; `canInspect` can further restrict
+opening a view. Rules are re-evaluated by `scene.invalidateRules()`. Consumers
+must omit data unauthorized viewers should never receive. Concealment does not
+secure data already supplied to browser JavaScript. Preview state, accessibility,
+and assets use the permitted presentation; unknown cards have no inferred front.
+
+Zones may supply `presentation: { elements: ["image"] }` to simplify rendered
+content without deleting the card's elements. For content-sized cards, the
+filtered flow elements determine the target height; fixed-size cards retain
+their configured dimensions. `presentation.visibility` can override individual
+element visibility while the card remains in the zone. Inspection uses full
+permitted content. Changes to the zone during inspection apply when it closes.
+`presentation: null` removes the override through a zone transaction.
+
+Consumers can set `card.feedback: { disabled, actionable, pending }` independently
+of selection and focus. Disabled cards reject selection and user-origin actions;
+system updates remain authoritative. Pending and actionable are descriptive
+feedback and do not imply business rules. WebGL displays a separate focus/hover
+outline and status text alongside its selection treatment.
+
+The Lab's **Inspection** toolbox includes a two-card fixture with image-only zone
+presentation, a content-face selector, live text updates, and conceal/reveal.
+Run `npm run test:chrome:inspection` for the focused browser journey.

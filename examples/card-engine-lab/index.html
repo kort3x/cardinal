@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Cardinal · Card Lab</title>
     <link rel="stylesheet" href="../../packages/card-engine/src/styles.css">
+    <link rel="stylesheet" href="/examples/card-engine-lab/tutorial.css">
     <style>
       :root {
         --lab-control-radius: 3px;
@@ -279,7 +280,8 @@
       @media (max-width: 640px) {
         .lab-workspace { grid-template-columns: 1fr; }
         .elements-sidebar { grid-column: auto; }
-        .lab-header { align-items: flex-start; }
+        .lab-header { align-items: flex-start; flex-wrap: wrap; }
+        .header-links { flex-wrap: wrap; }
         .lab-logo { width: 72px; height: 72px; transform: translateY(18px); }
       }
     </style>
@@ -295,6 +297,7 @@
           </div>
         </div>
         <nav class="header-links" aria-label="Lab links">
+          <button class="header-link" id="start-tutorial" type="button" aria-haspopup="dialog" title="Take a guided tour of the engine and Lab controls.">Tutorial</button>
           <a class="header-link" href="/examples/card-engine-lab/zones.html">Zones lab <span aria-hidden="true">↗</span></a>
           <a class="header-link github-link" href="https://github.com/kort3x/cardinal" target="_blank" rel="noreferrer" aria-label="Cardinal GitHub repository">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -704,6 +707,25 @@
           </div>
         </div>
         <aside class="side-controls elements-sidebar" aria-label="Right control rail">
+          <details class="control-group" id="inspection-group" open>
+            <summary>Inspection</summary>
+            <label class="control-row select-row" for="inspection-mode">
+              <span>View</span>
+              <select id="inspection-mode"><option value="preview">Read-only preview</option><option value="inPlace">In place</option></select>
+            </label>
+            <label class="control-row select-row" for="inspection-face">
+              <span>Content face</span><select id="inspection-face" aria-label="Selected card content face"></select>
+            </label>
+            <div class="presets">
+              <button type="button" id="inspect-card" title="Inspect the primary selected card without changing its committed state.">Inspect</button>
+              <button type="button" id="close-inspection">Close</button>
+              <button type="button" id="inspection-fixture" title="Replace the scene with two related cards for trying inspection and face switching.">Set up inspection</button>
+              <button type="button" id="inspection-update" title="Update the selected face while its preview is open.">Update text</button>
+              <button type="button" id="inspection-conceal">Conceal / reveal</button>
+            </div>
+            <p>Hover or focus to preview. Press I or hold a card on touch to inspect. Escape closes. Concealed cards show their back.</p>
+            <p id="inspection-status" aria-live="polite"></p>
+          </details>
           <details class="control-group">
             <summary>Elements</summary>
             <div id="element-list" aria-live="polite"></div>
@@ -715,6 +737,7 @@
                 <option value="spacer">Adjustable white space</option>
               </select>
               <button id="add-element" type="button">Add element</button>
+              <button id="element-demo" type="button" title="Hide flavour, remove the image, add a custom field, then restore the card while it moves.">Run shape demo</button>
             </div>
             <div class="background-controls">
               <label for="background-side">Background target</label>

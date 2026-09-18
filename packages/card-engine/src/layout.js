@@ -10,18 +10,26 @@ function contentElements(content) {
   return content?.elements ?? [];
 }
 
-function elementVisible(element) {
+function elementIncluded(element, presentation) {
+  return !presentation?.elements || presentation.elements.includes(element?.id);
+}
+
+function elementVisible(element, presentation) {
+  if (!elementIncluded(element, presentation)) return false;
+  if (Object.hasOwn(presentation?.visibility ?? {}, element?.id)) {
+    return presentation.visibility[element.id] === true;
+  }
   return element?.visible !== false;
 }
 
-function elementReservesSpace(element) {
-  return elementVisible(element) || element.visibilityMode === "preserve-space";
+function elementReservesSpace(element, presentation) {
+  return elementVisible(element, presentation) || element.visibilityMode === "preserve-space";
 }
 
-function flowElements(content) {
+function flowElements(content, presentation) {
   return contentElements(content)
     .map((element, index) => ({ element, index }))
-    .filter(({ element }) => elementReservesSpace(element) && (element.layout?.mode ?? "flow") === "flow")
+    .filter(({ element }) => elementReservesSpace(element, presentation) && (element.layout?.mode ?? "flow") === "flow")
     .sort((first, second) => (first.element.layout?.order ?? first.index) - (second.element.layout?.order ?? second.index) || first.index - second.index)
     .map(({ element }) => element);
 }
@@ -70,25 +78,25 @@ function elementFlowHeight(element, width, preferredHeight, elementRenderers = {
   return 20;
 }
 
-export function contentHeight(content, dimensions, sizing = {}, elementRenderers = {}) {
+export function contentHeight(content, dimensions, sizing = {}, elementRenderers = {}, presentation) {
   const inner = 18;
   const width = Math.max(1, dimensions.width - inner * 2);
   let cursor = inner;
-  for (const element of flowElements(content)) cursor += elementFlowHeight(element, width, dimensions.height, elementRenderers, dimensions) + 10;
+  for (const element of flowElements(content, presentation)) cursor += elementFlowHeight(element, width, dimensions.height, elementRenderers, dimensions) + 10;
   const requiredHeight = cursor + 8;
   const minHeight = sizing.minHeight ?? DEFAULT_CONTENT_MIN_HEIGHT;
   const maxHeight = sizing.maxHeight ?? Infinity;
   return Math.min(maxHeight, Math.max(minHeight, requiredHeight));
 }
 
-export function cardDimensions(card, templates = {}, elementRenderers = {}) {
+export function cardDimensions(card, templates = {}, elementRenderers = {}, presentation) {
   const template = templates[card.template] ?? {};
   const dimensions = {
     width: card.dimensions?.width ?? template.width ?? DEFAULT_CARD_DIMENSIONS.width,
     height: card.dimensions?.height ?? template.height ?? DEFAULT_CARD_DIMENSIONS.height,
   };
   const sizing = card.sizing ?? template.sizing;
-  if (sizing?.mode === "content") dimensions.height = contentHeight(card.faces?.[card.activeFaceId], dimensions, sizing, elementRenderers);
+  if (sizing?.mode === "content") dimensions.height = contentHeight(card.faces?.[card.activeFaceId], dimensions, sizing, elementRenderers, presentation);
   return dimensions;
 }
 
@@ -123,7 +131,7 @@ function centeredPosition(alignment, start, size, footprint) {
 
 function dimensionsFor(cards, templates, elementRenderers, zone) {
   return cards.map((card) => {
-    const dimensions = cardDimensions(card, templates, elementRenderers);
+    const dimensions = cardDimensions(card, templates, elementRenderers, zone.presentation);
     const scale = zone.scale ?? card.pose?.scale ?? 1;
     return { card, dimensions, width: dimensions.width * scale, height: dimensions.height * scale };
   });
@@ -342,7 +350,7 @@ export function depthScale(camera, depth) {
 }
 
 export function solveCardPose(card, zone, index = 0, camera, templates, layerOffset = 0, elementRenderers = {}, tracks, layout) {
-  const dimensions = cardDimensions(card, templates, elementRenderers);
+  const dimensions = cardDimensions(card, templates, elementRenderers, zone.presentation);
   const scale = zone.scale ?? card.pose?.scale ?? 1;
   const renderedWidth = dimensions.width * scale;
   const renderedHeight = dimensions.height * scale;
@@ -392,7 +400,7 @@ export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}
     const zoneCards = zone.cardIds.map((id) => cards.get(id)).filter(Boolean);
     const layout = solveZoneLayout(zone, zoneCards, templates, elementRenderers);
     const sizes = zoneCards.map((card) => {
-      const dimensions = cardDimensions(card, templates, elementRenderers);
+      const dimensions = cardDimensions(card, templates, elementRenderers, zone.presentation);
       const scale = zone.scale ?? card.pose?.scale ?? 1;
       return { width: dimensions.width * scale, height: dimensions.height * scale };
     });
@@ -410,7 +418,7 @@ export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}
         layerOffset += Math.max(configuredStep, physicalStep);
       }
       const pose = { ...solveCardPose(card, zone, index, camera, templates, layerOffset, elementRenderers, tracks, layoutEntry), drawOrder };
-      const dimensions = cardDimensions(card, templates, elementRenderers);
+      const dimensions = cardDimensions(card, templates, elementRenderers, zone.presentation);
       const angle = Math.abs((pose.angle * Math.PI) / 180);
       const unrotatedWidth = dimensions.width * pose.scale * pose.layoutScale;
       const unrotatedHeight = dimensions.height * pose.scale * pose.layoutScale;

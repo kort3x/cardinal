@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createHeadlessRenderer } from "../renderer.js";
+import { createHeadlessRenderer, filterContentElements } from "../renderer.js";
 import { DEFAULT_CARD_THICKNESS, cardDimensions, cardThickness, spacerHeight } from "../layout.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
@@ -413,6 +413,10 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
   for (const [index, { element }] of flow.entries()) {
     const elementHeight = flowHeights[index];
     if (index === gapIndex) cursor += transientGap;
+    if (!elementVisible(element)) {
+      cursor += elementHeight + 10;
+      continue;
+    }
     if (drawRegisteredElement(context, element, dimensions, inner, cursor, innerWidth, elementHeight, elementRenderers, images, content)) {
       // Project-defined renderers own their drawing while Cardinal owns flow geometry.
     } else {
@@ -444,13 +448,14 @@ function accessibleElementText(content) {
   }).filter(Boolean).join(". ");
 }
 
-function logicalFaceContent(card, side) {
+function logicalFaceContent(card, side, presentation) {
   const activeFace = card.faces[card.activeFaceId] ?? {};
-  if (side === "back") return card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed" }, style: { variant: "title" } }] };
-  if (!card.faceCycle || !card.faceCycleNextFaceId) return activeFace;
+  if (side === "back") return filterContentElements(card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed" }, style: { variant: "title" } }] }, presentation);
+  if (card.faceUp === false) return { elements: [] };
+  if (!card.faceCycle || !card.faceCycleNextFaceId) return filterContentElements(activeFace, presentation);
 
   const destinationFace = card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? activeFace;
-  return destinationFace;
+  return filterContentElements(destinationFace, presentation);
 }
 
 export function createCardGeometry(shape, { depth = DEFAULT_CARD_THICKNESS, bevelSize = CARD_BEVEL_SIZE } = {}) {
@@ -484,8 +489,8 @@ export function createCardFaceGeometry(shape, dimensions) {
   return geometry;
 }
 
-export function textureDimensionsForPose(card, pose, templates = {}) {
-  const dimensions = cardDimensions(card, templates);
+export function textureDimensionsForPose(card, pose, templates = {}, elementRenderers = {}, presentation) {
+  const dimensions = cardDimensions(card, templates, elementRenderers, presentation);
   const template = templates[card.template] ?? {};
   const sizing = card.sizing ?? template.sizing;
   if (sizing?.mode !== "content" || !Number.isFinite(pose?.height)) return dimensions;
@@ -649,11 +654,11 @@ export function cardSideForIntersection(object, mounted) {
       : "edge";
 }
 
-function accessibleContent(card, pose) {
-  const side = physicalSide(pose);
+function accessibleContent(card, pose, presentation) {
+  const side = card.faceUp === false ? "back" : physicalSide(pose);
   if (side === "edge") return { side, content: { elements: [{ id: "edge", type: "text", content: { text: "Card edge" } }] } };
-  if (side === "back") return { side, content: card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] } };
-  return { side, content: card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? {} };
+  if (side === "back") return { side, content: filterContentElements(card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, presentation) };
+  return { side, content: filterContentElements(card.faces?.[card.faceCycleNextFaceId ?? card.activeFaceId] ?? {}, presentation) };
 }
 
 export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {}, elementRenderers = {}, onStatus = () => {} } = {}) {
@@ -978,6 +983,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       textureHeight: null,
       textureTargetWidth: null,
       textureTargetHeight: null,
+      texturePresentationKey: null,
+      frontSuppressed: false,
       width,
       height,
       thickness,
@@ -1082,15 +1089,23 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (!isResizing) mounted[transitionName] = null;
   }
 
-  function update(card, pose, { render: shouldRender = true } = {}) {
-    const targetDimensions = cardDimensions(card, templates, elementRenderers);
+  function update(card, pose, { render: shouldRender = true, presentation } = {}) {
+    const targetDimensions = cardDimensions(card, templates, elementRenderers, presentation);
     const dimensions = { width: pose.width ?? targetDimensions.width, height: pose.height ?? targetDimensions.height };
-    const textureDimensions = textureDimensionsForPose(card, pose, templates);
+    const textureDimensions = textureDimensionsForPose(card, pose, templates, elementRenderers, presentation);
     const thickness = pose.thickness ?? cardThickness(card, templates);
     const mounted = mount(card, textureDimensions, thickness);
     mounted.cardGroup.visible = pose.visible !== false;
     mounted.accessibilityShell.hidden = pose.visible === false;
     mounted.accessibilityShell.inert = pose.visible === false;
+    const feedback = card.feedback ?? {};
+    mounted.accessibilityShell.dataset.disabled = String(feedback.disabled === true);
+    mounted.accessibilityShell.dataset.actionable = String(feedback.actionable === true);
+    mounted.accessibilityShell.dataset.pending = String(feedback.pending === true);
+    mounted.accessibilityShell.setAttribute("aria-disabled", String(feedback.disabled === true));
+    mounted.accessibilityShell.setAttribute("aria-busy", String(feedback.pending === true));
+    mounted.front.visible = card.faceUp !== false;
+    mounted.frontBase.visible = card.faceUp !== false;
     mounted.lastCard = card;
     mounted.lastPose = pose;
     const drawOrder = pose.drawOrder ?? 0;
@@ -1107,8 +1122,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.bodyGroup.rotation.set(radians(pose.tiltX), radians(pose.tiltY), radians(pose.angle));
     mounted.faceGroup.rotation.order = "YXZ";
     mounted.faceGroup.rotation.set(radians(pose.flipX ?? 0), radians(pose.flipY ?? 0), 0);
-    const accessible = accessibleContent(card, pose);
+    const accessible = accessibleContent(card, pose, presentation);
     const faceId = card.faceCycleNextFaceId ?? card.activeFaceId;
+    const presentationKey = JSON.stringify([presentation?.elements ?? null, presentation?.visibility ?? null]);
     const textureDimensionsChanged = mounted.textureWidth !== textureDimensions.width
       || mounted.textureHeight !== textureDimensions.height
       || mounted.textureTargetWidth !== targetDimensions.width
@@ -1118,12 +1134,27 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       || mounted.textureNextFaceId !== card.faceCycleNextFaceId
       || mounted.textureFrontFaceId !== faceId
       || mounted.textureBackFaceId !== card.back
+      || mounted.texturePresentationKey !== presentationKey
       || textureDimensionsChanged
-      || mounted.frontKey === null
+      || (card.faceUp !== false && mounted.frontKey === null)
+      || (card.faceUp === false && !mounted.frontSuppressed)
       || mounted.backKey === null;
     if (textureInputsChanged) {
-      updateTexture(mounted, "front", logicalFaceContent(card, "front"), textureDimensions, targetDimensions, faceId);
-      updateTexture(mounted, "back", logicalFaceContent(card, "back"), textureDimensions, targetDimensions, "back");
+      if (card.faceUp !== false) {
+        updateTexture(mounted, "front", logicalFaceContent(card, "front", presentation), textureDimensions, targetDimensions, faceId);
+        mounted.frontSuppressed = false;
+      } else {
+        mounted.frontTexture?.dispose();
+        mounted.frontTexture = null;
+        mounted.frontMaterial.map = null;
+        mounted.frontMaterial.needsUpdate = true;
+        mounted.frontKey = null;
+        mounted.frontContent = null;
+        mounted.frontContentKey = null;
+        mounted.frontTransition = null;
+        mounted.frontSuppressed = true;
+      }
+      updateTexture(mounted, "back", logicalFaceContent(card, "back", presentation), textureDimensions, targetDimensions, "back");
       mounted.textureCard = card;
       mounted.textureActiveFaceId = card.activeFaceId;
       mounted.textureNextFaceId = card.faceCycleNextFaceId;
@@ -1133,10 +1164,12 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.textureHeight = textureDimensions.height;
       mounted.textureTargetWidth = targetDimensions.width;
       mounted.textureTargetHeight = targetDimensions.height;
+      mounted.texturePresentationKey = presentationKey;
     }
     const accessibilitySelectionChanged = mounted.accessibilityCard !== card
       || mounted.accessibilityFaceId !== card.activeFaceId
       || mounted.accessibilityNextFaceId !== card.faceCycleNextFaceId
+      || mounted.accessibilityPresentationKey !== presentationKey
       || mounted.accessibilitySide !== accessible.side;
     if (accessibilitySelectionChanged) {
       const accessibleContentKey = contentIdentityKey(accessible.content);
@@ -1150,6 +1183,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityNextFaceId = card.faceCycleNextFaceId;
       mounted.accessibilitySide = accessible.side;
       mounted.accessibilityContentKey = accessibleContentKey;
+      mounted.accessibilityPresentationKey = presentationKey;
     }
     if (interactionSessions.length > 0 && !interactionPriorityCardIds.has(card.id)) applyInteractionPriority();
     if (shouldRender) render();

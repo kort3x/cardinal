@@ -51,6 +51,7 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
     if (!card || !zone || !pose || pose.visible === false || zone.visible === false) {
       return { allowed: false, reason: `Card ${cardId} is not available for selection` };
     }
+    if (card.feedback?.disabled) return { allowed: false, reason: `Card ${cardId} is disabled` };
     const group = forcedGroup(zone);
     if (group && !group.cardIds.includes(cardId)) {
       return { allowed: false, reason: group.reason ?? `Zone ${zone.id} requires selecting its top ${zone.selectionPolicy.count} cards` };

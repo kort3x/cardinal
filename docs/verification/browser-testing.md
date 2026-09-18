@@ -9,6 +9,8 @@ skill is required. Run commands from the repository root.
 | Request | Command | What runs |
 | --- | --- | --- |
 | Fast engine gate | `npm test` | Deterministic engine tests, not browser verification |
+| Chrome guided Lab tutorial | `npm run test:chrome:tutorial` | Spotlight tour, keyboard isolation, restoration and narrow viewport navigation |
+| Chrome inspection and content faces | `npm run test:chrome:inspection` | Live previews, face selection, privacy, keyboard/touch and viewport bounds |
 | Chrome element regressions | `npm run test:chrome` | The `elements` scenario only |
 | Chrome drag verification | `npm run test:chrome:drag` | Real mouse, keyboard and emulated touch input |
 | Chrome batch selection/drag | `npm run test:chrome:batch` | Cohort selection, atomic transfers and real input |
@@ -32,6 +34,8 @@ is necessary only when extending or diagnosing them.
 
 | Changed behavior | Scenario names |
 | --- | --- |
+| Guided tutorial content, overlays and navigation | `tutorial` |
+| Inspection, named content faces, concealed previews and related navigation | `inspection` |
 | Elements, backgrounds, content resize | `elements` |
 | Rails, controls, full-window layout | `layout` |
 | Camera/stage resizing and movement bounds | `resize`, `movement` |

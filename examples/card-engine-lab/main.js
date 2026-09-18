@@ -1,5 +1,7 @@
 import { createCardScene } from "../../packages/card-engine/src/index.js";
 import { normalizeDragMotion } from "../../packages/card-engine/src/drag-motion.js";
+import { createLabTutorial } from "./tutorial.js";
+import { LAB_TUTORIAL_STEPS } from "./tutorial-steps.js";
 
 const stage = document.querySelector("#stage");
 const rendererStatus = document.querySelector("#renderer-status");
@@ -65,6 +67,7 @@ function capitalizeDisplayName(value) {
 }
 
 function cardDisplayName(card, index) {
+  if (card?.faceUp === false) return `Concealed Card${Number.isInteger(index) && index >= 0 ? ` ${index + 1}` : ""}`;
   const title = card?.faces?.[card.activeFaceId]?.elements?.find(({ id }) => id === "title")?.content?.text;
   return capitalizeDisplayName(title || card?.id || `Card ${Number(index) + 1}`);
 }
@@ -81,6 +84,9 @@ function zoneDisplayName(zoneOrId) {
 }
 
 const shape = document.querySelector("#shape");
+const inspectionFace = document.querySelector("#inspection-face");
+const inspectionStatus = document.querySelector("#inspection-status");
+let labInspection;
 const faceCount = document.querySelector("#face-count");
 const cardSizing = document.querySelector("#card-sizing");
 const cardWidthSlider = document.querySelector("#card-width");
@@ -2002,6 +2008,9 @@ const interactionRules = {
   canSpin() {
     return { allowed: true };
   },
+  canChangeFace() {
+    return { allowed: true };
+  },
 };
 
 function cohortLabel({ cardIds = [], primaryCardId } = {}) {
@@ -2206,6 +2215,7 @@ function startScene(cards = sceneCards()) {
         duration: LAB_MOTION_DURATION / Number(motionSpeedSlider.value),
       },
       selection: { allowCrossZone: crossZoneSelection.checked },
+      inspection: { input: { dwell: 650, dismissDelay: 180, touchHold: 550 } },
       interaction: {
         rules: interactionRules,
         touchDrag: touchDrag.checked,
@@ -2216,11 +2226,15 @@ function startScene(cards = sceneCards()) {
       },
     });
     scene = createdScene;
+    labInspection = undefined;
     const lifecycle = { active: true, scene: createdScene, timers: new Map(), pending: new Map(), outcome: "" };
     interactionLifecycle = lifecycle;
     createdScene.apply(desired);
     createdScene.on("change", updateStatus);
     createdScene.on("renderer-status", updateStatus);
+    createdScene.on("inspection-change", () => {
+      inspectionStatus.textContent = createdScene.snapshot().inspection.sessions.length ? "Inspection open" : "";
+    });
     createdScene.on("selection-change", (selection) => {
       if (scene !== createdScene || !lifecycle.active) return;
       selectedCardIds = new Set(selection.cardIds);
@@ -2706,17 +2720,18 @@ function elementEditorValue(element) {
 
 function renderElementList(state = scene.snapshot()) {
   const card = currentCard(state);
-  const face = card?.faces?.[card.activeFaceId];
+  const face = card?.faceUp === false ? undefined : card?.faces?.[card.activeFaceId];
   const backgroundContent = backgroundContentFor(card);
   const key = face ? JSON.stringify([card.id, card.activeFaceId, face.elements, face.backgroundImage, card.back?.backgroundImage, backgroundSide.value]) : "empty";
   if (key === renderedElementKey) return;
   renderedElementKey = key;
   if (!face) {
-    elementList.replaceChildren(document.createTextNode("Select a card to inspect its elements."));
+    elementList.replaceChildren(document.createTextNode(card?.faceUp === false ? "Reveal this card to edit its content." : "Select a card to inspect its elements."));
     addElementButton.disabled = true;
     elementType.disabled = true;
     backgroundSide.disabled = true;
     backgroundImageInput.disabled = true;
+    backgroundImageInput.value = "";
     backgroundFit.disabled = true;
     applyBackgroundButton.disabled = true;
     return;
@@ -2831,6 +2846,7 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
     renderCardList();
     renderZones(state);
     renderElementList(state);
+    syncInspectionControls(state);
   }
   if (!demoTransaction) updateCardListDepth(state);
   const card = currentCard(state);
@@ -2859,7 +2875,7 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
       depth: pose.thickness.toFixed(1),
       angle: `${pose.angle.toFixed(0)}°`,
       scale: pose.scale.toFixed(2),
-      logical: card.activeFaceId.replace("face-", "").toUpperCase(),
+      logical: card.faceUp === false ? "Concealed" : (card.activeFaceId ?? "Unknown").replace("face-", "").toUpperCase(),
       physical: physicalSide,
       motion: state.settling
         ? "animating"
@@ -2887,6 +2903,77 @@ function showStatusMessage(message) {
   status.textContent = message;
   status.setAttribute("aria-label", message);
 }
+
+function syncInspectionControls(state) {
+  const card = currentCard(state);
+  const faces = Object.keys(card?.faces ?? {});
+  const key = JSON.stringify([card?.id, card?.faceUp, faces]);
+  if (inspectionFace.dataset.optionsKey !== key) {
+    inspectionFace.replaceChildren(...faces.map((id, index) => new Option(card.faceUp === false ? `Content ${index + 1}` : capitalizeDisplayName(id), id)));
+    inspectionFace.dataset.optionsKey = key;
+  }
+  inspectionFace.value = card?.activeFaceId ?? "";
+  inspectionFace.disabled = !faces.length;
+  document.querySelector("#inspect-card").disabled = !card;
+  document.querySelector("#inspection-conceal").disabled = !faces.length;
+  document.querySelector("#inspection-update").disabled = !card || card.faceUp === false;
+}
+
+function inspectionAction(action) {
+  try { action(); }
+  catch (error) { inspectionStatus.textContent = error.message; }
+}
+
+inspectionFace.addEventListener("change", () => inspectionAction(() => {
+  const card = currentCard();
+  if (card) scene.transact([{ type: "contentFace", cardId: card.id, faceId: inspectionFace.value }], { origin: "user" });
+}));
+document.querySelector("#inspect-card").addEventListener("click", () => inspectionAction(() => {
+  labInspection?.close();
+  const card = currentCard();
+  if (card) labInspection = scene.inspect(card.id, {
+    mode: document.querySelector("#inspection-mode").value,
+    modal: document.querySelector("#inspection-mode").value === "preview",
+    relatedCardIds: scene.snapshot().desired.cards.filter((other) => other.id !== card.id && other.faceUp !== false).map(({ id }) => id).slice(0, 4),
+  });
+}));
+document.querySelector("#close-inspection").addEventListener("click", () => scene.closeInspection());
+document.querySelector("#inspection-conceal").addEventListener("click", () => inspectionAction(() => {
+  const card = currentCard();
+  if (card) scene.transact([{ type: "face", cardId: card.id, face: card.faceUp === false ? "faceUp" : "faceDown" }], { origin: "user", zoneFacePolicy: "override" });
+}));
+document.querySelector("#inspection-update").addEventListener("click", () => inspectionAction(() => {
+  const card = currentCard();
+  if (!card || card.faceUp === false) return;
+  const face = card.faces[card.activeFaceId];
+  const exists = face.elements.some(({ id }) => id === "inspection-note");
+  scene.transact([{ type: "element", cardId: card.id, elementId: "inspection-note", action: exists ? "update" : "add",
+    element: { type: "text", content: { text: `Live update at ${new Date().toLocaleTimeString()}` }, layout: { mode: "flow", order: 9 } } }]);
+}));
+document.querySelector("#inspection-fixture").addEventListener("click", () => inspectionAction(() => {
+  stopDemoAnimations();
+  stopRandomMotion();
+  stopContinuousFlip();
+  const cards = [configuredCard(baseCard), configuredCard(LAB_CARD_PROTOTYPES[2])].map((card, index) => ({
+    ...card, id: `inspection-card-${index + 1}`, faceUp: true, faceCycle: undefined,
+    activeFaceId: "face-a", pose: { scale: 0.55 }, feedback: index ? { pending: true } : { actionable: true },
+    faces: { "face-a": card.faces["face-a"], "details": {
+      elements: [
+        { id: "title", type: "text", content: { text: index ? "Owl Details" : "Cardinal Details" }, style: { variant: "title" } },
+        { id: "description", type: "text", content: { text: Array.from({ length: 20 }, (_, line) => `Observation ${line + 1}: A readable field note that stays available during movement and live updates.`).join("\n\n") } },
+      ],
+    } },
+  }));
+  const zones = LAB_ZONE_DEFINITIONS.map(({ id, label, anchor }) => ({ id, label, anchor,
+    cardIds: id === "river" ? cards.map(({ id }) => id) : [], arrangement: { type: "row", gap: 24 },
+    presentation: { elements: ["image"] },
+  }));
+  scene.apply({ cards, zones });
+  selectLabCards([cards[0].id]);
+  syncControlsFromSelection();
+  updateStatus();
+  inspectionStatus.textContent = "Two image-only cards. Inspect to read full content; switch to Details for scrolling text.";
+}));
 
 function run(operations, options) {
   scene.transact(operations, options);
@@ -3368,6 +3455,43 @@ addElementButton.addEventListener("click", () => {
   applyElementOperation({ action: "add", elementId: id, element });
 });
 
+document.querySelector("#element-demo").addEventListener("click", async () => {
+  const card = currentCard();
+  if (!card) return;
+  const face = card.faces?.[card.activeFaceId];
+  if (!face) return;
+  const original = structuredClone(face.elements ?? []);
+  const flavour = original.find(({ id }) => id === "flavour");
+  const image = original.find(({ id }) => id === "image");
+  const imageIndex = original.findIndex(({ id }) => id === "image");
+  const customId = "shape-demo-field";
+  const destination = scene.snapshot().desired.zones.find(({ id }) => id !== scene.snapshot().desired.zones.find((zone) => zone.cardIds.includes(card.id))?.id);
+  try {
+    document.querySelector("#element-demo").disabled = true;
+    const first = [
+      ...(flavour ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "hide", elementId: "flavour" }] : []),
+      ...(image ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "remove", elementId: "image" }] : []),
+      { type: "element", cardId: card.id, faceId: card.activeFaceId, action: "add", elementId: customId,
+        element: { type: "text", content: { text: "Custom field added while the card reshapes." }, layout: { mode: "flow" } } },
+    ];
+    await scene.transact(first).finished;
+    if (destination) await scene.transact([{ type: "move", cardId: card.id, to: destination.id }]).finished;
+    await new Promise((resolve) => setTimeout(resolve, 260));
+    const restore = [
+      ...(flavour ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "show", elementId: "flavour" }] : []),
+      { type: "element", cardId: card.id, faceId: card.activeFaceId, action: "remove", elementId: customId },
+      ...(image ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "add", elementId: "image", element: image }] : []),
+      ...(image ? [{ type: "element", cardId: card.id, faceId: card.activeFaceId, action: "reorder", elementId: "image", index: imageIndex }] : []),
+    ];
+    await scene.transact(restore).finished;
+    inspectionStatus.textContent = "Shape demo complete: retained content was restored.";
+  } catch (error) {
+    showStatusMessage(`Shape demo failed: ${error.message}`);
+  } finally {
+    document.querySelector("#element-demo").disabled = false;
+  }
+});
+
 applyBackgroundButton.addEventListener("click", applyBackgroundImage);
 backgroundSide.addEventListener("change", () => renderElementList());
 document.querySelectorAll("[data-background-preset]").forEach((button) => {
@@ -3524,4 +3648,5 @@ for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"])
 }
 updateControlLabels();
 startScene();
+createLabTutorial({ steps: LAB_TUTORIAL_STEPS, trigger: document.querySelector("#start-tutorial") });
 void refreshDiagnostics("Initial report ready.");

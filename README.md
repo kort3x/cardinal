@@ -7,6 +7,7 @@
 
   <p>
     <a href="https://kort3x.github.io/cardinal/"><strong>Try the live Card Lab →</strong></a>
+    · <a href="docs/lab-guide.md">Read the Lab guide</a>
     · <a href="docs/specs/cardinal.md">Read the design</a>
     · <a href="docs/slices/README.md">See the roadmap</a>
   </p>
@@ -45,6 +46,7 @@ multiple logical faces, 3D depth, motion controls, and performance diagnostics.
 | Resource | Purpose |
 | --- | --- |
 | [Live Card Lab](https://kort3x.github.io/cardinal/) | Explore the card engine in your browser |
+| [Card Lab guide](docs/lab-guide.md) | Learn the controls, zones, arrangements, and motion fixtures |
 | [Engine design](docs/specs/cardinal.md) | Read the authoritative model and API decisions |
 | [Delivery roadmap](docs/slices/README.md) | Follow the vertical slices and next capabilities |
 | [Browser testing guide](docs/verification/browser-testing.md) | Run and extend Chrome, Firefox, and Safari checks |

@@ -1,0 +1,85 @@
+export const LAB_TUTORIAL_STEPS = [
+  {
+    id: "welcome",
+    title: "Welcome to the Card Lab",
+    body: "This Lab is a hands-on view of Cardinal's card engine. The engine provides reusable presentation, layout, motion, and interaction mechanics; the consuming application supplies its cards, zones, permissions, and other rules. The tutorial pauses interaction while it is open: close it to try the highlighted control, or use Next and Back to follow the read-only tour.",
+  },
+  {
+    id: "stage-and-selection",
+    title: "Read the stage and choose a card",
+    body: "The stage shows cards inside named zones. Select a card on the stage or in Cards; the selected card gets the editing focus and the controls that act on a selection update with it. Select all or choose several entries when you want one change to affect a group.",
+    target: "#stage",
+  },
+  {
+    id: "engine-and-consumer-rules",
+    title: "Separate engine behavior from game rules",
+    body: "The Lab supplies the cards and rules; Cardinal handles their presentation and interaction. Add creates a random Cardinal, Owl, or Kingfisher in Spawn in. The list shows membership and which cards are Not pickable. Selection chooses the cards you want to act on; it does not bypass their permissions.",
+    target: ".cards-sidebar > .control-group:first-child",
+  },
+  {
+    id: "zones-and-draw-stack",
+    title: "Zones own membership and the draw stack",
+    body: "A zone owns card membership, order, arrangement, and stacking depth. Ocean starts as a concealed draw stack: only the top card is pickable. Sent to moves the selection; Slot chooses its destination index. Zone controls govern face side and scale, while the consuming application decides which actions are allowed.",
+    target: "#zones-group",
+  },
+  {
+    id: "arrangements",
+    title: "Compare arrangements and zone settings",
+    body: "Grid, Row, Column, Splay, Pile, Stack, and Hand are arrangement types. River starts as a Hand. Its Arrangement & alignment controls tune spread, radius, concave or convex curve, target size, and settling speeds. Cardinal rearranges the neighboring cards when membership or layout changes.",
+    target: "#zone-list [data-zone-id=river] .zone-arrangement-settings",
+  },
+  {
+    id: "drag-anchor",
+    title: "Feel the drag anchor",
+    body: "Drag a selected card and compare Grab point with Card center. Grab point preserves where the pointer picked up the card; Card center keeps the card centered under the pointer. Carry controls whether a multi-card selection preserves its offsets or forms a compact bundle.",
+    target: "#drag-anchor",
+  },
+  {
+    id: "drag-motion",
+    title: "Tune carried-card motion",
+    body: "Start with Natural, Crisp, Floaty, Wizzard, or Dramatic dangle, then change one slider at a time. Lift scale enlarges a carried card; 3D lift brings it toward the camera. Dangly, Damping, and the tilt limits tune its swing. Landing, Bounce, and Delay tune the drop.",
+    target: "#drag-motion-preset",
+  },
+  {
+    id: "toolbar-motion",
+    title: "Try motion on the toolbar",
+    body: "Move, Rotate, Scale, Flip, and Spin demonstrate separate pose channels for the current selection. Demo combines channels, Random repeats motion, and Test runs a longer retargeting sequence. Reduced motion makes transitions immediate so you can compare the resulting state without animation.",
+    target: ".motion-actions",
+  },
+  {
+    id: "size-weight-scale",
+    title: "Change size, weight, and scale",
+    body: "Dimensions change the card's physical width, height, and thickness. Auto height follows visible flow content; Fixed size uses the width and height values. Weight affects how target motion settles, while Scale changes the rendered size. Zone target size can also govern the scale of every card in that zone.",
+    target: "#card-sizing",
+  },
+  {
+    id: "reveal-and-faces",
+    title: "Reveal a side and cycle content faces",
+    body: "A card has one physical back and can have several named content faces. Reveal and Conceal choose the physical side; Flip can advance the logical face cycle when the card returns to its front. Physical side and logical content face are separate, so the camera does not decide which content face is shown.",
+    target: "#flip-axis",
+  },
+  {
+    id: "inspection",
+    title: "Inspect without changing committed state",
+    body: "Inspection opens a temporary readable view without moving the card between zones. Concealed cards show their back. Content face chooses the named front content independently of revealing it. Set up inspection replaces the scene with a two-card example; Update text demonstrates live changes in its preview.",
+    target: "#inspection-group",
+  },
+  {
+    id: "elements-and-shape",
+    title: "See elements reflow and change shape",
+    body: "Faces contain elements such as text, images, and spacers. Hide keeps content for Show to restore; Remove deletes the element. Hidden flow elements can Reflow or Preserve space. Auto height follows flow content; overlay elements add no height. Run shape demo changes content, moves the card, and restores it. Reveal a card before editing its front.",
+    target: "#element-demo",
+  },
+  {
+    id: "diagnostics",
+    title: "Read the diagnostics",
+    body: "Performance diagnostics reports the browser, WebGL renderer, viewport, frame rate, and scene details. Refresh the report for the current scene, run the 1 / 5 / 10-card test for a small comparison, or Record next drag to capture one drag session. Use Copy report when sharing a rendering or performance problem.",
+    target: "#diagnostics-panel",
+  },
+  {
+    id: "continue-experimenting",
+    title: "Keep experimenting",
+    body: "The tutorial is read-only guidance: it does not create cards, change the fixture, or lock you into a sequence. Close or Finish it to try the highlighted controls; use Next or Back to follow the tour, and start it again from the persistent Tutorial button whenever you want a reminder. Reloading restores the Lab's default session-local fixture.",
+    target: "#stage",
+  },
+];

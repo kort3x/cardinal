@@ -7,6 +7,8 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
 const inputScenarios = {
+  tutorial: async (options) => (await import("./chrome-tutorial-scenario.mjs")).runTutorialScenario(options),
+  inspection: async (options) => (await import("./chrome-inspection-scenario.mjs")).runInspectionScenario(options),
   batch: async (options) => (await import("./chrome-batch-scenario.mjs")).runBatchScenario(options),
   "mobile-scale": async (options) => (await import("./chrome-mobile-scale.mjs")).runMobileScaleScenario(options),
   drag: async (options) => (await import("./chrome-drag-scenario.mjs")).runDragScenario(options),
@@ -321,10 +323,12 @@ const elementScenario = String.raw`(async () => {
   await step("add element during flip", async () => {
     click('[data-flip="1"]');
     await sleep(120);
+    click('[data-flip="0"]');
+    await sleep(120);
     click("#add-element");
   }, (current) => current.shells === 2
     && current.elements.some((element) => element.name?.startsWith("text-"))
-    && current.status.includes("physical back")
+    && current.status.includes("physical front")
     && !current.status.includes("animating"));
   await step("set physical back background", () => {
     setValue("#background-side", "back");
@@ -640,14 +644,14 @@ const layoutScenario = String.raw`(async () => {
     cardsBox?.querySelector(":scope > summary")?.click();
     const collapsed = cardsBox?.open === false;
     cardsBox?.querySelector(":scope > summary")?.click();
-    return toolboxes.length === 11 && initiallyOpen.join(",") === "Cards,Zones,Elements"
+    return toolboxes.length === 12 && initiallyOpen.join(",") === "Cards,Zones,Inspection,Elements"
       && elementsDefaultCollapsed && collapsed && cardsBox?.open === true
       && summaryRect && cardsRect && summaryRect.width >= cardsRect.width - 2;
   });
   const railTitles = (rail) => [...rail.querySelectorAll(":scope > details.control-group > summary")].map((summary) => summary.textContent.trim());
   record("toolboxes follow the scene-and-card workflow order", () =>
     railTitles(document.querySelector(".cards-sidebar")).join(",") === "Cards,Zones,Drag"
-    && railTitles(document.querySelector(".elements-sidebar")).join(",") === "Scale,Shape,Dimensions,Move,Rotate,Flip,Logical faces,Elements");
+    && railTitles(document.querySelector(".elements-sidebar")).join(",") === "Inspection,Scale,Shape,Dimensions,Move,Rotate,Flip,Logical faces,Elements");
   record("collapsing panels reserves stable scrollbar space", () => getComputedStyle(document.documentElement).scrollbarGutter.includes("stable"));
   const fullWindowControl = document.querySelector("#full-window-control");
   fullWindowControl?.click();

@@ -216,6 +216,38 @@ function normalizeZoneSelectionPolicy(selectionPolicy, zoneId) {
   return { mode, count: source.count, from };
 }
 
+export function normalizeZonePresentation(presentation, zoneId) {
+  if (presentation === undefined || presentation === null || presentation === false) return undefined;
+  if (!presentation || typeof presentation !== "object" || Array.isArray(presentation)) {
+    throw new TypeError(`Zone ${zoneId} presentation requires an object`);
+  }
+  if (presentation.elements !== undefined
+    && (!Array.isArray(presentation.elements)
+      || presentation.elements.some((id) => typeof id !== "string" || id.length === 0)
+      || new Set(presentation.elements).size !== presentation.elements.length)) {
+    throw new TypeError(`Zone ${zoneId} presentation.elements requires unique element IDs`);
+  }
+  if (presentation.visibility !== undefined) {
+    if (!presentation.visibility || typeof presentation.visibility !== "object"
+      || Array.isArray(presentation.visibility)) {
+      throw new TypeError(`Zone ${zoneId} presentation.visibility requires an object`);
+    }
+    for (const [id, visible] of Object.entries(presentation.visibility)) {
+      if (!id || typeof visible !== "boolean") {
+        throw new TypeError(`Zone ${zoneId} presentation.visibility values must be boolean`);
+      }
+    }
+  }
+  if (presentation.elements === undefined && presentation.visibility === undefined) {
+    throw new TypeError(`Zone ${zoneId} presentation requires elements or visibility`);
+  }
+  return {
+    ...copy(presentation),
+    ...(presentation.elements === undefined ? {} : { elements: [...presentation.elements] }),
+    ...(presentation.visibility === undefined ? {} : { visibility: { ...presentation.visibility } }),
+  };
+}
+
 export function normalizeZonePreset(preset, zoneId = "zone") {
   if (preset === undefined || preset === null || preset === false) return undefined;
   if (typeof preset !== "string" || !Object.hasOwn(ZONE_PRESETS, preset)) {
@@ -293,6 +325,23 @@ function normalizeFace(face) {
   return normalized;
 }
 
+function normalizeFeedback(feedback, cardId) {
+  if (feedback === undefined || feedback === null) return undefined;
+  if (!feedback || typeof feedback !== "object" || Array.isArray(feedback)) {
+    throw new TypeError(`Card ${cardId} feedback requires an object`);
+  }
+  for (const name of ["disabled", "actionable", "pending"]) {
+    if (feedback[name] !== undefined && typeof feedback[name] !== "boolean") {
+      throw new TypeError(`Card ${cardId} feedback.${name} must be boolean`);
+    }
+  }
+  return {
+    disabled: feedback.disabled ?? false,
+    actionable: feedback.actionable ?? false,
+    pending: feedback.pending ?? false,
+  };
+}
+
 export function normalizePose(pose = {}) {
   const result = { ...DEFAULT_POSE, ...pose };
   for (const [name, value] of Object.entries(result)) {
@@ -353,17 +402,26 @@ export function normalizeSnapshot(snapshot) {
     throw new TypeError("A scene snapshot requires cards and zones arrays");
   }
 
+  const concealedByZone = new Set((snapshot.zones ?? []).flatMap((zone) => {
+    const presetConceals = zone?.preset === "drawStack" && zone?.faceUp === undefined;
+    return zone?.faceUp === false || presetConceals ? (zone.cardIds ?? []) : [];
+  }));
   const cards = snapshot.cards.map((card) => {
     if (!card || typeof card.id !== "string" || card.id.length === 0) {
       throw new TypeError("Every card requires a non-empty string id");
     }
-    if (!card.faces || typeof card.faces !== "object" || Object.keys(card.faces).length === 0) {
+    const faces = card.faces && typeof card.faces === "object" && !Array.isArray(card.faces) ? card.faces : {};
+    const concealed = card.faceUp === false || concealedByZone.has(card.id);
+    if (Object.keys(faces).length === 0 && !concealed) {
       throw new TypeError(`Card ${card.id} requires at least one content face`);
     }
-    if (!card.faces[card.activeFaceId]) {
+    if (Object.keys(faces).length > 0 && !faces[card.activeFaceId]) {
       throw new TypeError(`Card ${card.id} references an unknown active face`);
     }
     if (card.faceCycle !== undefined) {
+      if (Object.keys(faces).length === 0) {
+        throw new TypeError(`Card ${card.id} cannot define a faceCycle without content faces`);
+      }
       if (!Array.isArray(card.faceCycle) || card.faceCycle.length < 2) {
         throw new TypeError(`Card ${card.id} faceCycle requires at least two face ids`);
       }
@@ -379,7 +437,10 @@ export function normalizeSnapshot(snapshot) {
     if (card.thickness !== undefined) normalizedCard.thickness = normalizeThickness(card.thickness);
     if (card.weight !== undefined) normalizedCard.weight = normalizeWeight(card.weight);
     if (card.sizing !== undefined) normalizedCard.sizing = normalizeSizing(card.sizing);
-    normalizedCard.faces = Object.fromEntries(Object.entries(card.faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
+    const feedback = normalizeFeedback(card.feedback, card.id);
+    if (feedback === undefined) delete normalizedCard.feedback;
+    else normalizedCard.feedback = feedback;
+    normalizedCard.faces = Object.fromEntries(Object.entries(faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
     if (card.back) normalizedCard.back = normalizeFace(card.back);
     return normalizedCard;
   });
@@ -417,6 +478,7 @@ export function normalizeSnapshot(snapshot) {
     const arrangement = normalizeArrangement(Object.hasOwn(zone, "arrangement")
       ? zone.arrangement : presetDefinition?.arrangement);
     const motion = normalizeZoneMotion(zone.motion);
+    const presentation = normalizeZonePresentation(zone.presentation, zone.id);
     const selectionPolicy = normalizeZoneSelectionPolicy(Object.hasOwn(zone, "selectionPolicy")
       ? zone.selectionPolicy : presetDefinition?.selectionPolicy, zone.id);
     const policies = normalizeZonePolicies({ zoneId: zone.id, orderPolicy: zone.orderPolicy, slotPolicy: zone.slotPolicy,
@@ -425,11 +487,13 @@ export function normalizeSnapshot(snapshot) {
     const autoSort = zone.autoSort === undefined || zone.autoSort === null || zone.autoSort === false
       ? undefined : normalizeSortPolicy(zone.autoSort);
     const normalizedZone = { ...copy(zone), ...(preset === undefined ? {} : { preset }), ...(faceUp === undefined ? {} : { faceUp }), arrangement, ...(motion === undefined ? {} : { motion }),
+      ...(presentation === undefined ? {} : { presentation }),
       ...(selectionPolicy === undefined ? {} : { selectionPolicy }), ...policies };
     if (policies.orderPolicy === undefined) delete normalizedZone.orderPolicy;
     if (policies.slotPolicy === undefined) delete normalizedZone.slotPolicy;
     if (policies.reorderPolicy === undefined) delete normalizedZone.reorderPolicy;
     if (selectionPolicy === undefined) delete normalizedZone.selectionPolicy;
+    if (presentation === undefined) delete normalizedZone.presentation;
     validateZonePolicies(normalizedZone, normalizedZone.cardIds, "initial membership");
     if (autoSort === undefined) delete normalizedZone.autoSort;
     else normalizedZone.autoSort = autoSort;
@@ -455,6 +519,9 @@ export function normalizeSnapshot(snapshot) {
     if (zone.faceUp === undefined) continue;
     for (const cardId of zone.cardIds) {
       const card = cards.find((candidate) => candidate.id === cardId);
+      if (zone.faceUp && !Object.keys(card.faces).length) {
+        throw new TypeError(`Card ${card.id} requires at least one content face`);
+      }
       card.faceUp = zone.faceUp;
       delete card.pose.flipX;
       delete card.pose.flipY;

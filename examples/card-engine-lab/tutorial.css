@@ -1,0 +1,149 @@
+.lab-tutorial {
+  --tutorial-bg: #21252b;
+  --tutorial-panel: #2c313a;
+  --tutorial-border: #4d5563;
+  --tutorial-text: #abb2bf;
+  --tutorial-muted: #7f848e;
+  --tutorial-accent: #e5c07b;
+  --tutorial-focus: #61afef;
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  color: var(--tutorial-text);
+  font-family: system-ui, sans-serif;
+}
+
+.lab-tutorial[hidden],
+.lab-tutorial__spotlight[hidden] {
+  display: none;
+}
+
+.lab-tutorial__backdrop {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+
+.lab-tutorial--no-target .lab-tutorial__backdrop {
+  background: rgb(10 12 16 / 72%);
+}
+
+.lab-tutorial__spotlight {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 1;
+  border: 2px solid var(--tutorial-accent);
+  border-radius: 6px;
+  box-shadow: 0 0 0 100vmax rgb(10 12 16 / 72%), 0 0 0 4px rgb(229 192 123 / 22%);
+  pointer-events: none;
+}
+
+.lab-tutorial__dialog {
+  position: fixed;
+  z-index: 2;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 32px));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid var(--tutorial-border);
+  border-radius: 6px;
+  background: var(--tutorial-panel);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 48%), 0 0 0 1px rgb(229 192 123 / 12%);
+  outline: none;
+}
+
+.lab-tutorial__header {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  align-items: start;
+}
+
+.lab-tutorial__progress {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--tutorial-accent);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lab-tutorial__title {
+  margin: 0;
+  color: #d7dae0;
+  font-size: 1.1rem;
+  line-height: 1.25;
+}
+
+.lab-tutorial__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 12px 0 20px;
+  color: var(--tutorial-text);
+  font-size: 0.94rem;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.lab-tutorial__footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lab-tutorial__button {
+  border: 1px solid var(--tutorial-border);
+  border-radius: 3px;
+  padding: 7px 10px;
+  color: var(--tutorial-text);
+  background: var(--tutorial-bg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.86rem;
+}
+
+.lab-tutorial__button:hover,
+.lab-tutorial__button:focus-visible {
+  border-color: var(--tutorial-focus);
+  outline: 2px solid rgb(97 175 239 / 28%);
+  outline-offset: 1px;
+}
+
+.lab-tutorial__next {
+  border-color: var(--tutorial-accent);
+  color: var(--tutorial-accent);
+}
+
+.lab-tutorial__button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.lab-tutorial__close {
+  min-width: 0;
+  padding: 3px 6px;
+  color: var(--tutorial-muted);
+}
+
+@media (max-width: 480px) {
+  .lab-tutorial__dialog {
+    padding: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lab-tutorial *,
+  .lab-tutorial *::before,
+  .lab-tutorial *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}

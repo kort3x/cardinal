@@ -25,6 +25,7 @@ const replacements = {
     ["/packages/card-engine/node_modules/three/build/three.module.js", threeModule],
     ["/packages/card-engine/node_modules/three/examples/jsm/", threeAddons],
     ["/examples/card-engine-lab/main.js", "./main.js"],
+    ["/examples/card-engine-lab/tutorial.css", "./tutorial.css"],
   ],
   "main.js": [
     ["../../packages/card-engine/src/index.js", "./packages/card-engine/src/index.js"],

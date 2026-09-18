@@ -2,6 +2,20 @@ import { DEFAULT_CARD_THICKNESS, cardDimensions, spacerHeight } from "./layout.j
 
 const noop = () => {};
 
+export function filterContentElements(content = {}, presentation) {
+  if (!presentation?.elements && !presentation?.visibility) return content;
+  const allowed = presentation.elements ? new Set(presentation.elements) : null;
+  const visibility = presentation.visibility ?? {};
+  return {
+    ...content,
+    elements: (content.elements ?? [])
+      .filter((element) => !allowed || allowed.has(element.id))
+      .map((element) => Object.hasOwn(visibility, element.id)
+        ? { ...element, visible: visibility[element.id] }
+        : element),
+  };
+}
+
 export function createHeadlessRenderer({ reason = "no-element" } = {}) {
   return { type: "headless", reason, mount: noop, update: noop, remove: noop, destroy: noop };
 }
@@ -77,15 +91,23 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
     }).join("\n");
   }
 
-  function renderContent(target, content = {}, dimensions) {
+  function renderContent(target, content = {}, dimensions, presentation) {
     let nodes = contentNodes.get(target);
     if (!nodes) {
       nodes = new Map();
       contentNodes.set(target, nodes);
     }
-    const elements = Array.isArray(content.elements) ? content.elements : [];
-    const contentKey = JSON.stringify([elements, dimensions.width, dimensions.height]);
+    const filteredContent = filterContentElements(content, presentation);
+    const elements = Array.isArray(filteredContent.elements) ? filteredContent.elements : [];
+    const contentKey = JSON.stringify([filteredContent, dimensions.width, dimensions.height]);
     if (nodes.contentKey === contentKey) return;
+    for (const [id, node] of nodes) {
+      if (!elements.some((element) => element.id === id)) {
+        node.removeAttribute?.("src");
+        node.textContent = "";
+        nodes.delete(id);
+      }
+    }
     const contentWidth = Math.max(1, dimensions.width - 36);
     const orderedNodes = elements.map((element) => {
       let node = nodes.get(element.id);
@@ -94,7 +116,13 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
         node.style.whiteSpace = "pre";
         nodes.set(element.id, node);
       }
-      node.hidden = element.visible === false;
+      const hidden = element.visible === false;
+      const preservesSpace = element.visibilityMode === "preserve-space";
+      node.hidden = hidden && !preservesSpace;
+      node.style.visibility = hidden ? "hidden" : "visible";
+      node.style.opacity = hidden ? "0" : "1";
+      node.style.transition = "opacity 160ms ease";
+      node.setAttribute("aria-hidden", String(hidden));
       if (element.type === "image") {
         node.alt = element.content?.alt ?? "";
         if (element.content?.src) node.src = element.content.src;
@@ -114,10 +142,11 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
     nodes.contentKey = contentKey;
   }
 
-  function update(card, pose) {
+  function update(card, pose, options = {}) {
     const mounted = mount(card);
-    const dimensions = cardDimensions(card, templates, elementRenderers);
-    const face = card.faces[card.activeFaceId] ?? {};
+    const presentation = options.presentation;
+    const dimensions = cardDimensions(card, templates, elementRenderers, presentation);
+    const face = card.faces?.[card.activeFaceId] ?? {};
     const renderedScale = pose.scale * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
     const renderedWidth = dimensions.width * renderedScale;
     const renderedHeight = dimensions.height * renderedScale;
@@ -126,6 +155,12 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
     mounted.shell.style.setProperty("--card-scale", String(renderedScale));
     mounted.shell.style.setProperty("--card-depth", `${DEFAULT_CARD_THICKNESS * renderedScale}px`);
     mounted.shell.dataset.faceUp = String(card.faceUp);
+    const feedback = card.feedback ?? {};
+    mounted.shell.dataset.disabled = String(feedback.disabled === true);
+    mounted.shell.dataset.actionable = String(feedback.actionable === true);
+    mounted.shell.dataset.pending = String(feedback.pending === true);
+    mounted.shell.setAttribute("aria-disabled", String(feedback.disabled === true));
+    mounted.shell.setAttribute("aria-busy", String(feedback.pending === true));
     mounted.travel.style.transform = `translate3d(${pose.x - renderedWidth / 2}px, ${pose.y - renderedHeight / 2}px, ${pose.z}px)`;
     mounted.body.style.transformOrigin = `${pose.pivotX * 100}% ${pose.pivotY * 100}%`;
     mounted.body.style.transform = `rotate(${pose.angle}deg) rotateX(${pose.tiltX}deg) rotateY(${pose.tiltY}deg)`;
@@ -134,13 +169,13 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
     mounted.faces.style.transform = `rotateX(${flipX}deg) rotateY(${flipY}deg)`;
     mounted.front.style.transform = "translateZ(calc(var(--card-depth) / 2))";
     mounted.back.style.transform = "rotateY(180deg) translateZ(calc(var(--card-depth) / 2))";
-    mounted.front.hidden = false;
+    mounted.front.hidden = card.faceUp === false;
     mounted.back.hidden = false;
-    mounted.front.setAttribute("aria-hidden", String(!card.faceUp));
-    mounted.back.setAttribute("aria-hidden", String(card.faceUp));
+    mounted.front.setAttribute("aria-hidden", String(card.faceUp === false));
+    mounted.back.setAttribute("aria-hidden", String(card.faceUp !== false));
     updateExtrusionLayers(mounted.edgeLayers, renderedScale);
-    renderContent(mounted.front, face, dimensions);
-    renderContent(mounted.back, card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, dimensions);
+    renderContent(mounted.front, card.faceUp !== false ? face : { elements: [] }, dimensions, presentation);
+    renderContent(mounted.back, card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, dimensions, presentation);
   }
 
   function updateExtrusionLayers(edgeLayers, renderedScale) {
