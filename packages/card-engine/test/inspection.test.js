@@ -309,6 +309,77 @@ test("input supports dwell, focus, keyboard, touch hold, and timer cancellation"
   assert.equal(calls.length, callCount);
 });
 
+for (const [eventName, payload, expectedReads] of [
+  ["change", "snapshot", 0],
+  ["change", "absent", 1],
+  ["interaction-change", "interaction", 1],
+  ["inspection-change", "inspection", 1],
+]) {
+  test(`input reconciles ${eventName} (${payload}) with ${expectedReads} snapshot reads`, async () => {
+    const doc = new FakeDocument();
+    const stage = doc.createElement("div");
+    doc.body.append(stage);
+    const shell = doc.createElement("article");
+    shell.dataset.cardId = "one";
+    stage.append(shell);
+    const listeners = new Map();
+    const handles = [];
+    let reads = 0;
+    const state = { desired: { cards: [] }, interaction: { sessions: [] }, inspection: { sessions: [] } };
+    const scene = {
+      hitTest() { return { cardId: "one" }; },
+      inspect() {
+        const handle = { id: `view-${handles.length}`, closed: false, close() { this.closed = true; } };
+        handles.push(handle);
+        state.inspection.sessions.push({ id: handle.id });
+        return handle;
+      },
+      snapshot() { reads += 1; return state; },
+      on(name, listener) { listeners.set(name, listener); return () => listeners.delete(name); },
+    };
+    const adapter = attachInspectionInput({ element: stage, scene, options: { hover: true, dwell: 5 } });
+    const notify = () => {
+      reads = 0;
+      listeners.get(eventName)(payload === "snapshot" ? state : payload === "absent" ? undefined : state[payload]);
+      assert.equal(reads, expectedReads);
+    };
+    const hover = async () => {
+      stage.dispatchEvent(event("pointermove", { pointerType: "mouse" }));
+      await new Promise((resolve) => setTimeout(resolve, 12));
+    };
+    try {
+      await hover();
+      assert.equal(handles.length, 1);
+      notify();
+      assert.equal(handles[0].closed, false, "a live hover session stays open");
+
+      state.inspection.sessions = [];
+      notify();
+      assert.equal(handles[0].closed, true, "a removed session clears the hover handle");
+      await hover();
+      assert.equal(handles.length, 2, "the same card can be inspected again after removal");
+
+      state.interaction.sessions = [{ phase: "dragging" }];
+      notify();
+      assert.equal(handles[1].closed, true, "dragging closes the hover preview");
+      await hover();
+      assert.equal(handles.length, 2, "dragging suppresses hover dwell");
+
+      state.interaction.sessions = [];
+      notify();
+      stage.dispatchEvent(event("keydown", { target: shell, key: "i" }));
+      assert.equal(handles.length, 3);
+      notify();
+      assert.equal(handles[2].closed, false, "a live keyboard session stays open");
+      state.inspection.sessions = [];
+      notify();
+      assert.equal(handles[2].closed, true, "a removed session clears the focus handle");
+    } finally {
+      adapter.destroy();
+    }
+  });
+}
+
 test("hover inspection is opt-in and remains disabled by default", async () => {
   const doc = new FakeDocument();
   const stage = doc.createElement("div");

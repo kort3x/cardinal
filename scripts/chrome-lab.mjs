@@ -7,6 +7,8 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
 const inputScenarios = {
+  "benchmark-profile": async (options) => (await import("./chrome-benchmark-profile.mjs")).runBenchmarkProfile(options),
+  "texture-reuse": async (options) => (await import("./chrome-texture-reuse.mjs")).runTextureReuse(options),
   tutorial: async (options) => (await import("./chrome-tutorial-scenario.mjs")).runTutorialScenario(options),
   inspection: async (options) => (await import("./chrome-inspection-scenario.mjs")).runInspectionScenario(options),
   batch: async (options) => (await import("./chrome-batch-scenario.mjs")).runBatchScenario(options),
@@ -1147,7 +1149,7 @@ const diagnosticsScenario = String.raw`(async () => {
   await sleep(300);
   record("diagnostics report collects environment and WebGL data", () => report().includes("devicePixelRatio") && report().includes("webgl"));
   document.querySelector("#run-diagnostics-benchmark")?.click();
-  const deadline = performance.now() + 20000;
+  const deadline = performance.now() + 120000;
   while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) await sleep(100);
   record("benchmark measures 1, 5, 10, 50, and 100 cards", () => {
     const text = report();
@@ -1161,10 +1163,16 @@ const diagnosticsScenario = String.raw`(async () => {
       && text.includes('"cards": 100')
       && text.includes('"readyMs"')
       && text.includes('"assets"')
+      && JSON.stringify(parsed.lab?.benchmark?.map(row => row.cards)) === '[1,5,10,50,100]'
       && parsed.lab?.cards === baseline.desired.cards.length
       && parsed.lab?.benchmark?.every((result) => result.assets?.total > 0
         && result.assets.pending === 0
-        && result.assets.failed === 0);
+        && result.assets.failed === 0
+        && result.renderer?.textures?.active > 0
+        && result.renderer?.work?.textureUploads >= 0
+        && result.renderer?.lastRender?.calls > 0
+        && result.firstFrameMs >= result.startHandlerMs
+        && result.sampleMs > 0);
   });
   record("benchmark restores the lab", () => {
     const restored = lab.getScene().snapshot();

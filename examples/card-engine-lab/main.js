@@ -1138,6 +1138,7 @@ async function runDiagnosticsBenchmark() {
   const originalSelection = [...selectedCardIds];
   const originalZoneMembership = new Map(cardZoneIds);
   const benchmarkResults = [];
+  let restored = false;
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   const waitForReady = async (count, timeout = 20000) => {
     const startedAt = performance.now();
@@ -1182,17 +1183,24 @@ async function runDiagnosticsBenchmark() {
       const ready = await waitForReady(count);
       const readyDiagnostics = ready.rendererDiagnostics ?? {};
       await sleep(150);
+      const workBefore = scene.rendererDiagnostics?.()?.work;
+      const actionStart = performance.now();
       toggleRandomMotion();
+      const startHandlerMs = performance.now() - actionStart;
       const frameTimes = [];
+      let firstFrameMs = null;
       const sampleStart = performance.now();
       await new Promise((resolve) => {
         const sample = (now) => {
+          firstFrameMs ??= performance.now() - actionStart;
           frameTimes.push(now);
           if (now - sampleStart < 1500) requestAnimationFrame(sample);
           else resolve();
         };
         requestAnimationFrame(sample);
       });
+      const sampledRenderer = scene.rendererDiagnostics?.();
+      const workWindowMs = performance.now() - actionStart;
       stopRandomMotion();
       await sleep(500);
       const intervals = frameTimes.slice(1).map((time, index) => time - frameTimes[index]);
@@ -1206,6 +1214,16 @@ async function runDiagnosticsBenchmark() {
         setupMs: Number(setupMs.toFixed(1)),
         readyMs: Number(ready.readyMs.toFixed(1)),
         assets: readyDiagnostics.imageSources ?? null,
+        startHandlerMs: Number(startHandlerMs.toFixed(1)),
+        firstFrameMs: Number((firstFrameMs ?? 0).toFixed(1)),
+        workload: "selected cards; random move, rotate and flip; warm images",
+        sampleMs: Number(elapsedMs.toFixed(1)),
+        workWindowMs: Number(workWindowMs.toFixed(1)),
+        renderer: sampledRenderer ? {
+          ...sampledRenderer,
+          work: Object.fromEntries(Object.entries(sampledRenderer.work).map(([key, value]) => [key,
+            Number((value - (workBefore?.[key] ?? 0)).toFixed(2))])),
+        } : null,
         fps: Number((elapsedMs > 0 ? (frameTimes.length - 1) * 1000 / elapsedMs : 0).toFixed(1)),
         frames: frameTimes.length,
         medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
@@ -1217,6 +1235,7 @@ async function runDiagnosticsBenchmark() {
     cardZoneIds = originalZoneMembership;
     selectedCardIds = new Set(originalSelection);
     applyLabCards(originalCards);
+    restored = true;
     await refreshDiagnostics("Benchmark complete; the lab state was restored.");
   } catch (error) {
     diagnosticsStatus.textContent = `Benchmark failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -1225,7 +1244,7 @@ async function runDiagnosticsBenchmark() {
     stopDemoAnimations();
     cardZoneIds = originalZoneMembership;
     selectedCardIds = new Set(originalSelection);
-    applyLabCards(originalCards);
+    if (!restored) applyLabCards(originalCards);
     runDiagnosticsBenchmarkButton.disabled = false;
     collectDiagnosticsButton.disabled = false;
     copyDiagnosticsButton.disabled = false;
@@ -2690,8 +2709,7 @@ function reverseZoneOrder(zoneId) {
   }
 }
 
-function renderCardList() {
-  const state = scene.snapshot();
+function renderCardList(state = scene.snapshot()) {
   syncZoneMembership(state);
   const zoneNames = new Map(state.zones.map((zone) => [zone.id, zoneDisplayName(zone)]));
   const items = state.desired.cards.map((card, index) => {
@@ -2962,7 +2980,7 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
   presentationOnly ||= demoTransaction;
   if (!presentationOnly) {
     updateMoveControlBounds(state);
-    renderCardList();
+    renderCardList(state);
     renderZones(state);
     renderElementList(state);
     syncInspectionControls(state);

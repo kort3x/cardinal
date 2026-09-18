@@ -283,12 +283,13 @@ export function attachInspectionInput({ element, scene, options = {} } = {}) {
     focusHandle = inspect(id, { modal: options.keyboardModal === true });
   }
 
-  function sceneChange() {
+  function sceneChange(detail) {
     try {
-      const sessions = scene.snapshot?.().interaction?.sessions ?? [];
+      const state = detail?.interaction ? detail : scene.snapshot?.();
+      const sessions = state?.interaction?.sessions ?? [];
       dragging = sessions.some((session) => session.phase === "dragging");
       if (dragging) { cancelHover(); cancelFocus(); }
-      const inspection = scene.snapshot?.().inspection;
+      const inspection = state?.inspection;
       if (inspection) {
         if (hoverHandle && !inspection.sessions.some(({ id }) => id === hoverHandle.id)) cancelHover();
         if (focusHandle && !inspection.sessions.some(({ id }) => id === focusHandle.id)) cancelFocus();

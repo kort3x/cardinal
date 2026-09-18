@@ -220,6 +220,24 @@ Open **Benchmark** below the stage:
 - **Copy report** copies the report, or selects it for manual copying when
   clipboard access is unavailable.
 
+The motion sample combines random movement, rotation and flipping of selected
+cards with already loaded images. Each row now includes the initial action's
+blocking time, time until the first observed animation callback, actual sample
+duration, and renderer work during the sample. Texture creations, redraws and
+upload submissions distinguish repeated content work from steady drawing;
+the last render's draw calls and triangles describe its geometry workload.
+`renderCpuMs` measures submission time on the CPU, not GPU completion. Texture
+memory is an RGBA estimate excluding driver overhead and mipmaps. Image readiness
+does not establish completed GPU uploads or explain initial page loading.
+`sampleMs` is the first-to-last animation timestamp interval used for FPS;
+`workWindowMs` covers the counters from action start through their capture,
+including the initial transaction. Use that duration when deriving work rates.
+
+Identical built-in faces share textures while at least one permitted surface
+uses them. Concealing the last revealed copy releases its front texture. Unique
+card content and custom element renderers can need more textures than this
+benchmark's repeated card fixture.
+
 The **Renderer** and **FPS** lines are useful first checks when a visual result
 looks wrong. Share the benchmark report with a bug report when reporting a
 browser-specific rendering or performance problem.

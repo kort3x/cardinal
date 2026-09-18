@@ -1,0 +1,1326 @@
+{
+  "baselineRevision": "4b94f84 plus diagnostic counters and profiling harness",
+  "notes": [
+    "Local macOS headless Chrome; not a Surface measurement.",
+    "Same seed and population/duration protocol; cycles complete at speed-dependent times. Frame counts and final poses therefore need not match.",
+    "CPU profiler totals include setup and restoration. Raw CPU profiles remain local temporary files.",
+    "Baseline firstFrameMs used the rAF timestamp and is invalid for action latency; corrected results use callback-entry performance.now()."
+  ],
+  "before": {
+    "environment": {
+      "browser": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+        "platform": "MacIntel",
+        "language": "de-DE",
+        "userAgentData": {
+          "brands": [
+            {
+              "brand": "Google Chrome",
+              "version": "153"
+            },
+            {
+              "brand": "Not_A Brand",
+              "version": "8"
+            },
+            {
+              "brand": "Chromium",
+              "version": "153"
+            }
+          ],
+          "mobile": false,
+          "platform": "macOS",
+          "highEntropy": {
+            "architecture": "arm",
+            "bitness": "64",
+            "brands": [
+              {
+                "brand": "Google Chrome",
+                "version": "153"
+              },
+              {
+                "brand": "Not_A Brand",
+                "version": "8"
+              },
+              {
+                "brand": "Chromium",
+                "version": "153"
+              }
+            ],
+            "mobile": false,
+            "model": "",
+            "platform": "macOS",
+            "platformVersion": "26.6.2",
+            "uaFullVersion": "153.0.8010.48"
+          }
+        }
+      },
+      "device": {
+        "hardwareConcurrency": 10,
+        "deviceMemoryGiB": 16,
+        "model": null,
+        "devicePixelRatio": 1.25,
+        "screen": {
+          "width": 800,
+          "height": 600,
+          "colorDepth": 24,
+          "refreshRateHz": null
+        },
+        "prefersReducedMotion": false,
+        "visibilityState": "visible"
+      },
+      "viewport": {
+        "windowCss": {
+          "width": 2515,
+          "height": 1322
+        },
+        "stageCss": {
+          "width": 1741,
+          "height": 994
+        },
+        "canvasPixels": {
+          "width": 2173,
+          "height": 1240
+        }
+      }
+    },
+    "benchmark": [
+      {
+        "cards": 1,
+        "setupMs": 39.1,
+        "readyMs": 0,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 3.2,
+        "firstFrameMs": 0,
+        "renderer": {
+          "work": {
+            "renders": 98,
+            "renderCpuMs": 12.6,
+            "textureCreates": 3,
+            "textureDraws": 3,
+            "textureDrawCpuMs": 1.1,
+            "textureUploads": 3,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 6,
+            "triangles": 4308
+          },
+          "resources": {
+            "geometries": 7,
+            "textures": 2
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 1,
+          "mountedSurfaces": 1,
+          "imageSources": {
+            "total": 2,
+            "loaded": 2,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 92,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 5,
+        "setupMs": 38,
+        "readyMs": 0.1,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 3.8,
+        "firstFrameMs": 10,
+        "renderer": {
+          "work": {
+            "renders": 97,
+            "renderCpuMs": 19.7,
+            "textureCreates": 13,
+            "textureDraws": 13,
+            "textureDrawCpuMs": 1.5,
+            "textureUploads": 13,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 40,
+            "triangles": 22520
+          },
+          "resources": {
+            "geometries": 35,
+            "textures": 11
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 5,
+          "mountedSurfaces": 10,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 91,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 10,
+        "setupMs": 52.2,
+        "readyMs": 0.2,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 4.1,
+        "firstFrameMs": 11.8,
+        "renderer": {
+          "work": {
+            "renders": 97,
+            "renderCpuMs": 28.7,
+            "textureCreates": 24,
+            "textureDraws": 24,
+            "textureDrawCpuMs": 2.7,
+            "textureUploads": 24,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 72,
+            "triangles": 44256
+          },
+          "resources": {
+            "geometries": 70,
+            "textures": 17
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 10,
+          "mountedSurfaces": 16,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 91,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 50,
+        "setupMs": 127.4,
+        "readyMs": 0.7,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 10.8,
+        "firstFrameMs": 0.5,
+        "renderer": {
+          "work": {
+            "renders": 98,
+            "renderCpuMs": 110.1,
+            "textureCreates": 124,
+            "textureDraws": 124,
+            "textureDrawCpuMs": 6.8,
+            "textureUploads": 153,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 374,
+            "triangles": 222652
+          },
+          "resources": {
+            "geometries": 350,
+            "textures": 88
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 50,
+          "mountedSurfaces": 87,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 92,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.8,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 100,
+        "setupMs": 199.3,
+        "readyMs": 1.1,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 29.6,
+        "firstFrameMs": 9.5,
+        "renderer": {
+          "work": {
+            "renders": 92,
+            "renderCpuMs": 286.5,
+            "textureCreates": 240,
+            "textureDraws": 240,
+            "textureDrawCpuMs": 27.2,
+            "textureUploads": 319,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 744,
+            "triangles": 444912
+          },
+          "resources": {
+            "geometries": 700,
+            "textures": 173
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 100,
+          "mountedSurfaces": 172,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 55.4,
+        "frames": 86,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.8,
+        "missedFramesOver20Ms": 4
+      }
+    ],
+    "cpuSelfTime": [
+      {
+        "frame": "(idle) :0",
+        "ms": 9086
+      },
+      {
+        "frame": "(program) :0",
+        "ms": 489
+      },
+      {
+        "frame": "copy http://localhost:4173/packages/card-engine/src/scene.js:18",
+        "ms": 215
+      },
+      {
+        "frame": "needsUpdate http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:1759",
+        "ms": 188
+      },
+      {
+        "frame": "getProgramInfoLog :0",
+        "ms": 120
+      },
+      {
+        "frame": "(garbage collector) :0",
+        "ms": 97
+      },
+      {
+        "frame": "getClientRects :0",
+        "ms": 56
+      },
+      {
+        "frame": "copy http://localhost:4173/packages/card-engine/src/model.js:15",
+        "ms": 46
+      },
+      {
+        "frame": "update http://localhost:4173/packages/card-engine/src/renderers/webgl.js:1116",
+        "ms": 42
+      },
+      {
+        "frame": "addVertex http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:35784",
+        "ms": 39
+      },
+      {
+        "frame": "WebGLRenderer.renderBufferDirect http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:17233",
+        "ms": 38
+      },
+      {
+        "frame": "getBoundingClientRect :0",
+        "ms": 36
+      },
+      {
+        "frame": "updateMatrixWorld http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:13067",
+        "ms": 35
+      },
+      {
+        "frame": "projectObject http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:17897",
+        "ms": 32
+      },
+      {
+        "frame": "multiplyMatrices http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:10570",
+        "ms": 32
+      },
+      {
+        "frame": "replaceChildren :0",
+        "ms": 32
+      },
+      {
+        "frame": "setup http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:1623",
+        "ms": 27
+      },
+      {
+        "frame": "bindVertexArray :0",
+        "ms": 26
+      },
+      {
+        "frame": "createBuffer :0",
+        "ms": 24
+      },
+      {
+        "frame": "createElement :0",
+        "ms": 24
+      },
+      {
+        "frame": "(anonymous) http://localhost:4173/examples/card-engine-lab/main.js:2425",
+        "ms": 23
+      },
+      {
+        "frame": "setProgram http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:18407",
+        "ms": 20
+      },
+      {
+        "frame": "setFromEuler http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:4191",
+        "ms": 20
+      },
+      {
+        "frame": "addUV http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:35793",
+        "ms": 20
+      },
+      {
+        "frame": "structuredClone :0",
+        "ms": 20
+      }
+    ]
+  },
+  "afterFirst": {
+    "environment": {
+      "browser": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+        "platform": "MacIntel",
+        "language": "de-DE",
+        "userAgentData": {
+          "brands": [
+            {
+              "brand": "Google Chrome",
+              "version": "153"
+            },
+            {
+              "brand": "Not_A Brand",
+              "version": "8"
+            },
+            {
+              "brand": "Chromium",
+              "version": "153"
+            }
+          ],
+          "mobile": false,
+          "platform": "macOS",
+          "highEntropy": {
+            "architecture": "arm",
+            "bitness": "64",
+            "brands": [
+              {
+                "brand": "Google Chrome",
+                "version": "153"
+              },
+              {
+                "brand": "Not_A Brand",
+                "version": "8"
+              },
+              {
+                "brand": "Chromium",
+                "version": "153"
+              }
+            ],
+            "mobile": false,
+            "model": "",
+            "platform": "macOS",
+            "platformVersion": "26.6.2",
+            "uaFullVersion": "153.0.8010.48"
+          }
+        }
+      },
+      "device": {
+        "hardwareConcurrency": 10,
+        "deviceMemoryGiB": 16,
+        "model": null,
+        "devicePixelRatio": 1.25,
+        "screen": {
+          "width": 800,
+          "height": 600,
+          "colorDepth": 24,
+          "refreshRateHz": null
+        },
+        "prefersReducedMotion": false,
+        "visibilityState": "visible"
+      },
+      "viewport": {
+        "windowCss": {
+          "width": 2515,
+          "height": 1322
+        },
+        "stageCss": {
+          "width": 1741,
+          "height": 994
+        },
+        "canvasPixels": {
+          "width": 2173,
+          "height": 1240
+        }
+      }
+    },
+    "benchmark": [
+      {
+        "cards": 1,
+        "setupMs": 40.8,
+        "readyMs": 0,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 3.4,
+        "firstFrameMs": 4.4,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1516.6,
+        "renderer": {
+          "textures": {
+            "active": 1,
+            "estimatedBytes": 1687400
+          },
+          "work": {
+            "renders": 98,
+            "renderCpuMs": 10.6,
+            "textureCreates": 3,
+            "textureDraws": 3,
+            "textureDrawCpuMs": 0.9,
+            "textureUploads": 3,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 6,
+            "triangles": 4308
+          },
+          "resources": {
+            "geometries": 7,
+            "textures": 2
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 1,
+          "mountedSurfaces": 1,
+          "imageSources": {
+            "total": 2,
+            "loaded": 2,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 92,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 5,
+        "setupMs": 34.9,
+        "readyMs": 0.1,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 2.8,
+        "firstFrameMs": 14.1,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1499.9,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 97,
+            "renderCpuMs": 17.9,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.3,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 36,
+            "triangles": 22128
+          },
+          "resources": {
+            "geometries": 35,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 5,
+          "mountedSurfaces": 8,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 91,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 10,
+        "setupMs": 39.6,
+        "readyMs": 0.1,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 3.3,
+        "firstFrameMs": 8.3,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1500,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 97,
+            "renderCpuMs": 29.3,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.4,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 74,
+            "triangles": 44452
+          },
+          "resources": {
+            "geometries": 70,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 10,
+          "mountedSurfaces": 17,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 91,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.8,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 50,
+        "setupMs": 93.2,
+        "readyMs": 0.7,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 8.2,
+        "firstFrameMs": 10.2,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1516.5,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 98,
+            "renderCpuMs": 125.7,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.1,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 366,
+            "triangles": 221868
+          },
+          "resources": {
+            "geometries": 350,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 50,
+          "mountedSurfaces": 83,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 92,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.8,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 100,
+        "setupMs": 168.8,
+        "readyMs": 1.1,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 18.3,
+        "firstFrameMs": 21.6,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1516.6,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 96,
+            "renderCpuMs": 197.4,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.1,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 760,
+            "triangles": 446480
+          },
+          "resources": {
+            "geometries": 700,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 100,
+          "mountedSurfaces": 180,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 58.7,
+        "frames": 90,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.8,
+        "missedFramesOver20Ms": 2
+      }
+    ],
+    "cpuSelfTime": [
+      {
+        "frame": "(idle) :0",
+        "ms": 9343
+      },
+      {
+        "frame": "(program) :0",
+        "ms": 475
+      },
+      {
+        "frame": "needsUpdate http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:1759",
+        "ms": 209
+      },
+      {
+        "frame": "copy http://localhost:4173/packages/card-engine/src/scene.js:18",
+        "ms": 105
+      },
+      {
+        "frame": "getProgramInfoLog :0",
+        "ms": 68
+      },
+      {
+        "frame": "(garbage collector) :0",
+        "ms": 52
+      },
+      {
+        "frame": "copy http://localhost:4173/packages/card-engine/src/model.js:15",
+        "ms": 45
+      },
+      {
+        "frame": "getClientRects :0",
+        "ms": 45
+      },
+      {
+        "frame": "getBoundingClientRect :0",
+        "ms": 43
+      },
+      {
+        "frame": "setup http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:1623",
+        "ms": 35
+      },
+      {
+        "frame": "WebGLRenderer.renderBufferDirect http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:17233",
+        "ms": 33
+      },
+      {
+        "frame": "addVertex http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:35784",
+        "ms": 32
+      },
+      {
+        "frame": "updateMatrixWorld http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:13067",
+        "ms": 32
+      },
+      {
+        "frame": "replaceChildren :0",
+        "ms": 29
+      },
+      {
+        "frame": "projectObject http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:17897",
+        "ms": 29
+      },
+      {
+        "frame": "(anonymous) http://localhost:4173/examples/card-engine-lab/main.js:2431",
+        "ms": 27
+      },
+      {
+        "frame": "bindVertexArray :0",
+        "ms": 27
+      },
+      {
+        "frame": "updateTexture http://localhost:4173/packages/card-engine/src/renderers/webgl.js:1080",
+        "ms": 27
+      },
+      {
+        "frame": "addUV http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:35793",
+        "ms": 23
+      },
+      {
+        "frame": "structuredClone :0",
+        "ms": 21
+      },
+      {
+        "frame": "update http://localhost:4173/packages/card-engine/src/renderers/webgl.js:1120",
+        "ms": 20
+      },
+      {
+        "frame": "multiplyMatrices http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:10570",
+        "ms": 16
+      },
+      {
+        "frame": "refreshGeometry http://localhost:4173/packages/card-engine/src/scene.js:377",
+        "ms": 15
+      },
+      {
+        "frame": "setFromEuler http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:4191",
+        "ms": 15
+      },
+      {
+        "frame": "setProgram http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:18407",
+        "ms": 15
+      }
+    ]
+  },
+  "afterFinal": {
+    "environment": {
+      "browser": {
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+        "platform": "MacIntel",
+        "language": "de-DE",
+        "userAgentData": {
+          "brands": [
+            {
+              "brand": "Google Chrome",
+              "version": "153"
+            },
+            {
+              "brand": "Not_A Brand",
+              "version": "8"
+            },
+            {
+              "brand": "Chromium",
+              "version": "153"
+            }
+          ],
+          "mobile": false,
+          "platform": "macOS",
+          "highEntropy": {
+            "architecture": "arm",
+            "bitness": "64",
+            "brands": [
+              {
+                "brand": "Google Chrome",
+                "version": "153"
+              },
+              {
+                "brand": "Not_A Brand",
+                "version": "8"
+              },
+              {
+                "brand": "Chromium",
+                "version": "153"
+              }
+            ],
+            "mobile": false,
+            "model": "",
+            "platform": "macOS",
+            "platformVersion": "26.6.2",
+            "uaFullVersion": "153.0.8010.48"
+          }
+        }
+      },
+      "device": {
+        "hardwareConcurrency": 10,
+        "deviceMemoryGiB": 16,
+        "model": null,
+        "devicePixelRatio": 1.25,
+        "screen": {
+          "width": 800,
+          "height": 600,
+          "colorDepth": 24,
+          "refreshRateHz": null
+        },
+        "prefersReducedMotion": false,
+        "visibilityState": "visible"
+      },
+      "viewport": {
+        "windowCss": {
+          "width": 2515,
+          "height": 1322
+        },
+        "stageCss": {
+          "width": 1741,
+          "height": 994
+        },
+        "canvasPixels": {
+          "width": 2173,
+          "height": 1240
+        }
+      },
+      "webgl": {
+        "available": true,
+        "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)",
+        "shadingLanguageVersion": "WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)",
+        "vendor": "Google Inc. (Apple)",
+        "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)",
+        "antialias": true,
+        "maxTextureSize": 16384,
+        "maxRenderbufferSize": 16384,
+        "maxViewportDimensions": [
+          16384,
+          16384
+        ],
+        "maxTextureImageUnits": 16,
+        "extensionCount": 36
+      }
+    },
+    "benchmark": [
+      {
+        "cards": 1,
+        "setupMs": 46.3,
+        "readyMs": 0.1,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 3.5,
+        "firstFrameMs": 12.9,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1500.1,
+        "workWindowMs": 1511.9,
+        "renderer": {
+          "textures": {
+            "active": 1,
+            "estimatedBytes": 1687400
+          },
+          "work": {
+            "renders": 97,
+            "renderCpuMs": 15.2,
+            "textureCreates": 3,
+            "textureDraws": 3,
+            "textureDrawCpuMs": 0.9,
+            "textureUploads": 3,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 6,
+            "triangles": 4308
+          },
+          "resources": {
+            "geometries": 7,
+            "textures": 2
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 1,
+          "mountedSurfaces": 1,
+          "imageSources": {
+            "total": 2,
+            "loaded": 2,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 91,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 5,
+        "setupMs": 32.6,
+        "readyMs": 0.2,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 3,
+        "firstFrameMs": 16.6,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1499.9,
+        "workWindowMs": 1516.6,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 97,
+            "renderCpuMs": 20.9,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.3,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 36,
+            "triangles": 22128
+          },
+          "resources": {
+            "geometries": 35,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 5,
+          "mountedSurfaces": 8,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 91,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 10,
+        "setupMs": 44.3,
+        "readyMs": 0.4,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 4,
+        "firstFrameMs": 5.1,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1516.6,
+        "workWindowMs": 1519.7,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 98,
+            "renderCpuMs": 33.4,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.3,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 74,
+            "triangles": 44452
+          },
+          "resources": {
+            "geometries": 70,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 10,
+          "mountedSurfaces": 17,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 92,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.7,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 50,
+        "setupMs": 101,
+        "readyMs": 0.6,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 9.3,
+        "firstFrameMs": 13.8,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1500,
+        "workWindowMs": 1513.8,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 97,
+            "renderCpuMs": 108.4,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.2,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 366,
+            "triangles": 221868
+          },
+          "resources": {
+            "geometries": 350,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 50,
+          "mountedSurfaces": 83,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 60,
+        "frames": 91,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.8,
+        "missedFramesOver20Ms": 0
+      },
+      {
+        "cards": 100,
+        "setupMs": 188.4,
+        "readyMs": 1.3,
+        "assets": {
+          "total": 4,
+          "loaded": 4,
+          "pending": 0,
+          "failed": 0
+        },
+        "startHandlerMs": 18.8,
+        "firstFrameMs": 22.2,
+        "workload": "selected cards; random move, rotate and flip; warm images",
+        "sampleMs": 1533.3,
+        "workWindowMs": 1535.9,
+        "renderer": {
+          "textures": {
+            "active": 2,
+            "estimatedBytes": 3374800
+          },
+          "work": {
+            "renders": 98,
+            "renderCpuMs": 266.2,
+            "textureCreates": 1,
+            "textureDraws": 1,
+            "textureDrawCpuMs": 0.3,
+            "textureUploads": 1,
+            "geometryBuilds": 0
+          },
+          "lastRender": {
+            "calls": 760,
+            "triangles": 446480
+          },
+          "resources": {
+            "geometries": 700,
+            "textures": 3
+          },
+          "pixelRatio": 1.25,
+          "mountedCards": 100,
+          "mountedSurfaces": 180,
+          "imageSources": {
+            "total": 4,
+            "loaded": 4,
+            "pending": 0,
+            "failed": 0
+          }
+        },
+        "fps": 59.3,
+        "frames": 92,
+        "medianFrameMs": 16.7,
+        "p95FrameMs": 16.8,
+        "missedFramesOver20Ms": 1
+      }
+    ],
+    "cpuSelfTime": [
+      {
+        "frame": "(idle) :0",
+        "ms": 9175
+      },
+      {
+        "frame": "(program) :0",
+        "ms": 477
+      },
+      {
+        "frame": "needsUpdate http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:1759",
+        "ms": 251
+      },
+      {
+        "frame": "copy http://localhost:4173/packages/card-engine/src/scene.js:18",
+        "ms": 100
+      },
+      {
+        "frame": "getProgramInfoLog :0",
+        "ms": 83
+      },
+      {
+        "frame": "(garbage collector) :0",
+        "ms": 56
+      },
+      {
+        "frame": "getClientRects :0",
+        "ms": 52
+      },
+      {
+        "frame": "copy http://localhost:4173/packages/card-engine/src/model.js:15",
+        "ms": 42
+      },
+      {
+        "frame": "update http://localhost:4173/packages/card-engine/src/renderers/webgl.js:1121",
+        "ms": 42
+      },
+      {
+        "frame": "WebGLRenderer.renderBufferDirect http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:17233",
+        "ms": 41
+      },
+      {
+        "frame": "setup http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:1623",
+        "ms": 37
+      },
+      {
+        "frame": "bindVertexArray :0",
+        "ms": 37
+      },
+      {
+        "frame": "multiplyMatrices http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:10570",
+        "ms": 34
+      },
+      {
+        "frame": "getBoundingClientRect :0",
+        "ms": 34
+      },
+      {
+        "frame": "addVertex http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:35784",
+        "ms": 34
+      },
+      {
+        "frame": "(anonymous) http://localhost:4173/examples/card-engine-lab/main.js:2433",
+        "ms": 33
+      },
+      {
+        "frame": "updateMatrixWorld http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:13067",
+        "ms": 27
+      },
+      {
+        "frame": "replaceChildren :0",
+        "ms": 27
+      },
+      {
+        "frame": "addUV http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:35793",
+        "ms": 25
+      },
+      {
+        "frame": "setProgram http://localhost:4173/packages/card-engine/node_modules/three/build/three.module.js:18407",
+        "ms": 25
+      },
+      {
+        "frame": "structuredClone :0",
+        "ms": 24
+      },
+      {
+        "frame": "(anonymous) http://localhost:4173/packages/card-engine/src/layout.js:44",
+        "ms": 23
+      },
+      {
+        "frame": "updateTexture http://localhost:4173/packages/card-engine/src/renderers/webgl.js:1080",
+        "ms": 20
+      },
+      {
+        "frame": "setFromEuler http://localhost:4173/packages/card-engine/node_modules/three/build/three.core.js:4191",
+        "ms": 17
+      },
+      {
+        "frame": "refreshGeometry http://localhost:4173/packages/card-engine/src/scene.js:377",
+        "ms": 17
+      }
+    ]
+  }
+}

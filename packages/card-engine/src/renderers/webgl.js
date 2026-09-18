@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createHeadlessRenderer, filterContentElements } from "../renderer.js";
 import { DEFAULT_CARD_THICKNESS, cardDimensions, cardThickness, spacerHeight } from "../layout.js";
+import { createTexturePool } from "./texture-pool.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
@@ -746,7 +747,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     for (const mounted of cards.values()) {
       mounted.frontKey = null;
       mounted.backKey = null;
-      if (mounted.lastCard && mounted.lastPose) update(mounted.lastCard, mounted.lastPose, { render: false });
+      if (mounted.lastCard && mounted.lastPose) update(mounted.lastCard, mounted.lastPose, { render: false, presentation: mounted.lastPresentation });
     }
     render();
   };
@@ -755,6 +756,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
 
   const cards = new Map();
   const imageCache = new Map();
+  const texturePool = createTexturePool();
+  // Cumulative counters are sampled explicitly, never through scene snapshots.
+  const work = { renders: 0, renderCpuMs: 0, textureCreates: 0, textureDraws: 0, textureDrawCpuMs: 0, textureUploads: 0, geometryBuilds: 0 };
   const interactionPreview = new THREE.Group();
   interactionPreview.userData.interactionPreview = true;
   renderScene.add(interactionPreview);
@@ -802,7 +806,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
 
   function render() {
     if (disposed || !contextAvailable) return;
+    const started = performance.now();
     webgl.render(renderScene, camera);
+    work.renders += 1;
+    work.renderCpuMs += performance.now() - started;
   }
 
   function cachedImage(source) {
@@ -834,7 +841,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     return entry;
   }
 
-  function makeTexture(content, dimensions, options = {}, isCurrent = () => true) {
+  function makeTexture(content, dimensions, options = {}) {
     const resolution = Math.min(4, Math.max(2, (globalThis.devicePixelRatio || 1) * 2));
     const canvas2d = document.createElement("canvas");
     canvas2d.width = Math.round(dimensions.width * resolution);
@@ -843,6 +850,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (!context) return null;
     context.scale(resolution, resolution);
     const texture = new THREE.CanvasTexture(canvas2d);
+    work.textureCreates += 1;
+    texture.onUpdate = () => { work.textureUploads += 1; };
     let textureDisposed = false;
     texture.addEventListener("dispose", () => { textureDisposed = true; });
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -855,18 +864,24 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       .filter((source, index, sources) => sources.indexOf(source) === index)
       .map((source) => [source, cachedImage(source)]);
     const images = new Map(imageEntries.filter(([, entry]) => entry.loaded).map(([source, entry]) => [source, entry.image]));
-    const redraw = (source, image) => {
-      if (disposed || textureDisposed || !isCurrent()) return;
-      images.set(source, image);
+    const draw = () => {
+      const started = performance.now();
       drawCardTextureContent(context, content, dimensions, images, { ...options, elementRenderers });
+      work.textureDraws += 1;
+      work.textureDrawCpuMs += performance.now() - started;
+    };
+    const redraw = (source, image) => {
+      if (disposed || textureDisposed) return;
+      images.set(source, image);
+      draw();
       texture.needsUpdate = true;
       render();
     };
-    drawCardTextureContent(context, content, dimensions, images, { ...options, elementRenderers });
+    draw();
     for (const [source, entry] of imageEntries) {
       if (!entry.loaded) entry.promise.then(
         (image) => redraw(source, image),
-        (error) => { if (!disposed && !textureDisposed && isCurrent()) onStatus({ reason: "asset-load-failed", source, error }); },
+        (error) => { if (!disposed && !textureDisposed) onStatus({ reason: "asset-load-failed", source, error }); },
       );
     }
     return texture;
@@ -874,6 +889,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
 
   function mount(card, dimensions, thickness) {
     if (cards.has(card.id)) return cards.get(card.id);
+    work.geometryBuilds += 1;
     const width = dimensions.width;
     const height = dimensions.height;
     const depth = thickness;
@@ -965,14 +981,14 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       accessibilityShell,
       frontTexture: null,
       backTexture: null,
+      frontLease: null,
+      backLease: null,
       frontKey: null,
       backKey: null,
       frontContent: null,
       backContent: null,
       frontContentKey: null,
       backContentKey: null,
-      frontGeneration: 0,
-      backGeneration: 0,
       frontTransition: null,
       backTransition: null,
       accessibilityCard: null,
@@ -1005,6 +1021,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
 
   function updateGeometry(mounted, card, dimensions, thickness) {
     if (mounted.width === dimensions.width && mounted.height === dimensions.height && mounted.thickness === thickness) return;
+    work.geometryBuilds += 1;
     const shape = createCardShape(card.shape ?? templates[card.template]?.shape, dimensions);
     const geometry = createCardGeometry(shape, { depth: thickness });
     const faceDimensions = {
@@ -1084,15 +1101,18 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       if (!isResizing) mounted[transitionName] = null;
       return;
     }
-    const generationName = `${side}Generation`;
-    const generation = (mounted[generationName] ?? 0) + 1;
-    mounted[generationName] = generation;
-    const texture = makeTexture(content, dimensions, options, () => mounted[generationName] === generation);
-    if (!texture) return;
+    // Project renderers can depend on state outside the serialized face inputs.
+    // Give them private textures; built-in faces share only active references.
+    const poolKey = Object.keys(elementRenderers).length ? Symbol()
+      : JSON.stringify([globalThis.devicePixelRatio || 1, key]);
+    const lease = texturePool.acquire(poolKey, () => makeTexture(content, dimensions, options));
+    if (!lease) return;
     const textureName = `${side}Texture`;
-    mounted[textureName]?.dispose();
-    mounted[textureName] = texture;
-    mounted[`${side}Material`].map = texture;
+    mounted[`${side}Material`].map = null;
+    mounted[`${side}Lease`]?.release();
+    mounted[`${side}Lease`] = lease;
+    mounted[textureName] = lease.texture;
+    mounted[`${side}Material`].map = lease.texture;
     mounted[`${side}Material`].needsUpdate = true;
     mounted[keyName] = key;
     if (!isResizing) mounted[transitionName] = null;
@@ -1117,6 +1137,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.frontBase.visible = card.faceUp !== false;
     mounted.lastCard = card;
     mounted.lastPose = pose;
+    mounted.lastPresentation = presentation;
     const drawOrder = pose.drawOrder ?? 0;
     if (mounted.drawOrder !== drawOrder) drawOrderRevision += 1;
     mounted.drawOrder = drawOrder;
@@ -1153,10 +1174,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
         updateTexture(mounted, "front", logicalFaceContent(card, "front", presentation), textureDimensions, targetDimensions, faceId);
         mounted.frontSuppressed = false;
       } else {
-        mounted.frontGeneration += 1;
-        mounted.frontTexture?.dispose();
-        mounted.frontTexture = null;
         mounted.frontMaterial.map = null;
+        mounted.frontLease?.release();
+        mounted.frontLease = null;
+        mounted.frontTexture = null;
         mounted.frontMaterial.needsUpdate = true;
         mounted.frontKey = null;
         mounted.frontContent = null;
@@ -1474,8 +1495,6 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   function remove(cardId) {
     const mounted = cards.get(cardId);
     if (!mounted) return;
-    mounted.frontGeneration += 1;
-    mounted.backGeneration += 1;
     renderScene.remove(mounted.cardGroup);
     mounted.accessibilityShell.remove();
     mounted.geometry.dispose();
@@ -1489,8 +1508,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.sideMaterial.dispose();
     mounted.frontBaseMaterial.dispose();
     mounted.backBaseMaterial.dispose();
-    mounted.frontMaterial.map?.dispose();
-    mounted.backMaterial.map?.dispose();
+    mounted.frontMaterial.map = null;
+    mounted.backMaterial.map = null;
+    mounted.frontLease?.release();
+    mounted.backLease?.release();
     mounted.frontMaterial.dispose();
     mounted.backMaterial.dispose();
     mounted.selectionFrameMaterial.dispose();
@@ -1538,7 +1559,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     render,
     diagnostics() {
       const sources = new Set();
+      const textures = new Set();
       for (const mounted of cards.values()) {
+        if (mounted.frontTexture) textures.add(mounted.frontTexture);
+        if (mounted.backTexture) textures.add(mounted.backTexture);
         for (const source of imageSourcesForContent(mounted.frontContent)) sources.add(source);
         for (const source of imageSourcesForContent(mounted.backContent)) sources.add(source);
       }
@@ -1552,6 +1576,14 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
         else pending += 1;
       }
       return {
+        textures: {
+          active: textures.size,
+          estimatedBytes: [...textures].reduce((bytes, texture) => bytes + texture.image.width * texture.image.height * 4, 0),
+        },
+        work: { ...work },
+        lastRender: { calls: webgl.info.render.calls, triangles: webgl.info.render.triangles },
+        resources: { ...webgl.info.memory },
+        pixelRatio: webgl.getPixelRatio(),
         mountedCards: cards.size,
         mountedSurfaces: [...cards.values()].reduce((count, mounted) => count
           + Number(Boolean(mounted.frontTexture)) + Number(Boolean(mounted.backTexture)), 0),
@@ -1570,6 +1602,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       interactionPreviewKey = null;
       disposeInteractionPreview();
       for (const cardId of cards.keys()) remove(cardId);
+      texturePool.destroy();
       for (const entry of imageCache.values()) {
         entry.image.onload = null;
         entry.image.onerror = null;

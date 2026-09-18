@@ -49,6 +49,8 @@ is necessary only when extending or diagnosing them.
 | Single-card and cohort dragging with increasing mounted population | `drag-performance` |
 | Mobile responsive scale and touch-capability defaults | `mobile-scale` |
 | Cohort rendering / random-motion performance / card benchmark | `performance` / `random-performance` / `benchmark` |
+| Active texture reuse, concealment eviction and independent edits | `texture-reuse` |
+| Actual Lab benchmark with seeded random input and CPU profiling | `benchmark-profile` |
 
 For any listed Chromium scenario, use
 `node scripts/chrome-lab.mjs --headless --scenario <name>` for Chrome, or add
@@ -73,6 +75,13 @@ timings are measurements, not a supported-device guarantee; report the actual
 fixture, sample size and environment, and distinguish frame/handler timing from
 end-to-end display latency. The Surface and physical touch devices require their
 own measurements.
+
+`benchmark-profile` uses the actual Benchmark button and preserves its population
+and sampling durations, with a fixed random seed for comparison. Set
+`CARDINAL_PROFILE_PATH=/tmp/cardinal.cpuprofile` to retain the Chrome CPU profile.
+It includes setup and restoration, so aggregate CPU totals are not motion-only
+costs. Profiling adds overhead; compare runs in the same browser, viewport and
+DPR. Work counters and submission timings do not measure GPU completion.
 
 ### Physical drag report
 

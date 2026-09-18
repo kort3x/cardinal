@@ -746,3 +746,18 @@ outline and status text alongside its selection treatment.
 The Lab's **Inspection** toolbox includes a two-card fixture with image-only zone
 presentation, a content-face selector, live text updates, and conceal/reveal.
 Run `npm run test:chrome:inspection` for the focused browser journey.
+
+## Renderer diagnostics
+
+`scene.rendererDiagnostics()` returns WebGL resource counts, active surface
+texture counts and estimated RGBA bytes, current image-source readiness, the
+last render's draw calls/triangles, and cumulative renderer work counters. Other
+adapters may return `null`. Query explicitly when collecting a report; these
+values are not added to every scene snapshot. Subtract two `work` readings to
+measure texture creation, drawing, upload submissions and render CPU time for a
+workload. CPU submission time and loaded images do not prove GPU completion.
+
+The WebGL adapter shares identical built-in surface textures while they are in
+use. Concealment detaches the front immediately; the final permitted reference
+releases the texture. There is no idle front-texture cache. Custom element
+renderers keep private textures because their drawing can use external state.
