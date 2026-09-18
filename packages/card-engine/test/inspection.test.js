@@ -282,7 +282,7 @@ test("input supports dwell, focus, keyboard, touch hold, and timer cancellation"
     on() { return () => {}; },
     snapshot() { return { interaction: { sessions: [] } }; },
   };
-  const adapter = attachInspectionInput({ element: stage, scene, options: { dwell: 5, dismissDelay: 5, touchHold: 5 } });
+  const adapter = attachInspectionInput({ element: stage, scene, options: { hover: true, dwell: 5, dismissDelay: 5, touchHold: 5 } });
 
   stage.dispatchEvent(event("pointermove", { pointerType: "mouse" }));
   await new Promise((resolve) => setTimeout(resolve, 12));
@@ -307,6 +307,26 @@ test("input supports dwell, focus, keyboard, touch hold, and timer cancellation"
   stage.dispatchEvent(event("pointerdown", { target: shell, pointerType: "touch", pointerId: 8 }));
   await new Promise((resolve) => setTimeout(resolve, 12));
   assert.equal(calls.length, callCount);
+});
+
+test("hover inspection is opt-in and remains disabled by default", async () => {
+  const doc = new FakeDocument();
+  const stage = doc.createElement("div");
+  doc.body.append(stage);
+  const calls = [];
+  const scene = {
+    clientToScene(point) { return point; },
+    hitTest() { return { cardId: "one" }; },
+    inspect(cardId) { calls.push(cardId); return { close() {} }; },
+    on() { return () => {}; },
+    snapshot() { return { interaction: { sessions: [] } }; },
+  };
+  const adapter = attachInspectionInput({ element: stage, scene, options: { dwell: 5 } });
+
+  stage.dispatchEvent(event("pointermove", { pointerType: "mouse" }));
+  await new Promise((resolve) => setTimeout(resolve, 12));
+  assert.deepEqual(calls, []);
+  adapter.destroy();
 });
 
 test("in-place clamping measures scaled scene units in viewport pixels", () => {

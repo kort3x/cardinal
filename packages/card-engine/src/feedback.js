@@ -29,7 +29,9 @@ export function createFeedback({ element, scene }) {
     node.style.top = `${point.y - rect.top + element.scrollTop}px`;
     node.style.width = `${Math.abs(edge.x - point.x) * 2 + 8}px`;
     node.style.height = `${Math.abs(edge.y - point.y) * 2 + 8}px`;
-    node.style.transform = `translate(-50%, -50%) rotate(${pose.angle ?? 0}deg)`;
+    // WebGL's y-up scene makes a positive Z rotation appear counterclockwise
+    // in screen space, while CSS's y-down coordinate system rotates clockwise.
+    node.style.transform = `translate(-50%, -50%) rotate(${-(pose.angle ?? 0)}deg)`;
     node.dataset.focused = String(focused);
     node.dataset.hovered = String(hovered);
     node.dataset.disabled = String(Boolean(feedback.disabled));

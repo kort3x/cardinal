@@ -213,7 +213,7 @@ test("zone policy denial is visible on a drag candidate and valid destination sl
 
 test("concealed same-zone reorder denial is visible on a drag candidate", () => {
   const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
-  scene.apply(input({ source: ["a", "b", "c"], destination: ["d"], zones: { source: { faceUp: false } } }));
+  scene.apply(input({ source: ["a", "b", "c"], destination: ["d"], zones: { source: { faceUp: false, reorderPolicy: { concealed: "deny" } } } }));
   const session = start(scene, ["a"]);
   const denied = session.update({ toZoneId: "source", index: 2 });
   assert.equal(denied.candidate.allowed, false);

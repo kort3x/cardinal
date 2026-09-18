@@ -38,6 +38,19 @@ test("forced zone selection expands the top card into an atomic top cohort", () 
   assert.deepEqual(selection.snapshot().cardIds, []);
 });
 
+test("explicit selection override can select cards blocked by a forced zone policy", () => {
+  const desired = { cards: ["a", "b", "c"].map((id) => ({ id })), zones: [
+    { id: "ocean", cardIds: ["a", "b", "c"], selectionPolicy: { mode: "forced", count: 1, from: "top" } },
+  ] };
+  const visual = new Map(desired.cards.map(({ id }) => [id, { visible: true }]));
+  const selection = createSelection({ config: { multiple: true }, state: () => ({ desired, visual }) });
+
+  assert.equal(selection.select(["a"]).accepted, false);
+  assert.deepEqual(selection.select(["a"], { ignoreZoneSelectionPolicy: true }), {
+    cardIds: ["a"], primaryCardId: "a", anchorCardId: "a", accepted: true,
+  });
+});
+
 test("forced zone selection waits for the complete cohort", () => {
   const { selection: s, desired } = fixture();
   desired.zones[0].selectionPolicy = { mode: "forced", count: 4, from: "top" };

@@ -77,6 +77,8 @@
       .control-group > summary::marker, #diagnostics-panel > summary::marker { content: ""; }
       .control-group > summary::before, #diagnostics-panel > summary::before { width: 0; height: 0; margin-right: 8px; border-block: 5px solid transparent; border-inline-start: 7px solid currentColor; content: ""; flex: 0 0 auto; transition: transform 120ms ease; }
       .control-group[open] > summary::before, #diagnostics-panel[open] > summary::before { transform: rotate(90deg); }
+      .control-group > summary .summary-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .control-group > summary .summary-meta { flex: 0 1 48%; min-width: 0; margin-inline-start: auto; overflow: hidden; color: var(--lab-muted); font-size: 0.72rem; font-weight: 400; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
       .control-group[open] > summary { margin-bottom: 10px; }
       .control-group p { margin: 10px 0 0; font-size: 0.9rem; }
       .control-row { display: grid; grid-template-columns: 34px minmax(90px, 1fr) max-content; align-items: center; gap: 8px; margin: 7px 0; }
@@ -106,21 +108,45 @@
       #drag-help p { margin: 6px 0 0; }
       .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; color: var(--lab-muted); font-size: 0.9rem; }
       .presets button { padding: 6px 8px; font-size: 0.9rem; }
+      .cardinal-inspection { --cardinal-inspection-text: var(--lab-text); --cardinal-inspection-heading: #f2f4f7; --cardinal-inspection-surface: #20252d; --cardinal-inspection-control: var(--lab-panel); --cardinal-inspection-border: var(--lab-border-strong); --cardinal-inspection-accent: var(--lab-accent); --cardinal-inspection-overlay: rgb(9 13 19 / 72%); }
+      #inspection-group > summary { gap: 0; }
+      .inspection-summary-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .inspection-status { flex: 0 0 9px; width: 9px; height: 9px; box-sizing: border-box; border: 1px solid var(--lab-border-strong); border-radius: 50%; background: var(--lab-border-strong); opacity: 0.55; }
+      #inspection-group > summary .inspection-status { margin-inline-start: auto; }
+      .inspection-status[data-open="true"] { border-color: var(--lab-accent); background: var(--lab-accent); box-shadow: 0 0 8px rgb(229 192 123 / 72%); opacity: 1; }
+      .inspection-toolbox { display: grid; gap: 10px; }
+      .inspection-context { display: grid; gap: 3px; padding: 10px 11px; border: 1px solid var(--lab-border); border-radius: var(--lab-control-radius); background: linear-gradient(135deg, #303640, #292e37); }
+      .inspection-kicker { color: var(--lab-muted); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; }
+      #inspection-card-name { overflow: hidden; color: var(--lab-accent); font-size: 0.96rem; text-overflow: ellipsis; white-space: nowrap; }
+      .inspection-control-grid { display: grid; gap: 6px; padding: 9px 10px; border: 1px solid var(--lab-border); border-radius: var(--lab-control-radius); background: var(--lab-bg-deep); }
+      .inspection-control-grid .control-row { grid-template-columns: max-content minmax(0, 1fr); margin: 0; }
+      .inspection-hover-toggle { display: flex; align-items: center; gap: 7px; margin: 0; padding: 2px 0; color: var(--lab-text); font-size: 0.8rem; }
+      .inspection-hover-toggle input { margin: 0; accent-color: var(--lab-accent); }
+      .inspection-actions, .inspection-secondary-actions { display: grid; gap: 6px; }
+      .inspection-actions { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+      .inspection-secondary-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .inspection-actions button, .inspection-secondary-actions button { min-width: 0; padding: 7px 8px; font-size: 0.78rem; }
+      #inspect-card { border-color: var(--lab-accent); color: var(--lab-accent); background: rgb(229 192 123 / 8%); }
+      #inspect-card:hover, #inspect-card:focus-visible { background: rgb(229 192 123 / 16%); }
+      .inspection-help { margin: 0 !important; color: var(--lab-muted); font-size: 0.76rem !important; line-height: 1.4; }
+      .cardinal-inspection__close, .cardinal-inspection__related { border-color: var(--lab-border-strong); border-radius: var(--lab-control-radius); color: var(--lab-text); background: var(--lab-panel); font-size: 0.82rem; }
+      .cardinal-inspection__close:hover, .cardinal-inspection__close:focus-visible, .cardinal-inspection__related:hover, .cardinal-inspection__related:focus-visible { border-color: var(--lab-accent); color: var(--lab-accent); background: #303640; }
       #card-list { display: flex; flex-direction: column; flex-wrap: nowrap; align-content: flex-start; gap: 6px; max-height: 394px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--lab-border-strong) transparent; }
       #card-list::-webkit-scrollbar { width: 8px; }
       #card-list::-webkit-scrollbar-track { background: transparent; }
       #card-list::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: var(--lab-border-strong); background-clip: padding-box; }
       #card-list::-webkit-scrollbar-thumb:hover { background: var(--lab-focus); background-clip: padding-box; }
-      #card-list label { min-height: 34px; box-sizing: border-box; padding: 6px 8px; cursor: pointer; }
+      #card-list label { display: grid; grid-template-columns: 18px minmax(0, 1fr) max-content max-content 9px; align-items: center; min-height: 34px; box-sizing: border-box; padding: 6px 8px; cursor: pointer; }
       #card-list label:has(> input[type="checkbox"]:checked) { border-color: #626b78; background: #303640; color: var(--lab-text); box-shadow: inset 0 0 0 1px rgb(229 192 123 / 12%); }
-      #card-list .card-z { color: var(--lab-accent); font-variant-numeric: tabular-nums; }
+      #card-list .card-title { min-width: 0; overflow: hidden; color: var(--lab-accent); text-overflow: ellipsis; white-space: nowrap; }
+      #card-list .card-z { color: var(--lab-muted); font-variant-numeric: tabular-nums; }
       #card-list .card-zone { font-size: 0.82em; }
       #card-list .card-zone[data-zone-id="lake"] { color: var(--lab-zone-lake); }
       #card-list .card-zone[data-zone-id="ocean"] { color: var(--lab-zone-ocean); }
       #card-list .card-zone[data-zone-id="river"] { color: var(--lab-zone-river); }
       #card-list label[data-pickable="false"] { color: var(--lab-muted); opacity: 0.68; }
-      #card-list label[data-pickable="false"] input { cursor: not-allowed; }
-      #card-list .card-pickability { color: var(--lab-muted); font-size: 0.72em; font-style: italic; white-space: nowrap; }
+      #card-list label[data-pickable="false"] input { cursor: pointer; }
+      #card-list .card-pickability { width: 7px; height: 7px; box-sizing: border-box; border: 1px solid rgb(190 93 93 / 80%); border-radius: 50%; background: #a95757; box-shadow: 0 0 4px rgb(169 87 87 / 35%); }
       #card-list-help { margin: 6px 0 0; color: var(--lab-muted); font-size: 0.78rem; }
       #selection-status { margin-bottom: 0; }
       #element-list { display: grid; gap: 8px; }
@@ -485,7 +511,7 @@
               </select>
             </label>
             <div id="card-list" role="group" aria-label="Cards in the lab"></div>
-            <p id="card-list-help">Cards marked “Not pickable” are blocked by their zone rules. In a Draw Stack, only the top card can be picked.</p>
+            <p id="card-list-help">Cards marked “Normally not pickable” are blocked by their zone rules during ordinary stage interaction. The card list can override that rule for Lab testing.</p>
             <p id="selection-status" aria-live="polite"></p>
             <p id="selection-detail" aria-live="polite"></p>
           </details>
@@ -661,7 +687,7 @@
               <p>Set up batch places cards in Lake and River. Drag the selection to Ocean, Reject, then drag again and Accept. Flip selection once leaves the cards in place.</p>
             </details>
           </details>
-          <details class="control-group" id="zones-group" open>
+          <details class="control-group" id="zones-group">
             <summary>Zones</summary>
             <div id="zone-list" role="list" aria-label="Zones in the lab"></div>
             <span class="zone-actions-label">Sent to</span>
@@ -707,24 +733,37 @@
           </div>
         </div>
         <aside class="side-controls elements-sidebar" aria-label="Right control rail">
-          <details class="control-group" id="inspection-group" open>
-            <summary>Inspection</summary>
-            <label class="control-row select-row" for="inspection-mode">
-              <span>View</span>
-              <select id="inspection-mode"><option value="preview">Read-only preview</option><option value="inPlace">In place</option></select>
-            </label>
-            <label class="control-row select-row" for="inspection-face">
-              <span>Content face</span><select id="inspection-face" aria-label="Selected card content face"></select>
-            </label>
-            <div class="presets">
-              <button type="button" id="inspect-card" title="Inspect the primary selected card without changing its committed state.">Inspect</button>
-              <button type="button" id="close-inspection">Close</button>
-              <button type="button" id="inspection-fixture" title="Replace the scene with two related cards for trying inspection and face switching.">Set up inspection</button>
-              <button type="button" id="inspection-update" title="Update the selected face while its preview is open.">Update text</button>
-              <button type="button" id="inspection-conceal">Conceal / reveal</button>
+          <details class="control-group" id="inspection-group">
+            <summary><span class="summary-title inspection-summary-title">Inspection</span><span id="inspection-status" class="inspection-status" role="status" aria-live="polite" aria-label="No inspection open" title="No inspection open"></span></summary>
+            <div class="inspection-toolbox">
+              <div class="inspection-context">
+                <span class="inspection-kicker">Selected card</span>
+                <strong id="inspection-card-name">None</strong>
+              </div>
+              <div class="inspection-control-grid">
+                <label class="control-row select-row" for="inspection-mode">
+                  <span>View</span>
+                  <select id="inspection-mode"><option value="preview">Read-only preview</option><option value="inPlace">In place</option></select>
+                </label>
+                <label class="control-row select-row" for="inspection-face">
+                  <span>Content face</span><select id="inspection-face" aria-label="Selected card content face"></select>
+                </label>
+              </div>
+              <label class="inspection-hover-toggle" for="inspection-hover">
+                <input id="inspection-hover" type="checkbox">
+                <span>Inspect on hover</span>
+              </label>
+              <div class="inspection-actions">
+                <button type="button" id="inspect-card" title="Inspect the primary selected card without changing its committed state.">Inspect card</button>
+                <button type="button" id="close-inspection">Close window</button>
+              </div>
+              <div class="inspection-secondary-actions">
+                <button type="button" id="inspection-fixture" title="Replace the scene with two related cards for trying inspection and face switching.">Try fixture</button>
+                <button type="button" id="inspection-update" title="Update the selected face while its preview is open.">Update text</button>
+                <button type="button" id="inspection-conceal">Conceal / reveal</button>
+              </div>
+              <p class="inspection-help">Enable hover inspection or focus a card to preview it. Press I or hold a card on touch to inspect. Concealed cards show their back.</p>
             </div>
-            <p>Hover or focus to preview. Press I or hold a card on touch to inspect. Escape closes. Concealed cards show their back.</p>
-            <p id="inspection-status" aria-live="polite"></p>
           </details>
           <details class="control-group">
             <summary>Elements</summary>

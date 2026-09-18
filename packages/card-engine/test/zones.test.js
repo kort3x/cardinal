@@ -111,6 +111,7 @@ test("concealed reorder policy protects direct reorders while preserving reveale
   const scene = createCardScene({ motion: { reducedMotion: true } });
   const input = initial();
   input.cards.forEach((candidate) => { candidate.faceUp = false; });
+  input.zones[0].reorderPolicy = { concealed: "deny" };
   scene.apply(input);
   const before = scene.snapshot().desired.zones.map(({ cardIds }) => [...cardIds]);
   assert.throws(() => scene.transact([{ type: "reorder", zoneId: "source", cardIds: ["b", "a"] }]),

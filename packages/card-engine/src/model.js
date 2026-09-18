@@ -138,10 +138,10 @@ function sameIds(first, second) {
   return first.length === second.length && first.every((id) => second.includes(id));
 }
 
-/** Prevent relative order changes among concealed cards unless explicitly allowed. */
+/** Prevent relative order changes among concealed cards when explicitly denied. */
 export function validateReorderPolicy(previousZone, nextZone, cards = [], context = "reorder") {
   if (!previousZone || !nextZone || !sameIds(previousZone.cardIds, nextZone.cardIds)) return true;
-  if (nextZone.reorderPolicy?.concealed === "allow") return true;
+  if (nextZone.reorderPolicy?.concealed !== "deny") return true;
   const cardById = new Map(cards.map((card) => [card.id, card]));
   const concealed = (id) => nextZone.faceUp === false || cardById.get(id)?.faceUp === false;
   const previousConcealed = previousZone.cardIds.filter(concealed);

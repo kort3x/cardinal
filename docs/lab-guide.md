@@ -62,9 +62,12 @@ The **Cards** panel contains:
 
 - **Add** creates a card in the zone chosen by **Spawn in**.
 - **Remove** removes the selected cards.
-- **Select all** and **Deselect all** change the current selection.
-- The scrollable card list shows each entry's card number, zone, and depth.
-  Cards blocked by zone rules are marked **Not pickable**.
+- **Select all** and **Deselect all** change the current selection. **Select all**
+  also uses the Lab override to include cards normally blocked by zone rules.
+- The scrollable card list shows each entry's card title, zone, and depth.
+  Cards blocked by zone rules are marked **Normally not pickable**. Selecting a
+  card from this list is a Lab testing override, so it can select any card even
+  when the zone would normally block it.
 
 Click selects one card. Ctrl-click on Windows/Linux or Cmd-click on macOS
 toggles a card. Shift-click selects a range within a zone. When **Cross-zone
@@ -73,7 +76,9 @@ selection** is off, one selection cannot contain cards from different zones.
 The normal fixture contains one revealed card in Lake, one revealed card in
 River, and a concealed draw stack in Ocean. The Ocean stack contains 48 cards;
 only its top card is pickable. The card list labels entries as Card 1, Card 2,
-and so on, and marks cards blocked by the zone policy as **Not pickable**.
+and so on, and marks cards blocked by the zone policy as **Normally not pickable**.
+The list can still select those cards so you can inspect or manipulate them in
+the Lab; stage clicks and drags continue to follow the zone policy.
 
 ## Card model controls
 
@@ -167,8 +172,9 @@ selection when no drag is active.
 
 The **Inspection** panel provides a read-only **Preview** or an **In place**
 view. Use **Inspect** for the primary selected card, **Close** to dismiss it,
-and Escape to close an open inspection. Hover or focus a card to preview it;
-press I for keyboard inspection, or hold a card on touch.
+and Escape to close an open inspection. **Inspect on hover** is off by default;
+enable it when hovering should open a preview after the dwell delay. Focus a card
+to preview it, press I for keyboard inspection, or hold a card on touch.
 
 **Set up inspection** loads a two-card fixture with simplified zone content.
 The **Content face** selector changes the active logical face, **Update text**

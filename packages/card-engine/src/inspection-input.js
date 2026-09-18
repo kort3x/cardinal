@@ -50,6 +50,7 @@ export function attachInspectionInput({ element, scene, options = {} } = {}) {
   const dismissDelay = Number.isFinite(options.dismissDelay) ? Math.max(0, options.dismissDelay) : DEFAULT_DISMISS_DELAY;
   const touchHold = Number.isFinite(options.touchHold) ? Math.max(0, options.touchHold) : DEFAULT_TOUCH_HOLD;
   const movement = Number.isFinite(options.movementThreshold) ? Math.max(0, options.movementThreshold) : DEFAULT_MOVEMENT;
+  const hover = options.hover === true;
   const mode = options.mode ?? "preview";
   const modal = options.modal === true;
   const relatedCardIds = Array.isArray(options.relatedCardIds) ? options.relatedCardIds : undefined;
@@ -175,6 +176,7 @@ export function attachInspectionInput({ element, scene, options = {} } = {}) {
       return;
     }
     if (event.pointerType === "touch") return;
+    if (!hover) { cancelHover(); return; }
     if (event.buttons || dragging) { cancelHover(); return; }
     const id = hit(event);
     if (id) scheduleHover(id);
@@ -269,6 +271,12 @@ export function attachInspectionInput({ element, scene, options = {} } = {}) {
     }
     if (!id) return;
     event.preventDefault?.();
+    const activeHandle = [hoverHandle, focusHandle].find((handle) => handle?.snapshot?.().cardId === id);
+    if (activeHandle) {
+      cancelHover();
+      cancelFocus();
+      return;
+    }
     cancelHover();
     cancelFocus();
     focusId = id;

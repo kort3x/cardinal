@@ -44,7 +44,7 @@ export async function runInspectionScenario({ command }) {
       window.inspectionPermitSecret=false; window.inspectionDenyRelated=false;
       window.inspectionScene=createCardScene({element:host, motion:{duration:300}, camera:{scaleMode:'stage',center:{x:450,y:250}},
         interaction:{touchDrag:true,rules:{canTake:()=>({allowed:true}),canPut:()=>({allowed:true}),canReveal:()=>({allowed:true}),canConceal:()=>({allowed:true}),canChangeFace:()=>({allowed:true})}},
-        inspection:{input:{dwell:100,dismissDelay:80,touchHold:200},rules:{canInspect:({cardId})=>({allowed:cardId!=='denied' && !(cardId==='unknown'&&inspectionDenyRelated)}),canInspectConcealed:()=>({allowed:window.inspectionPermitSecret})}}});
+        inspection:{input:{hover:true,dwell:100,dismissDelay:80,touchHold:200},rules:{canInspect:({cardId})=>({allowed:cardId!=='denied' && !(cardId==='unknown'&&inspectionDenyRelated)}),canInspectConcealed:()=>({allowed:window.inspectionPermitSecret})}}});
       const front={elements:[text('title','Visible Cardinal'),text('description','Full permitted content')]};
       const back={elements:[text('back','Common Sleeve')],background:'#222'};
       const card={id:'visible',feedback:{pending:true,actionable:true},activeFaceId:'summary',faceUp:true,back,dimensions:{width:160,height:220},pose:{scale:0.7},faces:{summary:front,details:{elements:[text('title','Details Face'),text('description','Long field notes. '.repeat(2000))]}}};
@@ -100,6 +100,11 @@ export async function runInspectionScenario({ command }) {
     await key('i','KeyI');
     await waitFor(`Boolean(document.querySelector('.cardinal-inspection'))`);
     await record('Keyboard I opens focused-card inspection', `Boolean(document.querySelector('.cardinal-inspection'))`);
+    await key('i','KeyI');
+    await waitFor(`!document.querySelector('.cardinal-inspection')`);
+    await record('Keyboard I toggles focused-card inspection closed', `!document.querySelector('.cardinal-inspection')`);
+    await key('i','KeyI');
+    await waitFor(`Boolean(document.querySelector('.cardinal-inspection'))`);
     await key('Escape');
     await waitFor(`!document.querySelector('.cardinal-inspection')`);
     await evaluate(`document.querySelector('#inspection-return-focus').focus()`);

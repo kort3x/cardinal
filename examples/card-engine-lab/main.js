@@ -83,9 +83,79 @@ function zoneDisplayName(zoneOrId) {
   return capitalizeDisplayName(typeof zoneOrId === "string" ? zoneOrId : zoneOrId?.label ?? zoneOrId?.id);
 }
 
+const summaryMeta = new Map();
+const summaryTooltips = new Map([
+  ["Shape", "Choose the card profile used by new and reset cards."],
+  ["Logical faces", "Choose how many named content faces each card has."],
+  ["Dimensions", "Choose fixed or content-driven sizing and set card dimensions."],
+  ["Move", "Set the selected cards' scene position."],
+  ["Rotate", "Set the selected cards' in-plane rotation."],
+  ["Scale", "Set the selected cards' authored scale."],
+  ["Flip", "Set the selected cards' physical side and flip angles."],
+  ["Cards", "Add, remove, select, and inspect cards in the scene."],
+  ["Zones", "Control zone membership, arrangements, policies, and transfers."],
+  ["Drag", "Configure card dragging, pickup, and landing motion."],
+  ["Inspection", "Preview a card without changing its committed scene state."],
+  ["Elements", "Edit the selected card's face elements and backgrounds."],
+]);
+function installSummaryMeta() {
+  for (const group of document.querySelectorAll("details.control-group")) {
+    const summary = group.querySelector(":scope > summary");
+    if (!summary) continue;
+    const existingTitle = summary.querySelector(".inspection-summary-title")?.textContent.trim();
+    const sourceTitle = existingTitle || summary.textContent.trim();
+    const tooltip = summaryTooltips.get(sourceTitle);
+    if (tooltip) summary.title = tooltip;
+    if (group.id === "inspection-group" || summary.querySelector(".summary-meta")) {
+      summary.querySelector(".inspection-summary-title")?.setAttribute("title", tooltip ?? "");
+      continue;
+    }
+    const title = document.createElement("span");
+    const value = document.createElement("span");
+    title.className = "summary-title";
+    value.className = "summary-meta";
+    title.textContent = sourceTitle;
+    if (tooltip) title.title = tooltip;
+    if (tooltip) value.title = tooltip;
+    summary.replaceChildren(title, value);
+    summaryMeta.set(title.textContent, value);
+  }
+}
+
+function updateSummaryMeta(state = scene?.snapshot()) {
+  if (!state?.desired) return;
+  const set = (title, value) => {
+    const output = summaryMeta.get(title);
+    if (output) {
+      output.textContent = value;
+      const tooltip = summaryTooltips.get(title);
+      if (tooltip) output.title = `${tooltip} Current value: ${value}`;
+    }
+  };
+  const optionLabel = (control) => control?.selectedOptions?.[0]?.textContent?.trim() ?? control?.value ?? "";
+  const selectedCardId = state.selection?.primaryCardId ?? [...selectedCardIds][0];
+  const selectedVisual = state.visual?.find(({ cardId }) => cardId === selectedCardId);
+  const totalCards = state.desired.cards.length;
+  const totalZones = state.desired.zones.length;
+  set("Shape", optionLabel(shape));
+  set("Logical faces", `${faceCount.value} face${Number(faceCount.value) === 1 ? "" : "s"}`);
+  set("Dimensions", `${cardSizing.value === "content" ? "Auto" : "Fixed"} · ${cardWidthSlider.value}×${cardHeightSlider.value}`);
+  set("Move", `${moveXSlider.value}, ${moveYSlider.value}`);
+  set("Rotate", `${rotateSlider.value}°`);
+  set("Scale", `${Math.round(Number(scaleSlider.value) * 100)}%`);
+  set("Flip", selectedVisual ? (faceUpForVisual(selectedVisual) ? "Front" : "Back") : "Front");
+  set("Cards", `${totalCards} cards · ${selectedCardIds.size} selected`);
+  set("Drag", `${optionLabel(dragMotionPreset)} · ${optionLabel(dragAnchor)}`);
+  set("Zones", `${totalZones} zones · ${state.desired.zones.reduce((count, zone) => count + zone.cardIds.length, 0)} cards`);
+  set("Elements", selectedCardId ? "Selected card" : "No selection");
+}
+
+installSummaryMeta();
+
 const shape = document.querySelector("#shape");
 const inspectionFace = document.querySelector("#inspection-face");
 const inspectionStatus = document.querySelector("#inspection-status");
+const inspectionHover = document.querySelector("#inspection-hover");
 let labInspection;
 const faceCount = document.querySelector("#face-count");
 const cardSizing = document.querySelector("#card-sizing");
@@ -236,13 +306,13 @@ touchDrag.checked = isTouchCapable();
 const LAB_ZONE_DEFINITIONS = Object.freeze([
   { id: "lake", label: "Lake", anchor: "#zone-lake", arrangement: { type: "column", gap: 16 }, faceUp: true },
   { id: "river", label: "River", anchor: "#zone-river", arrangement: { type: "hand", curve: "concave" }, faceUp: true },
-  { id: "ocean", label: "Ocean", anchor: "#zone-ocean", preset: "drawStack", arrangement: { type: "stack", axis: "y", step: 0 }, faceUp: false },
+  { id: "ocean", label: "Ocean", anchor: "#zone-ocean", preset: "drawStack", arrangement: { type: "stack", axis: "y", step: 0 }, faceUp: false, reorderPolicy: { concealed: "deny" } },
 ]);
 const ARRANGEMENT_CYCLE = Object.freeze(["grid", "row", "column", "splay", "pile", "stack", "hand"]);
 const OVERFLOW_POLICIES = Object.freeze(["scroll", "overlap", "fit", "reject"]);
 const zoneArrangements = new Map(LAB_ZONE_DEFINITIONS.map(({ id, arrangement }) => [id, { ...arrangement }]));
 const zonePresets = new Map(LAB_ZONE_DEFINITIONS.map(({ id, preset }) => [id, preset]));
-const zonePolicies = new Map(LAB_ZONE_DEFINITIONS.map(({ id, faceUp }) => [id, { faceUp }]));
+const zonePolicies = new Map(LAB_ZONE_DEFINITIONS.map(({ id, faceUp, reorderPolicy }) => [id, { faceUp, ...(reorderPolicy ? { reorderPolicy } : {}) }]));
 const zoneArrangementSettingsOpen = new Map();
 const ARRANGEMENT_SETTING_DEFINITIONS = Object.freeze([
   { key: "gap", label: "Gap", types: ["grid", "row", "column", "splay", "stack"], kind: "range", min: 0, max: 80, step: 1, defaultValue: 16, title: "Set the spacing between arranged cards." },
@@ -259,7 +329,7 @@ const ARRANGEMENT_SETTING_DEFINITIONS = Object.freeze([
 const ZONE_POLICY_SETTING_DEFINITIONS = Object.freeze([
   { key: "orderMode", label: "Order", kind: "select", options: [["free", "Free"], ["locked", "Locked"]], defaultValue: "free", title: "Allow free reordering or enforce the zone's current membership order." },
   { key: "slotMode", label: "Slots", kind: "select", options: [["free", "Free"], ["fixed", "Fixed"]], defaultValue: "free", title: "Allow free insertion or keep configured cards in their assigned destination slots." },
-  { key: "concealedReorder", label: "Concealed", kind: "select", options: [["deny", "Deny reorder"], ["allow", "Allow reorder"]], defaultValue: "deny", title: "Allow or deny changing the order of concealed cards in this zone." },
+  { key: "concealedReorder", label: "Concealed", kind: "select", options: [["allow", "Allow reorder"], ["deny", "Deny reorder"]], defaultValue: "allow", title: "Allow or deny changing the order of concealed cards in this zone." },
   { key: "selectionMode", label: "Select", kind: "select", options: [["free", "Free"], ["forced", "Force top N"]], defaultValue: "free", title: "Allow individual selection or force the top cards to be selected as one cohort." },
   { key: "selectionCount", label: "Draw", kind: "range", min: 1, max: 6, step: 1, defaultValue: 3, suffix: " cards", title: "Set how many top cards are selected together." },
   { key: "scale", label: "Size", kind: "range", min: 0.25, max: 2, step: 0.05, defaultValue: 1, suffix: "×", title: "Set the target card scale governed by this zone." },
@@ -333,6 +403,7 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["#record-drag", "Capture timing and input details for the next drag."],
   ["#copy-diagnostics", "Copy the current diagnostics report."],
   ["#full-window-control", "Toggle the stage into full-window inspection mode."],
+  ["#inspection-hover", "Open card inspection after hovering over a card for the dwell time."],
   ["#element-type", "Choose the type of card element to add."],
   ["#add-element", "Add the selected element type to the active card face."],
   ["#background-side", "Choose which face receives the background."],
@@ -2215,7 +2286,7 @@ function startScene(cards = sceneCards()) {
         duration: LAB_MOTION_DURATION / Number(motionSpeedSlider.value),
       },
       selection: { allowCrossZone: crossZoneSelection.checked },
-      inspection: { input: { dwell: 650, dismissDelay: 180, touchHold: 550 } },
+      inspection: { input: { hover: inspectionHover.checked, dwell: 650, dismissDelay: 180, touchHold: 550 } },
       interaction: {
         rules: interactionRules,
         touchDrag: touchDrag.checked,
@@ -2233,7 +2304,11 @@ function startScene(cards = sceneCards()) {
     createdScene.on("change", updateStatus);
     createdScene.on("renderer-status", updateStatus);
     createdScene.on("inspection-change", () => {
-      inspectionStatus.textContent = createdScene.snapshot().inspection.sessions.length ? "Inspection open" : "";
+      const open = createdScene.snapshot().inspection.sessions.length > 0;
+      inspectionStatus.textContent = "";
+      inspectionStatus.dataset.open = String(open);
+      inspectionStatus.setAttribute("aria-label", open ? "Inspection open" : "No inspection open");
+      inspectionStatus.title = open ? "Inspection open" : "No inspection open";
     });
     createdScene.on("selection-change", (selection) => {
       if (scene !== createdScene || !lifecycle.active) return;
@@ -2519,8 +2594,7 @@ function updateZonePolicy(zoneId, definition, value) {
       };
     }
   } else if (definition.key === "concealedReorder") {
-    if (value === "deny") delete next.reorderPolicy;
-    else next.reorderPolicy = { concealed: "allow" };
+    next.reorderPolicy = { concealed: value };
   } else if (definition.key === "selectionMode") {
     if (value === "free") delete next.selectionPolicy;
     else next.selectionPolicy = {
@@ -2590,28 +2664,35 @@ function renderCardList() {
   const items = state.desired.cards.map((card, index) => {
     const label = document.createElement("label");
     const input = document.createElement("input");
+    const title = document.createElement("span");
     const depth = document.createElement("output");
     const zone = document.createElement("span");
     const pickability = document.createElement("span");
     const pickable = scene.isSelectable?.(card.id) ?? true;
     label.dataset.cardId = card.id;
     label.dataset.pickable = String(pickable);
-    label.title = pickable ? `Select or drag Card ${index + 1}.` : `Card ${index + 1} is not pickable in its current zone.`;
+    label.title = pickable
+      ? `Select or drag Card ${index + 1}.`
+      : `Card ${index + 1} is normally not pickable in its current zone. The card list can override this rule.`;
     input.type = "checkbox";
     input.checked = selectedCardIds.has(card.id);
-    input.disabled = !pickable;
-    input.setAttribute("aria-label", `Select Card ${index + 1}`);
-    input.title = `Select or deselect Card ${index + 1}.`;
+    title.className = "card-title";
+    title.textContent = cardDisplayName(card, index);
+    input.setAttribute("aria-label", `Select ${title.textContent}`);
+    input.title = `Select or deselect Card ${index + 1}. The card list can override zone selection rules.`;
     depth.className = "card-z";
     depth.dataset.cardId = card.id;
     zone.className = "card-zone";
     zone.dataset.zoneId = cardZoneIds.get(card.id) ?? "";
     zone.textContent = zoneNames.get(cardZoneIds.get(card.id)) ?? "Zone —";
     pickability.className = "card-pickability";
-    pickability.textContent = pickable ? "" : "Not pickable";
+    pickability.textContent = "";
     pickability.hidden = pickable;
+    pickability.setAttribute("aria-label", "Normally not pickable");
+    pickability.title = "Normally not pickable in this zone; the card list can override the rule.";
     input.addEventListener("change", () => {
-      selectLabCards([card.id], { mode: "toggle" });
+      scene.closeInspection?.();
+      selectLabCards([card.id], { mode: "toggle", ignoreZoneSelectionPolicy: true });
       syncControlsFromSelection();
       updateStatus();
       renderCardList();
@@ -2621,7 +2702,7 @@ function renderCardList() {
         .find((candidate) => candidate.dataset.cardId === card.id);
       shell?.focus?.({ preventScroll: true });
     });
-    label.append(input, document.createTextNode(`Card ${index + 1}`), depth, zone, pickability);
+    label.append(input, title, zone, depth, pickability);
     return label;
   });
   cardList.replaceChildren(...items);
@@ -2640,7 +2721,12 @@ function updateCardListDepth(state = scene.snapshot()) {
   for (const depth of cardList.querySelectorAll(".card-z")) {
     const visual = state.visual.find(({ cardId }) => cardId === depth.dataset.cardId);
     const z = visual?.pose.z;
-    depth.textContent = z === undefined ? "z —" : `z ${z.toFixed(1)}`;
+    if (z === undefined) {
+      depth.textContent = "z —";
+      continue;
+    }
+    const [whole, fraction] = Math.abs(z).toFixed(1).split(".");
+    depth.textContent = `z ${z < 0 ? "-" : ""}${whole.padStart(3, "0")}.${fraction}`;
   }
 }
 
@@ -2849,6 +2935,7 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
     syncInspectionControls(state);
   }
   if (!demoTransaction) updateCardListDepth(state);
+  updateSummaryMeta(state);
   const card = currentCard(state);
   const visual = card && state.visual.find(({ cardId }) => cardId === card.id);
   const pose = visual?.pose;
@@ -2907,6 +2994,8 @@ function showStatusMessage(message) {
 function syncInspectionControls(state) {
   const card = currentCard(state);
   const faces = Object.keys(card?.faces ?? {});
+  const cardName = document.querySelector("#inspection-card-name");
+  if (cardName) cardName.textContent = card ? cardDisplayName(card, state.desired.cards.findIndex(({ id }) => id === card.id)) : "None";
   const key = JSON.stringify([card?.id, card?.faceUp, faces]);
   if (inspectionFace.dataset.optionsKey !== key) {
     inspectionFace.replaceChildren(...faces.map((id, index) => new Option(card.faceUp === false ? `Content ${index + 1}` : capitalizeDisplayName(id), id)));
@@ -2929,6 +3018,11 @@ inspectionFace.addEventListener("change", () => inspectionAction(() => {
   if (card) scene.transact([{ type: "contentFace", cardId: card.id, faceId: inspectionFace.value }], { origin: "user" });
 }));
 document.querySelector("#inspect-card").addEventListener("click", () => inspectionAction(() => {
+  if (scene.snapshot().inspection.sessions.length) {
+    scene.closeInspection();
+    labInspection = undefined;
+    return;
+  }
   labInspection?.close();
   const card = currentCard();
   if (card) labInspection = scene.inspect(card.id, {
@@ -3070,6 +3164,7 @@ function updateControlLabels() {
   scaleValue.textContent = `${Math.round(scale * 100)}%`;
   flipXValue.textContent = `${flipX}°`;
   flipYValue.textContent = `${flipY}°`;
+  updateSummaryMeta();
 }
 
 function setControls({ x, y, width, height, thickness, weight, angle, scale, faceUp, flipX, flipY } = {}) {
@@ -3405,12 +3500,11 @@ for (const button of transferZoneButtons) {
 }
 
 selectAllButton.addEventListener("click", () => {
-  scene.select([]);
-  let result = scene.snapshot().selection;
-  for (const { id } of scene.snapshot().desired.cards) result = scene.select([id], { mode: "add" });
-  selectedCardIds = new Set(result.cardIds);
+  const result = selectLabCards(
+    scene.snapshot().desired.cards.map(({ id }) => id),
+    { mode: "replace", ignoreZoneSelectionPolicy: true },
+  );
   selectionReason = result.accepted === false ? `Selection unavailable: ${result.reason ?? "project limit"}` : "";
-  renderCardList();
   syncControlsFromSelection();
   updateStatus();
 });
@@ -3549,6 +3643,7 @@ dragDeniedCard.addEventListener("change", invalidateInteractionRules);
 touchDrag.addEventListener("change", () => startScene());
 touchSelection.addEventListener("change", () => startScene());
 crossZoneSelection.addEventListener("change", () => startScene());
+inspectionHover.addEventListener("change", () => startScene());
 dragPresentation.addEventListener("change", () => startScene());
 dragAnchor.addEventListener("change", () => startScene());
 dragMotionPreset.addEventListener("change", selectDragMotionPreset);

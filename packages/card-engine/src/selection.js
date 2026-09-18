@@ -43,7 +43,8 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
     return snapshot();
   }
 
-  function decision(cardId) {
+  function decision(cardId, options = {}) {
+    const ignoreZoneSelectionPolicy = options.ignoreZoneSelectionPolicy === true;
     const { desired, visual } = state();
     const card = desired?.cards.find(({ id }) => id === cardId);
     const zone = desired?.zones.find(({ cardIds }) => cardIds.includes(cardId));
@@ -52,7 +53,7 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
       return { allowed: false, reason: `Card ${cardId} is not available for selection` };
     }
     if (card.feedback?.disabled) return { allowed: false, reason: `Card ${cardId} is disabled` };
-    const group = forcedGroup(zone);
+    const group = ignoreZoneSelectionPolicy ? null : forcedGroup(zone);
     if (group && !group.cardIds.includes(cardId)) {
       return { allowed: false, reason: group.reason ?? `Zone ${zone.id} requires selecting its top ${zone.selectionPolicy.count} cards` };
     }
@@ -101,6 +102,10 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
     if (!state().desired) throw new Error("Call scene.apply before scene.select");
     if (!Array.isArray(cardIds) || cardIds.some((id) => typeof id !== "string")) throw new TypeError("Selection requires an array of card IDs");
     const mode = options.mode ?? "replace";
+    if (options.ignoreZoneSelectionPolicy !== undefined && typeof options.ignoreZoneSelectionPolicy !== "boolean") {
+      throw new TypeError("Selection ignoreZoneSelectionPolicy must be boolean");
+    }
+    const ignoreZoneSelectionPolicy = options.ignoreZoneSelectionPolicy === true;
     if (!["replace", "add", "toggle", "remove", "range"].includes(mode)) throw new TypeError(`Unknown selection mode: ${mode}`);
     const denied = (reason) => ({ ...snapshot(), accepted: false, reason });
     let requested = [...new Set(cardIds)];
@@ -127,7 +132,7 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
     const forcedGroups = new Map();
     for (const id of requested) {
       const zone = zoneFor(id);
-      const group = forcedGroup(zone);
+      const group = ignoreZoneSelectionPolicy ? null : forcedGroup(zone);
       if (!group) continue;
       if (!group.cardIds.includes(id)) {
         return denied(group.reason ?? `Zone ${zone.id} requires selecting its top ${zone.selectionPolicy.count} cards`);
@@ -150,13 +155,14 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
     const onlyRemoving = mode === "remove" || mode === "toggle" && next.every((id) => current.includes(id));
     if (!onlyRemoving) {
       for (const id of next) {
-        const result = decision(id);
+        const result = decision(id, { ignoreZoneSelectionPolicy });
         if (!result.allowed) return denied(result.reason);
       }
       if (next.length > Math.min(max, multiple ? Infinity : 1)) return denied("Selection exceeds the maximum card count");
     }
     for (const key of ["primaryCardId", "anchorCardId"]) {
-      if (options[key] !== undefined && options[key] !== null && !isSelectable(options[key]) && !onlyRemoving) {
+      if (options[key] !== undefined && options[key] !== null
+        && !decision(options[key], { ignoreZoneSelectionPolicy }).allowed && !onlyRemoving) {
         return denied(`Selection ${key} must be an eligible card`);
       }
     }
@@ -169,7 +175,7 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
         : added.at(-1) ?? (next.includes(selection.primaryCardId) ? selection.primaryCardId : next[0] ?? null);
     let anchorCardId = options.anchorCardId ?? (mode === "range" ? rangeAnchor
       : mode === "replace" ? primaryCardId : selection.anchorCardId ?? primaryCardId);
-    if (!isSelectable(anchorCardId)) anchorCardId = primaryCardId;
+    if (!decision(anchorCardId, { ignoreZoneSelectionPolicy }).allowed) anchorCardId = primaryCardId;
     if (scope === "zone" && next.length && !onlyRemoving) {
       const retained = (mode === "add" || mode === "toggle") && current.find((id) => next.includes(id));
       const scopeId = zoneFor(retained || preferredPrimary || rangeAnchor || anchorCardId || primaryCardId)?.id;

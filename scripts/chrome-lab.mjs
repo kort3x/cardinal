@@ -496,6 +496,10 @@ const layoutScenario = String.raw`(async () => {
   };
   const elementsPanel = document.querySelector(".elements-group");
   const elementsDefaultCollapsed = elementsPanel?.open === false;
+  const initialToolboxes = [...document.querySelectorAll(".lab-workspace details.control-group")];
+  const initialSummaryTitle = (box) => box.querySelector(":scope > summary .summary-title")?.textContent.trim()
+    ?? box.querySelector(":scope > summary")?.textContent.trim();
+  const initiallyOpen = initialToolboxes.filter((box) => box.open).map(initialSummaryTitle);
   elementsPanel.open = true;
   const stage = document.querySelector("#stage");
   const rows = [...document.querySelectorAll("#element-list .element-row")];
@@ -636,19 +640,21 @@ const layoutScenario = String.raw`(async () => {
       return zone && getComputedStyle(button).color === getComputedStyle(zone).color;
     }));
   const toolboxes = [...document.querySelectorAll(".lab-workspace details.control-group")];
-  const cardsBox = toolboxes.find((box) => box.querySelector(":scope > summary")?.textContent.trim() === "Cards");
+  const summaryTitle = (box) => box.querySelector(":scope > summary .summary-title")?.textContent.trim()
+    ?? box.querySelector(":scope > summary")?.textContent.trim();
+  const cardsBox = toolboxes.find((box) => summaryTitle(box) === "Cards");
   record("control boxes are keyboard-accessible collapsible panels", () => {
-    const initiallyOpen = toolboxes.filter((box) => box.open).map((box) => box.querySelector(":scope > summary")?.textContent.trim());
     const summaryRect = cardsBox?.querySelector(":scope > summary")?.getBoundingClientRect();
     const cardsRect = cardsBox?.getBoundingClientRect();
     cardsBox?.querySelector(":scope > summary")?.click();
     const collapsed = cardsBox?.open === false;
     cardsBox?.querySelector(":scope > summary")?.click();
-    return toolboxes.length === 12 && initiallyOpen.join(",") === "Cards,Zones,Inspection,Elements"
+    return toolboxes.length === 12 && initiallyOpen.join(",") === "Cards"
+      && document.querySelector("#inspection-hover")?.checked === false
       && elementsDefaultCollapsed && collapsed && cardsBox?.open === true
       && summaryRect && cardsRect && summaryRect.width >= cardsRect.width - 2;
   });
-  const railTitles = (rail) => [...rail.querySelectorAll(":scope > details.control-group > summary")].map((summary) => summary.textContent.trim());
+  const railTitles = (rail) => [...rail.querySelectorAll(":scope > details.control-group")].map(summaryTitle);
   record("toolboxes follow the scene-and-card workflow order", () =>
     railTitles(document.querySelector(".cards-sidebar")).join(",") === "Cards,Zones,Drag"
     && railTitles(document.querySelector(".elements-sidebar")).join(",") === "Inspection,Scale,Shape,Dimensions,Move,Rotate,Flip,Logical faces,Elements");
@@ -1266,7 +1272,18 @@ const arrangementsScenario = String.raw`(async () => {
   record('card list marks draw stack cards that are not pickable', oceanRows.length === oceanZone?.cardIds.length
     && topOceanRow?.dataset.pickable === 'true'
     && oceanRows.some((row) => row.dataset.pickable === 'false'
-      && row.querySelector('.card-pickability')?.textContent === 'Not pickable'));
+      && row.querySelector('.card-pickability')?.getAttribute('aria-label') === 'Normally not pickable'));
+  const blockedOceanRow = oceanRows.find((row) => row.dataset.pickable === 'false');
+  const existingInspection = blockedOceanRow ? scene.inspect(blockedOceanRow.dataset.cardId) : null;
+  blockedOceanRow?.querySelector('input')?.click();
+  await sleep(50);
+  record('card list click closes an existing card inspection', !document.querySelector('.cardinal-inspection'));
+  existingInspection?.close?.();
+  await sleep(150);
+  record('card list can override draw stack pickup rules', blockedOceanRow?.querySelector('input')?.checked === true
+    && scene.snapshot().selection.cardIds.includes(blockedOceanRow.dataset.cardId));
+  await sleep(850);
+  record('card list selection does not open card inspection', !document.querySelector('.cardinal-inspection'));
   if (oceanSpawn && originalSpawnZone) {
     oceanSpawn.value = originalSpawnZone;
     oceanSpawn.dispatchEvent(new Event('change', { bubbles: true }));

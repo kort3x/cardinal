@@ -114,6 +114,16 @@ selects the complete group; toggling or removing one removes the complete group.
 Zone membership order is bottom-to-top, so `from: "top"` uses the final members
 of `cardIds`. The consumer still decides what the selected cards do:
 
+Trusted tooling can explicitly bypass only the zone selection policy when it
+needs to inspect or manipulate an otherwise unavailable card:
+
+```js
+scene.select(["card-1"], { ignoreZoneSelectionPolicy: true });
+```
+
+This is a selection override, not a permission grant. Dragging and committed
+user actions still pass through the interaction and permission rules.
+
 The reusable `preset: "drawStack"` combines a zero-offset vertical stack with
 `selectionPolicy: { mode: "forced", count: 1, from: "top" }` and
 `faceUp: false`. It makes only the top card selectable and therefore pickable
@@ -175,11 +185,11 @@ does not briefly show an invalid arrangement:
 `order`; `slotPolicy.mode: "fixed"` pins configured cards to their zero-based
 destination slots. Use `{ mode: "free" }` or omit a policy to allow ordinary
 reordering. A locked order may include cards currently in other zones so a
-later transfer can be validated against the same canonical order. Zones deny
-same-zone reordering of concealed cards by default. Set
-`reorderPolicy: { concealed: "allow" }` to opt in; revealed cards remain freely
-reorderable, and moving a card between zones is governed by the destination's
-other policies.
+later transfer can be validated against the same canonical order. Concealed
+cards can be protected explicitly with
+`reorderPolicy: { concealed: "deny" }`; omitted or `allow` policies leave their
+order free. Revealed cards remain freely reorderable, and moving a card between
+zones is governed by the destination's other policies.
 
 The zone speed settings apply to position, arrangement orientation, target
 scale, and face transitions independently. Set a channel to `1` when it should
@@ -685,7 +695,7 @@ Inspection is a presentation session:
 const scene = createCardScene({
   element,
   inspection: {
-    input: { dwell: 650, dismissDelay: 180, touchHold: 550 },
+    input: { hover: false, dwell: 650, dismissDelay: 180, touchHold: 550 },
     rules: {
       canInspect: ({ cardId }) => ({ allowed: permittedIds.has(cardId) }),
       canInspectConcealed: () => ({ allowed: false }),
@@ -705,9 +715,10 @@ view.close();
 Preview content is read-only, has a separate view ID, and adds no logical card or
 editable gameplay controls. Nonmodal previews preserve focus; modal previews
 restore a still-valid focus target when dismissed. Escape dismisses inspection.
-Opt-in inspection input supports hover/focus dwell, the I key, and touch hold;
-moving a touch beyond its threshold cancels the hold so scrolling/dragging can
-proceed. In-place inspection temporarily raises and enlarges the existing shell;
+Inspection input supports optional hover dwell, focus dwell, the I key, and touch
+hold; hover inspection is disabled by default. Moving a touch beyond its threshold
+cancels the hold so scrolling/dragging can proceed. In-place inspection temporarily
+raises and enlarges the existing shell;
 closing uses current state rather than a saved pose. Both modes update live and
 close when their source is removed or becomes unavailable.
 

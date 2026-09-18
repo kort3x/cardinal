@@ -362,7 +362,8 @@ export function createInspection({ element, state, onChange, toClient, rules = {
     const descriptor = session.descriptor;
     panel.dataset.sourceCardId = descriptor.cardId;
     const heading = session.view.heading;
-    setText(heading, `Card ${descriptor.cardId}`);
+    const title = descriptor.content?.elements?.find((item) => item?.id === "title" || item?.style?.variant === "title");
+    setText(heading, elementText(title) || `Card ${descriptor.cardId}`);
     session.view.body.setAttribute?.("aria-label", `Content for card ${descriptor.cardId}`);
     renderFace(session.view.body, descriptor.content);
     renderRelated(session);
