@@ -925,7 +925,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       width: Math.max(1, width - CARD_BEVEL_SIZE * 2),
       height: Math.max(1, height - CARD_BEVEL_SIZE * 2),
     };
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0 });
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x17212b, roughness: 0.62, metalness: 0 });
     const sideMaterial = new THREE.MeshStandardMaterial({ color: 0x727d86, roughness: 0.75, metalness: 0 });
     const body = new THREE.Mesh(geometry, [bodyMaterial, sideMaterial]);
     const frontBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
@@ -1521,7 +1521,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityShell.dataset.primary = String(isPrimary);
       mounted.bodyMaterial.color.setHex(selected && selectionHighlightVisible
         ? (isPrimary ? 0xe5c07b : 0xc9af76)
-        : 0xffffff);
+        : 0x17212b);
       mounted.selectionFrameMaterial.color.setHex(isPrimary ? 0xffd166 : 0x61afef);
       mounted.selectionFront.visible = selected && selectionHighlightVisible;
       mounted.selectionBack.visible = selected && selectionHighlightVisible;
@@ -1538,7 +1538,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       const primary = mounted.accessibilityShell.dataset.primary === "true";
       mounted.bodyMaterial.color.setHex(selected && visible
         ? (primary ? 0xe5c07b : 0xc9af76)
-        : 0xffffff);
+        : 0x17212b);
       mounted.selectionFront.visible = selected && visible;
       mounted.selectionBack.visible = selected && visible;
     }
