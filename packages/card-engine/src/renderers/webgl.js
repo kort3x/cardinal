@@ -1141,9 +1141,15 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function updateReadyVisibility(mounted) {
-    const ready = readyTextures.has(mounted.backTexture)
-      && (mounted.frontSuppressed || readyTextures.has(mounted.frontTexture));
+    const frontReady = mounted.frontSuppressed || readyTextures.has(mounted.frontTexture);
+    const backReady = readyTextures.has(mounted.backTexture);
+    const ready = backReady && frontReady;
     const visible = mounted.lastPose?.visible !== false && ready;
+    const frontVisible = mounted.lastCard?.faceUp !== false && frontReady;
+    mounted.front.visible = frontVisible;
+    mounted.frontBase.visible = frontVisible;
+    mounted.back.visible = backReady;
+    mounted.backBase.visible = backReady;
     mounted.cardGroup.visible = visible;
     mounted.accessibilityShell.hidden = !visible;
     mounted.accessibilityShell.inert = !visible;
