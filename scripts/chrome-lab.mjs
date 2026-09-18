@@ -1151,6 +1151,8 @@ const diagnosticsScenario = String.raw`(async () => {
   while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) await sleep(100);
   record("benchmark measures 1, 5, 10, 50, and 100 cards", () => {
     const text = report();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return false; }
     return diagnosticsStatus().includes("Benchmark complete")
       && text.includes('"cards": 1')
       && text.includes('"cards": 5')
@@ -1158,7 +1160,11 @@ const diagnosticsScenario = String.raw`(async () => {
       && text.includes('"cards": 50')
       && text.includes('"cards": 100')
       && text.includes('"readyMs"')
-      && text.includes('"assets"');
+      && text.includes('"assets"')
+      && parsed.lab?.cards === baseline.desired.cards.length
+      && parsed.lab?.benchmark?.every((result) => result.assets?.total > 0
+        && result.assets.pending === 0
+        && result.assets.failed === 0);
   });
   record("benchmark restores the lab", () => {
     const restored = lab.getScene().snapshot();

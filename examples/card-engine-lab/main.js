@@ -1149,7 +1149,11 @@ async function runDiagnosticsBenchmark() {
         && rendererDiagnostics?.mountedCards === count
         && !current.settling
         && (rendererDiagnostics.imageSources?.pending ?? 0) === 0) {
-        return { state: current, readyMs: performance.now() - startedAt };
+        return {
+          state: current,
+          rendererDiagnostics,
+          readyMs: performance.now() - startedAt,
+        };
       }
       await sleep(50);
     }
@@ -1176,7 +1180,7 @@ async function runDiagnosticsBenchmark() {
       applyLabCards(cards);
       const setupMs = performance.now() - setupStart;
       const ready = await waitForReady(count);
-      const readyDiagnostics = ready.state.rendererDiagnostics ?? {};
+      const readyDiagnostics = ready.rendererDiagnostics ?? {};
       await sleep(150);
       toggleRandomMotion();
       const frameTimes = [];
@@ -1210,6 +1214,9 @@ async function runDiagnosticsBenchmark() {
       });
     }
     lastDiagnosticsBenchmark = benchmarkResults;
+    cardZoneIds = originalZoneMembership;
+    selectedCardIds = new Set(originalSelection);
+    applyLabCards(originalCards);
     await refreshDiagnostics("Benchmark complete; the lab state was restored.");
   } catch (error) {
     diagnosticsStatus.textContent = `Benchmark failed: ${error instanceof Error ? error.message : String(error)}`;
