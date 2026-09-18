@@ -72,8 +72,8 @@ export const LAB_TUTORIAL_STEPS = [
   },
   {
     id: "diagnostics",
-    title: "Read the diagnostics",
-    body: "Performance diagnostics reports the browser, WebGL renderer, viewport, frame rate, and scene details. Refresh the report for the current scene, run the 1 / 5 / 10-card test for a small comparison, or Record next drag to capture one drag session. Use Copy report when sharing a rendering or performance problem.",
+    title: "Read the benchmark",
+    body: "Benchmark reports the browser, WebGL renderer, viewport, card readiness, frame rate, and scene details. Refresh the report for the current scene, run the 1 / 5 / 10 / 50 / 100-card benchmark, or Record next drag to capture one drag session. Use Copy report when sharing a rendering or performance problem.",
     target: "#diagnostics-panel",
   },
   {

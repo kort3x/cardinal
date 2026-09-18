@@ -208,20 +208,20 @@ with a stable shell while the same element controls are used.
 The element list is intentionally unavailable while the selected card is
 concealed. Reveal the card before editing its front content.
 
-## Diagnostics
+## Benchmark
 
-Open **Performance diagnostics** below the stage:
+Open **Benchmark** below the stage:
 
-- **Refresh report** collects browser, WebGL, viewport, renderer, and scene
-  information.
-- **Run 1 / 5 / 10-card test** compares setup and frame behavior at several
-  card counts.
+- **Refresh report** collects browser, WebGL, viewport, renderer, scene, and
+  image readiness information.
+- **Run 1 / 5 / 10 / 50 / 100-card benchmark** compares setup, readiness,
+  asset sources, and frame behavior at exact mounted card counts.
 - **Record next drag** captures pointer-to-render timing for one drag.
 - **Copy report** copies the report, or selects it for manual copying when
   clipboard access is unavailable.
 
 The **Renderer** and **FPS** lines are useful first checks when a visual result
-looks wrong. Share the diagnostics report with a bug report when reporting a
+looks wrong. Share the benchmark report with a bug report when reporting a
 browser-specific rendering or performance problem.
 
 ## Resetting the fixture

@@ -17,6 +17,7 @@
     "test:chrome:demo-toggles": "node scripts/chrome-lab.mjs --headless --scenario demo-toggles",
     "test:chrome:performance": "node scripts/chrome-lab.mjs --headless --scenario performance",
     "test:chrome:random-performance": "node scripts/chrome-lab.mjs --headless --scenario random-performance",
+    "test:chrome:benchmark": "node scripts/chrome-lab.mjs --headless --scenario benchmark",
     "test:chrome:diagnostics": "node scripts/chrome-lab.mjs --headless --scenario diagnostics",
     "test:chrome:zones": "node scripts/chrome-lab.mjs --headless --scenario zones",
     "test:chrome:main-zones": "node scripts/chrome-lab.mjs --headless --scenario main-zones",

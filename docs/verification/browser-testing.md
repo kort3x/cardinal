@@ -15,7 +15,7 @@ skill is required. Run commands from the repository root.
 | Chrome drag verification | `npm run test:chrome:drag` | Real mouse, keyboard and emulated touch input |
 | Chrome batch selection/drag | `npm run test:chrome:batch` | Cohort selection, atomic transfers and real input |
 | Chrome drag geometry | `npm run test:chrome:drag-geometry` | Mesh picking, overlap precedence and perspective drag fixtures |
-| Chrome drag timing | `npm run test:chrome:drag-performance` | Rest/motion/single drag with 1/10/50 mounted cards; 5/10-card cohort samples |
+| Chrome drag timing | `npm run test:chrome:drag-performance` | Rest/motion/single drag with 1/10/50/100 mounted cards; 5/10-card cohort samples |
 | Show the user a Chrome scenario | `npm run show:chrome -- --scenario drag` | Visible Chrome; substitute the relevant scenario below |
 | Edge acceptance | `npm run test:edge` | Headless Edge Chromium acceptance flow |
 | Edge drag verification | `npm run test:edge:drag` | Real mouse, keyboard and emulated touch input |
@@ -48,7 +48,7 @@ is necessary only when extending or diagnosing them.
 | Drag projection, shape hit regions and overlap precedence | `drag-geometry` |
 | Single-card and cohort dragging with increasing mounted population | `drag-performance` |
 | Mobile responsive scale and touch-capability defaults | `mobile-scale` |
-| Cohort rendering / random-motion performance / report collection | `performance` / `random-performance` / `diagnostics` |
+| Cohort rendering / random-motion performance / card benchmark | `performance` / `random-performance` / `benchmark` |
 
 For any listed Chromium scenario, use
 `node scripts/chrome-lab.mjs --headless --scenario <name>` for Chrome, or add
@@ -82,7 +82,7 @@ report instead of inferring performance from the visible FPS label. The explicit
 **Touch drag** control remains available if browser/device capability detection
 is incomplete:
 
-1. Open **Performance diagnostics** and click **Record next drag**.
+1. Open **Benchmark** and click **Record next drag**.
 2. Drag one card or a selected cohort across the stage with the physical input
    being evaluated. For a batch sample, use **Drag → Set up batch**, choose the
    desired input mode before setup, and drag the selection into Ocean. Resolve

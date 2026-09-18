@@ -238,6 +238,15 @@ function backgroundImageSource(content) {
   return typeof backgroundImage === "string" ? backgroundImage : backgroundImage?.src;
 }
 
+function imageSourcesForContent(content) {
+  return [
+    backgroundImageSource(content),
+    ...contentElements(content)
+      .filter((element) => elementVisible(element) && element.type === "image")
+      .map((element) => elementImageSource(element)),
+  ].filter(Boolean);
+}
+
 function backgroundImageFit(content) {
   const backgroundImage = content?.backgroundImage;
   return typeof backgroundImage === "object" ? backgroundImage.fit ?? "cover" : "cover";
@@ -840,12 +849,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = webgl.capabilities.getMaxAnisotropy();
-    const imageSources = [
-      backgroundImageSource(content),
-      ...contentElements(content)
-      .filter((element) => elementVisible(element) && element.type === "image")
-      .map((element) => elementImageSource(element))
-    ];
+    const imageSources = imageSourcesForContent(content);
     const imageEntries = imageSources
       .filter(Boolean)
       .filter((source, index, sources) => sources.indexOf(source) === index)
@@ -1532,6 +1536,28 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     updateInteraction,
     updateSelection,
     render,
+    diagnostics() {
+      const sources = new Set();
+      for (const mounted of cards.values()) {
+        for (const source of imageSourcesForContent(mounted.frontContent)) sources.add(source);
+        for (const source of imageSourcesForContent(mounted.backContent)) sources.add(source);
+      }
+      let loaded = 0;
+      let pending = 0;
+      let failed = 0;
+      for (const source of sources) {
+        const entry = imageCache.get(source);
+        if (entry?.loaded) loaded += 1;
+        else if (entry?.failed) failed += 1;
+        else pending += 1;
+      }
+      return {
+        mountedCards: cards.size,
+        mountedSurfaces: [...cards.values()].reduce((count, mounted) => count
+          + Number(Boolean(mounted.frontTexture)) + Number(Boolean(mounted.backTexture)), 0),
+        imageSources: { total: sources.size, loaded, pending, failed },
+      };
+    },
     remove,
     destroy() {
       if (disposed) return;

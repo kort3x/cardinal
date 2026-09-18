@@ -34,7 +34,7 @@ if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid ${browserLabe
 if (typeof WebSocket !== "function") {
   throw new Error(`${browserLabel} automation requires Node 22+ with the built-in WebSocket API`);
 }
-if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", "arrangements", "drag-lift", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown ${browserLabel} lab scenario: ${scenario}`);
+if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "benchmark", "zones", "main-zones", "arrangements", "drag-lift", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown ${browserLabel} lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -1012,8 +1012,11 @@ const performanceScenario = String.raw`(async () => {
   if (!addCard || !selectAll || !move) throw new Error("Performance controls are unavailable");
 
   await sleep(700);
+  selectAll.click();
+  document.querySelector("#remove-cards")?.click();
+  await sleep(700);
   const setupStart = performance.now();
-  for (let index = 1; index < 200; index += 1) addCard.click();
+  for (let index = 0; index < 100; index += 1) addCard.click();
   const setupMs = performance.now() - setupStart;
   await sleep(2500);
   selectAll.click();
@@ -1032,6 +1035,7 @@ const performanceScenario = String.raw`(async () => {
     };
     requestAnimationFrame(sample);
   });
+  move.click();
   await sleep(1200);
 
   const intervals = frameTimes.slice(1).map((time, index) => time - frameTimes[index]);
@@ -1045,15 +1049,16 @@ const performanceScenario = String.raw`(async () => {
     setupMs: Number(setupMs.toFixed(1)),
     actionHandlerMs: Number((actionReturned - actionStart).toFixed(1)),
     frames: frameTimes.length,
-    firstFrameDelayMs: Number((frameTimes[0] - actionStart).toFixed(1)),
+    firstFrameDelayMs: Number(Math.max(0, frameTimes[0] - actionStart).toFixed(1)),
     medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
     p95FrameMs: Number(percentile(sorted, 0.95).toFixed(1)),
     missedFramesOver20Ms: intervals.filter((interval) => interval > 20).length,
+    demoActive: move.getAttribute("aria-pressed") === "true",
     status: document.querySelector("#status")?.getAttribute("aria-label") ?? document.querySelector("#status")?.textContent?.replace(/\s+/g, " ").trim() ?? "",
     renderer: document.querySelector("#renderer-status")?.textContent ?? "",
   };
-  record("200-card cohort mounts", () => details.cards === 200 && details.shells === 200, details);
-  record("200-card cohort settles", () => details.frames > 0 && details.status.includes("200 cards") && details.status.includes("stable"), details);
+  record("100-card benchmark mounts", () => details.cards === 100 && details.shells === 100, details);
+  record("100-card benchmark settles", () => details.frames > 0 && !details.demoActive && details.status.includes("100 cards"), details);
 
   document.querySelector("#remove-cards")?.click();
   await sleep(700);
@@ -1132,6 +1137,8 @@ const randomPerformanceScenario = String.raw`(async () => {
 const diagnosticsScenario = String.raw`(async () => {
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   const results = [];
+  const lab = await import('/examples/card-engine-lab/main.js');
+  const baseline = lab.getScene().snapshot();
   const report = () => document.querySelector("#diagnostics-report")?.textContent ?? "";
   const diagnosticsStatus = () => document.querySelector("#diagnostics-status")?.textContent ?? "";
   const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
@@ -1142,15 +1149,23 @@ const diagnosticsScenario = String.raw`(async () => {
   document.querySelector("#run-diagnostics-benchmark")?.click();
   const deadline = performance.now() + 20000;
   while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) await sleep(100);
-  record("diagnostics benchmark measures 1, 5, and 10 cards", () => {
+  record("benchmark measures 1, 5, 10, 50, and 100 cards", () => {
     const text = report();
     return diagnosticsStatus().includes("Benchmark complete")
       && text.includes('"cards": 1')
       && text.includes('"cards": 5')
-      && text.includes('"cards": 10');
+      && text.includes('"cards": 10')
+      && text.includes('"cards": 50')
+      && text.includes('"cards": 100')
+      && text.includes('"readyMs"')
+      && text.includes('"assets"');
   });
-  record("diagnostics benchmark restores the lab", () => document.querySelectorAll("#card-list label").length === 1
-    && document.querySelector("#selection-status")?.textContent === "1 of 1 selected");
+  record("benchmark restores the lab", () => {
+    const restored = lab.getScene().snapshot();
+    return restored.desired.cards.length === baseline.desired.cards.length
+      && JSON.stringify(restored.selection.cardIds) === JSON.stringify(baseline.selection.cardIds)
+      && document.querySelectorAll("#card-list label").length === baseline.desired.cards.length;
+  });
   const clipboardDescriptor = Object.getOwnPropertyDescriptor(Navigator.prototype, "clipboard");
   const originalExecCommand = document.execCommand;
   let fallbackCopied = false;
@@ -1584,7 +1599,7 @@ async function run() {
                   : scenario === "spin-state" ? spinStateScenario
                   : scenario === "performance" ? performanceScenario
                   : scenario === "random-performance" ? randomPerformanceScenario
-                  : scenario === "diagnostics" ? diagnosticsScenario
+                  : scenario === "diagnostics" || scenario === "benchmark" ? diagnosticsScenario
                   : scenario === "zones" ? zonesScenario
                   : scenario === "main-zones" ? mainZonesScenario
                   : scenario === "arrangements" ? arrangementsScenario

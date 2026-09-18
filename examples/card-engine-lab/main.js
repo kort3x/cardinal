@@ -399,9 +399,9 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["[data-transfer-zone=river]", "Move the selected cards to River."],
   ["[data-transfer-zone=ocean]", "Move the selected cards to Ocean."],
   ["#collect-diagnostics", "Refresh the renderer and device diagnostics report."],
-  ["#run-diagnostics-benchmark", "Run the 1, 5, and 10-card motion benchmark."],
+  ["#run-diagnostics-benchmark", "Run the 1, 5, 10, 50, and 100-card benchmark."],
   ["#record-drag", "Capture timing and input details for the next drag."],
-  ["#copy-diagnostics", "Copy the current diagnostics report."],
+  ["#copy-diagnostics", "Copy the current benchmark report."],
   ["#full-window-control", "Toggle the stage into full-window inspection mode."],
   ["#inspection-hover", "Open card inspection after hovering over a card for the dwell time."],
   ["#element-type", "Choose the type of card element to add."],
@@ -1021,6 +1021,7 @@ function webglDiagnosticValues(canvas) {
 
 async function collectDiagnostics() {
   const state = scene?.snapshot();
+  const rendererDiagnostics = scene?.rendererDiagnostics?.() ?? null;
   const canvas = stage.querySelector(".cardinal-webgl-canvas");
   const stageRect = stage.getBoundingClientRect();
   const uaData = navigator.userAgentData;
@@ -1066,6 +1067,7 @@ async function collectDiagnostics() {
     lab: {
       renderer: state?.renderer ?? null,
       rendererReason: state?.rendererReason ?? null,
+      rendererDiagnostics,
       cards: state?.desired.cards.length ?? 0,
       selectedCards: selectedCardIds.size,
       currentFps: fpsStatus.dataset.fps ? Number(fpsStatus.dataset.fps) : null,
@@ -1131,31 +1133,51 @@ async function runDiagnosticsBenchmark() {
   runDiagnosticsBenchmarkButton.disabled = true;
   collectDiagnosticsButton.disabled = true;
   copyDiagnosticsButton.disabled = true;
-  diagnosticsStatus.textContent = "Running 1-, 5-, and 10-card random-motion tests…";
+  diagnosticsStatus.textContent = "Running 1-, 5-, 10-, 50-, and 100-card benchmark…";
   const originalCards = structuredClone(scene.snapshot().desired.cards);
   const originalSelection = [...selectedCardIds];
+  const originalZoneMembership = new Map(cardZoneIds);
   const benchmarkResults = [];
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const waitForReady = async (count, timeout = 20000) => {
+    const startedAt = performance.now();
+    while (performance.now() - startedAt < timeout) {
+      const current = scene.snapshot();
+      const rendererDiagnostics = scene.rendererDiagnostics?.() ?? null;
+      if (current.desired.cards.length === count
+        && current.visual.length === count
+        && rendererDiagnostics?.mountedCards === count
+        && !current.settling
+        && (rendererDiagnostics.imageSources?.pending ?? 0) === 0) {
+        return { state: current, readyMs: performance.now() - startedAt };
+      }
+      await sleep(50);
+    }
+    throw new Error(`Benchmark fixture with ${count} cards did not become ready`);
+  };
   try {
     stopRandomMotion();
     stopDemoAnimations();
     const source = structuredClone(originalCards[0] ?? initialCards()[0]);
-    for (const count of [1, 5, 10]) {
+    for (const count of [1, 5, 10, 50, 100]) {
       const cards = [];
       for (let index = 0; index < count; index += 1) {
         cards.push({
           ...structuredClone(source),
-          id: `diagnostics-card-${index + 1}`,
+          id: `benchmark-card-${count}-${index + 1}`,
+          faceUp: true,
           positionMode: "absolute",
           pose: { ...structuredClone(source.pose ?? {}), ...nextCardPosition(cards), scale: 1 },
         });
       }
+      cardZoneIds = new Map(cards.map(({ id }) => [id, "river"]));
       selectedCardIds = new Set(cards.map(({ id }) => id));
+      const setupStart = performance.now();
       applyLabCards(cards);
-      selectedCardIds = new Set(scene.select([...selectedCardIds]).cardIds);
-      renderCardList();
-      updateStatus();
-      await sleep(1000);
+      const setupMs = performance.now() - setupStart;
+      const ready = await waitForReady(count);
+      const readyDiagnostics = ready.state.rendererDiagnostics ?? {};
+      await sleep(150);
       toggleRandomMotion();
       const frameTimes = [];
       const sampleStart = performance.now();
@@ -1168,7 +1190,7 @@ async function runDiagnosticsBenchmark() {
         requestAnimationFrame(sample);
       });
       stopRandomMotion();
-      await sleep(900);
+      await sleep(500);
       const intervals = frameTimes.slice(1).map((time, index) => time - frameTimes[index]);
       const sorted = [...intervals].sort((a, b) => a - b);
       const percentile = (values, fraction) => values.length
@@ -1177,6 +1199,9 @@ async function runDiagnosticsBenchmark() {
       const elapsedMs = frameTimes.length > 1 ? frameTimes.at(-1) - frameTimes[0] : 0;
       benchmarkResults.push({
         cards: count,
+        setupMs: Number(setupMs.toFixed(1)),
+        readyMs: Number(ready.readyMs.toFixed(1)),
+        assets: readyDiagnostics.imageSources ?? null,
         fps: Number((elapsedMs > 0 ? (frameTimes.length - 1) * 1000 / elapsedMs : 0).toFixed(1)),
         frames: frameTimes.length,
         medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
@@ -1191,6 +1216,7 @@ async function runDiagnosticsBenchmark() {
   } finally {
     stopRandomMotion();
     stopDemoAnimations();
+    cardZoneIds = originalZoneMembership;
     selectedCardIds = new Set(originalSelection);
     applyLabCards(originalCards);
     runDiagnosticsBenchmarkButton.disabled = false;

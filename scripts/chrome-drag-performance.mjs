@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createPageEvaluator } from "./chrome-runtime.mjs";
 
 const LAB_MODULE = "/examples/card-engine-lab/main.js";
-const CARD_COUNTS = [1, 10, 50];
+const CARD_COUNTS = [1, 10, 50, 100];
 const SAMPLE_DURATION_MS = 1000;
 const DRAG_STEPS = 24;
 const DRAG_STEP_MS = 20;
@@ -304,7 +304,7 @@ export async function runDragPerformanceScenario({ command }) {
       const { getScene } = await import(${JSON.stringify(LAB_MODULE)});
       const scene = getScene();
       for (const cardId of ${JSON.stringify(cardIds)}) {
-        scene.spin(cardId, { axis: "y", direction: 1, speed: 180 });
+        scene.spin(cardId, { axis: "y", direction: 1, speed: 180, zoneFacePolicy: "override" });
       }
       return true;
     })()`);
