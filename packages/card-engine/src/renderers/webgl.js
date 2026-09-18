@@ -755,6 +755,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   canvas.addEventListener("webglcontextrestored", handleContextRestored, false);
 
   const cards = new Map();
+  const readyTextures = new WeakSet();
+  let imageRenderFrame = null;
   const imageCache = new Map();
   const texturePool = createTexturePool();
   // Cumulative counters are sampled explicitly, never through scene snapshots.
@@ -870,19 +872,33 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       work.textureDraws += 1;
       work.textureDrawCpuMs += performance.now() - started;
     };
-    const redraw = (source, image) => {
+    // Publish one complete raster, never the background/text/image fragments
+    // produced while independent sources are still arriving. Failed sources
+    // settle too, so the existing missing-image fallback remains usable.
+    const finish = () => {
       if (disposed || textureDisposed) return;
-      images.set(source, image);
       draw();
+      readyTextures.add(texture);
       texture.needsUpdate = true;
-      render();
     };
-    draw();
-    for (const [source, entry] of imageEntries) {
-      if (!entry.loaded) entry.promise.then(
-        (image) => redraw(source, image),
+    if (imageEntries.every(([, entry]) => entry.loaded || entry.failed)) {
+      finish();
+    } else {
+      Promise.all(imageEntries.map(([source, entry]) => entry.promise.then(
+        (image) => { images.set(source, image); },
         (error) => { if (!disposed && !textureDisposed) onStatus({ reason: "asset-load-failed", source, error }); },
-      );
+      ))).then(() => {
+        if (disposed || textureDisposed) return;
+        finish();
+        for (const mounted of cards.values()) {
+          if (mounted.frontTexture === texture || mounted.backTexture === texture) updateReadyVisibility(mounted);
+        }
+        // Many faces can finish in the same turn; submit the scene only once.
+        if (imageRenderFrame === null) imageRenderFrame = requestAnimationFrame(() => {
+          imageRenderFrame = null;
+          render();
+        });
+      });
     }
     return texture;
   }
@@ -1118,15 +1134,21 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (!isResizing) mounted[transitionName] = null;
   }
 
+  function updateReadyVisibility(mounted) {
+    const ready = readyTextures.has(mounted.backTexture)
+      && (mounted.frontSuppressed || readyTextures.has(mounted.frontTexture));
+    const visible = mounted.lastPose?.visible !== false && ready;
+    mounted.cardGroup.visible = visible;
+    mounted.accessibilityShell.hidden = !visible;
+    mounted.accessibilityShell.inert = !visible;
+  }
+
   function update(card, pose, { render: shouldRender = true, presentation } = {}) {
     const targetDimensions = cardDimensions(card, templates, elementRenderers, presentation);
     const dimensions = { width: pose.width ?? targetDimensions.width, height: pose.height ?? targetDimensions.height };
     const textureDimensions = textureDimensionsForPose(card, pose, templates, elementRenderers, presentation);
     const thickness = pose.thickness ?? cardThickness(card, templates);
     const mounted = mount(card, textureDimensions, thickness);
-    mounted.cardGroup.visible = pose.visible !== false;
-    mounted.accessibilityShell.hidden = pose.visible === false;
-    mounted.accessibilityShell.inert = pose.visible === false;
     const feedback = card.feedback ?? {};
     mounted.accessibilityShell.dataset.disabled = String(feedback.disabled === true);
     mounted.accessibilityShell.dataset.actionable = String(feedback.actionable === true);
@@ -1216,6 +1238,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityContentKey = accessibleContentKey;
       mounted.accessibilityPresentationKey = presentationKey;
     }
+    updateReadyVisibility(mounted);
     if (interactionSessions.length > 0 && !interactionPriorityCardIds.has(card.id)) applyInteractionPriority();
     if (shouldRender) render();
   }
@@ -1578,6 +1601,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       return {
         textures: {
           active: textures.size,
+          pending: [...textures].filter((texture) => !readyTextures.has(texture)).length,
           estimatedBytes: [...textures].reduce((bytes, texture) => bytes + texture.image.width * texture.image.height * 4, 0),
         },
         work: { ...work },
@@ -1594,6 +1618,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     destroy() {
       if (disposed) return;
       disposed = true;
+      if (imageRenderFrame !== null) cancelAnimationFrame(imageRenderFrame);
+      imageRenderFrame = null;
       resizeObserver?.disconnect();
       window.removeEventListener("resize", handleWindowResize);
       canvas.removeEventListener("webglcontextlost", handleContextLost);

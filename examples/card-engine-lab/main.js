@@ -1149,7 +1149,8 @@ async function runDiagnosticsBenchmark() {
         && current.visual.length === count
         && rendererDiagnostics?.mountedCards === count
         && !current.settling
-        && (rendererDiagnostics.imageSources?.pending ?? 0) === 0) {
+        && (rendererDiagnostics.imageSources?.pending ?? 0) === 0
+        && (rendererDiagnostics.textures?.pending ?? 0) === 0) {
         return {
           state: current,
           rendererDiagnostics,

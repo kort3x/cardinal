@@ -761,3 +761,12 @@ The WebGL adapter shares identical built-in surface textures while they are in
 use. Concealment detaches the front immediately; the final permitted reference
 releases the texture. There is no idle front-texture cache. Custom element
 renderers keep private textures because their drawing can use external state.
+
+A card becomes visible and pickable after its permitted face textures have
+finished loading their images and have been rasterized. Faces are published as
+complete textures rather than repainted as each image arrives; unrelated ready
+cards remain visible. Changing content to an uncached image temporarily hides
+that card until its new texture is ready. Failed images settle using the normal
+missing-image fallback and report `asset-load-failed`; concealed fronts are not
+loaded. `textures.pending` counts active textures still awaiting rasterization,
+not GPU completion. Image completion renders are coalesced into one frame.

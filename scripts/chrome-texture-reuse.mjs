@@ -22,6 +22,11 @@ export async function runTextureReuse({ command }) {
         set(value) {
           if (!value.includes('reuse-delayed')) { nativeSrc.set.call(image,value); return; }
           delayed.push(() => new Promise((resolve,reject) => {
+            if (value.includes('atomic-failed')) {
+              image.dispatchEvent(new Event('error'));
+              resolve();
+              return;
+            }
             image.addEventListener('load',resolve,{once:true});
             image.addEventListener('error',reject,{once:true});
             nativeSrc.set.call(image,value);
@@ -32,6 +37,43 @@ export async function runTextureReuse({ command }) {
     };
     try {
       scene.apply({...original.desired, cards:[], zones:[]});
+      const cold = structuredClone(source);
+      cold.id = 'cold-texture';
+      const coldFace = cold.faces[cold.activeFaceId];
+      const coldImage = coldFace.elements.find(element => element.type === 'image');
+      coldImage.content.src += '?reuse-delayed=atomic-first';
+      const secondImage = structuredClone(coldImage);
+      secondImage.id = 'atomic-second';
+      secondImage.content.src = secondImage.content.src.replace('atomic-first', 'atomic-second');
+      coldFace.elements.push(secondImage);
+      const loadNext = async () => {
+        await Promise.race([delayed.shift()(), new Promise((_,reject) => setTimeout(() => reject(new Error('Image timeout')),5000))]);
+        await new Promise(requestAnimationFrame);
+      };
+      scene.apply({...original.desired,cards:[cold],zones:[{id:'cold',geometry:{x:0,y:0,width:1000,height:800,depth:0},cardIds:[cold.id]}]});
+      const coldStart = work();
+      record('cold card is not drawn with incomplete images', coldStart.lastRender.calls === 0, coldStart);
+      if (delayed.length !== 2) throw new Error('Expected two deferred face images');
+      await loadNext();
+      const partial = work();
+      record('first image does not publish a partial face', partial.lastRender.calls === 0
+        && partial.work.textureDraws === coldStart.work.textureDraws, partial);
+      await loadNext();
+      const complete = work();
+      record('complete face is drawn once after all images arrive', complete.lastRender.calls > 0
+        && complete.work.textureDraws - coldStart.work.textureDraws === 1, complete);
+      scene.apply({...original.desired,cards:[],zones:[]});
+      const broken = structuredClone(cold);
+      broken.faces[broken.activeFaceId].elements.find(element => element.type === 'image').content.src += '-atomic-failed';
+      const healthy = {...structuredClone(source),id:'healthy-peer'};
+      scene.apply({...original.desired,cards:[broken,healthy],zones:[{id:'cold',geometry:{x:0,y:0,width:1000,height:800,depth:0},cardIds:[broken.id,healthy.id]}]});
+      const shell = id => document.querySelector('.cardinal-webgl-card[data-card-id="'+id+'"]');
+      record('pending card does not block a ready peer', shell(broken.id).hidden
+        && !shell(healthy.id).hidden && work().lastRender.calls > 0, work());
+      await loadNext();
+      record('failed image settles to a usable fallback', !shell(broken.id).hidden
+        && work().textures.pending === 0 && work().imageSources.failed === 1, work());
+      scene.apply({...original.desired,cards:[],zones:[]});
       const before=work();
       scene.apply({...original.desired, cards, zones:[{id:'reuse', geometry:{x:0,y:0,width:1000,height:800,depth:0},cardIds:cards.map(card=>card.id)}]});
       const mounted=work();
