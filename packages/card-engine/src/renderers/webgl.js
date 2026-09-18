@@ -825,7 +825,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     return entry;
   }
 
-  function makeTexture(content, dimensions, options = {}) {
+  function makeTexture(content, dimensions, options = {}, isCurrent = () => true) {
     const resolution = Math.min(4, Math.max(2, (globalThis.devicePixelRatio || 1) * 2));
     const canvas2d = document.createElement("canvas");
     canvas2d.width = Math.round(dimensions.width * resolution);
@@ -852,7 +852,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       .map((source) => [source, cachedImage(source)]);
     const images = new Map(imageEntries.filter(([, entry]) => entry.loaded).map(([source, entry]) => [source, entry.image]));
     const redraw = (source, image) => {
-      if (disposed || textureDisposed) return;
+      if (disposed || textureDisposed || !isCurrent()) return;
       images.set(source, image);
       drawCardTextureContent(context, content, dimensions, images, { ...options, elementRenderers });
       texture.needsUpdate = true;
@@ -862,7 +862,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     for (const [source, entry] of imageEntries) {
       if (!entry.loaded) entry.promise.then(
         (image) => redraw(source, image),
-        (error) => { if (!disposed && !textureDisposed) onStatus({ reason: "asset-load-failed", source, error }); },
+        (error) => { if (!disposed && !textureDisposed && isCurrent()) onStatus({ reason: "asset-load-failed", source, error }); },
       );
     }
     return texture;
@@ -967,6 +967,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       backContent: null,
       frontContentKey: null,
       backContentKey: null,
+      frontGeneration: 0,
+      backGeneration: 0,
       frontTransition: null,
       backTransition: null,
       accessibilityCard: null,
@@ -1078,7 +1080,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       if (!isResizing) mounted[transitionName] = null;
       return;
     }
-    const texture = makeTexture(content, dimensions, options);
+    const generationName = `${side}Generation`;
+    const generation = (mounted[generationName] ?? 0) + 1;
+    mounted[generationName] = generation;
+    const texture = makeTexture(content, dimensions, options, () => mounted[generationName] === generation);
     if (!texture) return;
     const textureName = `${side}Texture`;
     mounted[textureName]?.dispose();
@@ -1144,6 +1149,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
         updateTexture(mounted, "front", logicalFaceContent(card, "front", presentation), textureDimensions, targetDimensions, faceId);
         mounted.frontSuppressed = false;
       } else {
+        mounted.frontGeneration += 1;
         mounted.frontTexture?.dispose();
         mounted.frontTexture = null;
         mounted.frontMaterial.map = null;
@@ -1464,6 +1470,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   function remove(cardId) {
     const mounted = cards.get(cardId);
     if (!mounted) return;
+    mounted.frontGeneration += 1;
+    mounted.backGeneration += 1;
     renderScene.remove(mounted.cardGroup);
     mounted.accessibilityShell.remove();
     mounted.geometry.dispose();

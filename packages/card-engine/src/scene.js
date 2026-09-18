@@ -610,6 +610,24 @@ export function createCardScene(config = {}) {
     finishTransition(ticket.transition);
   }
 
+  function settleChannelTickets(channel, status) {
+    const tickets = channel?.tickets ?? (channel?.ticket ? [channel.ticket] : []);
+    for (const ticket of tickets) settleTicket(ticket, status);
+    if (channel) {
+      channel.tickets = [];
+      delete channel.ticket;
+    }
+  }
+
+  function attachChannelTicket(channel, transition, operationIndex) {
+    const ticket = { transition, operationIndex, status: null };
+    transition.pending += 1;
+    transition.results[operationIndex].remaining += 1;
+    channel.tickets ??= channel.ticket ? [channel.ticket] : [];
+    delete channel.ticket;
+    channel.tickets.push(ticket);
+  }
+
   function finishTransition(transition) {
     if (transition.scheduling) return;
     transition.results.forEach((result, index) => {
@@ -678,7 +696,7 @@ export function createCardScene(config = {}) {
           if (channelName === "flipX" || channelName === "flipY") setFlipValue(pose, channel.axis, channel.restingTarget ?? channel.to);
           else pose[channelName] = channel.to;
           delete cardChannels[channelName];
-          if (channel.ticket) settleTicket(channel.ticket, "settled");
+          settleChannelTickets(channel, "settled");
         }
       }
       renderCard(cardId, { render: false });
@@ -720,7 +738,7 @@ export function createCardScene(config = {}) {
     const cardChannels = channels.get(cardId);
     const channel = cardChannels?.[channelName];
     if (!channel) return;
-    if (channel.ticket) settleTicket(channel.ticket, status);
+    settleChannelTickets(channel, status);
     delete cardChannels[channelName];
     if (Object.keys(cardChannels).length === 0) channels.delete(cardId);
   }
@@ -814,8 +832,8 @@ export function createCardScene(config = {}) {
       transition.results[operationIndex].remaining += 1;
     }
     if (continueLanding) {
-      if (existing.ticket) settleTicket(existing.ticket, "superseded");
-      existing.ticket = ticket;
+      settleChannelTickets(existing, "superseded");
+      existing.tickets = ticket ? [ticket] : [];
       return;
     }
     snap ||= committedEntry?.carried === true;
@@ -856,7 +874,7 @@ export function createCardScene(config = {}) {
       easing: snap || durationOverride !== undefined ? smoothStep : null,
       snap,
       axis,
-      ticket,
+      tickets: ticket ? [ticket] : [],
     };
     channels.set(cardId, cardChannels);
   }
@@ -872,7 +890,16 @@ export function createCardScene(config = {}) {
       transition.results[operationIndex].status = "settled";
       return;
     }
-    schedule(cardId, changedChannels[0], targetPose[changedChannels[0]], transition, operationIndex);
+    const primaryChannel = changedChannels[0];
+    const existing = channels.get(cardId)?.[primaryChannel];
+    if (existing?.resizeTransition === transition
+      && Math.abs(existing.to - targetPose[primaryChannel]) < 0.0001) {
+      attachChannelTicket(existing, transition, operationIndex);
+    } else {
+      schedule(cardId, primaryChannel, targetPose[primaryChannel], transition, operationIndex);
+      const scheduled = channels.get(cardId)?.[primaryChannel];
+      if (scheduled) scheduled.resizeTransition = transition;
+    }
     for (const channelName of changedChannels.slice(1)) scheduleChannel(cardId, channelName, targetPose[channelName]);
   }
 

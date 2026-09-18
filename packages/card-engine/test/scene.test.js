@@ -1174,6 +1174,99 @@ test("content-sized cards animate height changes when flow elements are removed"
   scene.destroy();
 });
 
+test("all-hidden content cards collapse to their minimum and settle every element edit", async () => {
+  const clock = testClock();
+  const contentCard = {
+    ...card,
+    sizing: { mode: "content", minHeight: 120, maxHeight: 480 },
+    faces: {
+      front: {
+        elements: [
+          { id: "title", type: "text", content: { text: "Title" }, layout: { mode: "flow" } },
+          { id: "image", type: "image", content: { src: "art.svg" }, layout: { mode: "flow" } },
+          { id: "flavour", type: "text", content: { text: "A longer description." }, layout: { mode: "flow" } },
+        ],
+      },
+    },
+  };
+  const scene = createCardScene({ clock, renderer: () => ({ update() {}, destroy() {} }), motion: { clock, duration: 700 } });
+  scene.apply({ cards: [contentCard], zones: [zone] });
+
+  const transition = scene.transact([
+    { type: "element", cardId: "card-1", action: "hide", elementId: "title" },
+    { type: "element", cardId: "card-1", action: "hide", elementId: "image" },
+    { type: "element", cardId: "card-1", action: "hide", elementId: "flavour" },
+  ]);
+  clock.tick(700);
+
+  assert.deepEqual(await transition.finished, [
+    { type: "element", cardId: "card-1", status: "settled" },
+    { type: "element", cardId: "card-1", status: "settled" },
+    { type: "element", cardId: "card-1", status: "settled" },
+  ]);
+  assert.equal(scene.snapshot().visual[0].pose.height, 120);
+  assert.equal(scene.snapshot().desired.cards[0].faces.front.elements.every(({ visible }) => visible === false), true);
+  scene.destroy();
+});
+
+test("fixed-size cards retain explicit dimensions when every element is hidden", async () => {
+  const fixedCard = {
+    ...card,
+    sizing: { mode: "fixed" },
+    dimensions: { width: 210, height: 330 },
+    faces: {
+      front: {
+        elements: [
+          { id: "title", type: "text", content: { text: "Title" }, layout: { mode: "flow" } },
+          { id: "flavour", type: "text", content: { text: "Description" }, layout: { mode: "flow" } },
+        ],
+      },
+    },
+  };
+  const scene = createCardScene({ renderer: () => ({ update() {}, destroy() {} }) });
+  scene.apply({ cards: [fixedCard], zones: [zone] });
+  const transition = scene.transact([
+    { type: "element", cardId: "card-1", action: "hide", elementId: "title" },
+    { type: "element", cardId: "card-1", action: "hide", elementId: "flavour" },
+  ], { immediate: true });
+  await transition.finished;
+
+  const pose = scene.snapshot().visual[0].pose;
+  assert.equal(pose.width, 210);
+  assert.equal(pose.height, 330);
+  scene.destroy();
+});
+
+test("reversing an element resize supersedes stale work and lands at the latest content size", async () => {
+  const clock = testClock();
+  const contentCard = {
+    ...card,
+    sizing: { mode: "content", minHeight: 120, maxHeight: 480 },
+    faces: {
+      front: {
+        elements: [
+          { id: "title", type: "text", content: { text: "Title" }, layout: { mode: "flow" } },
+          { id: "image", type: "image", content: { src: "art.svg" }, layout: { mode: "flow" } },
+          { id: "flavour", type: "text", content: { text: "A longer description." }, layout: { mode: "flow" } },
+        ],
+      },
+    },
+  };
+  const scene = createCardScene({ clock, renderer: () => ({ update() {}, destroy() {} }), motion: { clock, duration: 700 } });
+  scene.apply({ cards: [contentCard], zones: [zone] });
+  const initialHeight = scene.snapshot().visual[0].pose.height;
+
+  const hide = scene.transact([{ type: "element", cardId: "card-1", action: "hide", elementId: "flavour" }]);
+  clock.tick(350);
+  const show = scene.transact([{ type: "element", cardId: "card-1", action: "show", elementId: "flavour" }]);
+  clock.tick(700);
+
+  assert.deepEqual(await hide.finished, [{ type: "element", cardId: "card-1", status: "superseded" }]);
+  assert.deepEqual(await show.finished, [{ type: "element", cardId: "card-1", status: "settled" }]);
+  assert.equal(scene.snapshot().visual[0].pose.height, initialHeight);
+  scene.destroy();
+});
+
 test("fixed-size cards keep their dimensions when flow elements are removed", async () => {
   const scene = createCardScene({ renderer: () => ({ update() {}, destroy() {} }) });
   scene.apply({ cards: [card], zones: [zone] });
