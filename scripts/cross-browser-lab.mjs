@@ -161,7 +161,7 @@ async function acceptance(name, evaluate, navigate, actions, prepareScene, touch
   await evaluate(clickExpression('button[data-flip="1"]'));
   await delay(850);
   state = await evaluate(stateExpression);
-  record("face-down settles", state, (value) => value.status.includes("physical back") && value.shells === 1);
+  record("concealed settles", state, (value) => value.status.includes("physical back") && value.shells === 1);
 
   await evaluate(setExpression("#flip-x-slider", 60));
   await evaluate(setExpression("#flip-y-slider", 45));

@@ -26,6 +26,15 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
   const model = () => state().desired ?? { cards: [], zones: [] };
   const zoneFor = (id) => model().zones.find((zone) => zone.cardIds.includes(id));
 
+  function forcedGroup(zone) {
+    const policy = zone?.selectionPolicy;
+    if (policy?.mode !== "forced") return null;
+    if (zone.cardIds.length < policy.count) {
+      return { cardIds: [], reason: `Zone ${zone.id} requires selecting ${policy.count} cards but only has ${zone.cardIds.length}` };
+    }
+    return { cardIds: zone.cardIds.slice(-policy.count) };
+  }
+
   function publish(next) {
     if (JSON.stringify(next) !== JSON.stringify(selection)) {
       selection = next;
@@ -41,6 +50,10 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
     const pose = visual?.get(cardId);
     if (!card || !zone || !pose || pose.visible === false || zone.visible === false) {
       return { allowed: false, reason: `Card ${cardId} is not available for selection` };
+    }
+    const group = forcedGroup(zone);
+    if (group && !group.cardIds.includes(cardId)) {
+      return { allowed: false, reason: group.reason ?? `Zone ${zone.id} requires selecting its top ${zone.selectionPolicy.count} cards` };
     }
     if (!config.canSelect) return { allowed: true };
     try {
@@ -110,6 +123,24 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
       requested = logicalOrder.slice(Math.min(start, end), Math.max(start, end) + 1);
     }
     const current = selection.cardIds;
+    const forcedGroups = new Map();
+    for (const id of requested) {
+      const zone = zoneFor(id);
+      const group = forcedGroup(zone);
+      if (!group) continue;
+      if (!group.cardIds.includes(id)) {
+        return denied(group.reason ?? `Zone ${zone.id} requires selecting its top ${zone.selectionPolicy.count} cards`);
+      }
+      forcedGroups.set(zone.id, group.cardIds);
+    }
+    if (forcedGroups.size) {
+      const expanded = [];
+      for (const id of requested) {
+        const group = forcedGroups.get(zoneFor(id)?.id);
+        for (const member of group ?? [id]) if (!expanded.includes(member)) expanded.push(member);
+      }
+      requested = expanded;
+    }
     let next;
     if (mode === "replace" || mode === "range") next = requested;
     if (mode === "add") next = [...current, ...requested.filter((id) => !current.includes(id))];
@@ -153,6 +184,12 @@ export function createSelection({ config = {}, state, onChange = () => {} }) {
 
   function reconcile() {
     let cardIds = selection.cardIds.filter(isSelectable);
+    for (const zone of model().zones) {
+      const group = forcedGroup(zone);
+      if (!group || !cardIds.some((id) => zone.cardIds.includes(id))) continue;
+      if (group.cardIds.length === 0 || group.cardIds.some((id) => !cardIds.includes(id))) return publish(empty());
+      cardIds = [...cardIds.filter((id) => !zone.cardIds.includes(id)), ...group.cardIds];
+    }
     if (scope === "zone" && cardIds.length) {
       const zoneId = zoneFor(cardIds[0])?.id;
       cardIds = cardIds.filter((id) => zoneFor(id)?.id === zoneId);

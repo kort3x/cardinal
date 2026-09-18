@@ -19,6 +19,7 @@
     "test:chrome:zones": "node scripts/chrome-lab.mjs --headless --scenario zones",
     "test:chrome:main-zones": "node scripts/chrome-lab.mjs --headless --scenario main-zones",
     "test:chrome:arrangements": "node scripts/chrome-lab.mjs --headless --scenario arrangements",
+    "test:chrome:drag-lift": "node scripts/chrome-lab.mjs --headless --scenario drag-lift",
     "test:chrome:drag": "node scripts/chrome-lab.mjs --headless --scenario drag",
     "test:chrome:batch": "node scripts/chrome-lab.mjs --headless --scenario batch",
     "test:chrome:drag-geometry": "node scripts/chrome-lab.mjs --headless --scenario drag-geometry",

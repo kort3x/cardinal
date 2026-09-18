@@ -26,9 +26,20 @@
         background: var(--lab-bg);
         font-family: system-ui, sans-serif;
       }
-      html { scrollbar-gutter: stable; }
+      html {
+        scrollbar-gutter: stable;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      html::-webkit-scrollbar,
+      body::-webkit-scrollbar { display: none; }
       html.stage-full-window { scrollbar-gutter: auto; }
-      body { margin: 0; min-height: 100vh; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
       main { position: relative; top: -20px; width: min(2500px, calc(100% - 32px)); margin: 0 auto; padding: 12px 0 40px; }
       .lab-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 96px; }
       .lab-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -94,14 +105,22 @@
       #drag-help p { margin: 6px 0 0; }
       .presets { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 10px; color: var(--lab-muted); font-size: 0.9rem; }
       .presets button { padding: 6px 8px; font-size: 0.9rem; }
-      #card-list { display: flex; flex-wrap: wrap; gap: 6px; }
-      #card-list label { padding: 6px 8px; cursor: pointer; }
+      #card-list { display: flex; flex-direction: column; flex-wrap: nowrap; align-content: flex-start; gap: 6px; max-height: 394px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--lab-border-strong) transparent; }
+      #card-list::-webkit-scrollbar { width: 8px; }
+      #card-list::-webkit-scrollbar-track { background: transparent; }
+      #card-list::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: var(--lab-border-strong); background-clip: padding-box; }
+      #card-list::-webkit-scrollbar-thumb:hover { background: var(--lab-focus); background-clip: padding-box; }
+      #card-list label { min-height: 34px; box-sizing: border-box; padding: 6px 8px; cursor: pointer; }
       #card-list label:has(> input[type="checkbox"]:checked) { border-color: #626b78; background: #303640; color: var(--lab-text); box-shadow: inset 0 0 0 1px rgb(229 192 123 / 12%); }
       #card-list .card-z { color: var(--lab-accent); font-variant-numeric: tabular-nums; }
       #card-list .card-zone { font-size: 0.82em; }
       #card-list .card-zone[data-zone-id="lake"] { color: var(--lab-zone-lake); }
       #card-list .card-zone[data-zone-id="ocean"] { color: var(--lab-zone-ocean); }
       #card-list .card-zone[data-zone-id="river"] { color: var(--lab-zone-river); }
+      #card-list label[data-pickable="false"] { color: var(--lab-muted); opacity: 0.68; }
+      #card-list label[data-pickable="false"] input { cursor: not-allowed; }
+      #card-list .card-pickability { color: var(--lab-muted); font-size: 0.72em; font-style: italic; white-space: nowrap; }
+      #card-list-help { margin: 6px 0 0; color: var(--lab-muted); font-size: 0.78rem; }
       #selection-status { margin-bottom: 0; }
       #element-list { display: grid; gap: 8px; }
       .element-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); }
@@ -115,7 +134,7 @@
       .lab-workspace { display: grid; grid-template-columns: minmax(320px, 360px) minmax(0, 1fr) minmax(320px, 360px); gap: 12px; align-items: start; }
       .side-controls { display: grid; gap: 10px; min-width: 0; }
       .side-controls .control-group { height: auto; box-sizing: border-box; }
-      .side-controls #card-list { flex-direction: column; align-items: stretch; }
+      .side-controls #card-list { align-items: stretch; }
       .side-controls #card-list label { justify-content: flex-start; }
       .cards-sidebar #card-list { margin-top: 6px; }
       #zone-list { display: grid; gap: 6px; }
@@ -126,6 +145,7 @@
       .zone-row[data-zone-id="lake"] .zone-name { color: var(--lab-zone-lake); }
       .zone-row[data-zone-id="ocean"] .zone-name { color: var(--lab-zone-ocean); }
       .zone-row[data-zone-id="river"] .zone-name { color: var(--lab-zone-river); }
+      .zone-actions-label { display: block; margin: 10px 0 6px; color: var(--lab-muted); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
       .zone-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
       .zone-actions button { min-width: 0; padding-inline: 7px; }
       .zone-actions button[data-transfer-zone="lake"] { color: var(--lab-zone-lake); }
@@ -143,6 +163,44 @@
       .zone-arrangement-field output { min-width: 3em; color: var(--lab-accent); text-align: right; }
       .cards-sidebar .presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .cards-sidebar .presets button { min-width: 0; width: 100%; padding-inline: 7px; }
+      .elements-sidebar { gap: 8px; }
+      .elements-sidebar > .control-group {
+        padding: 10px;
+        border-color: var(--lab-border);
+        background: var(--lab-bg-deep);
+      }
+      .elements-sidebar > .control-group > summary {
+        margin: -10px;
+        padding: 10px 12px;
+      }
+      .elements-sidebar > .control-group[open] > summary {
+        margin-bottom: 10px;
+        border-bottom: 1px solid var(--lab-border);
+        border-radius: var(--lab-control-radius) var(--lab-control-radius) 0 0;
+      }
+      .elements-sidebar > .control-group .control-row { gap: 6px; margin: 5px 0; }
+      .elements-sidebar button {
+        min-height: 0;
+        padding: 6px 8px;
+        font-size: 0.82rem;
+      }
+      .elements-sidebar label { gap: 6px; padding: 6px 8px; }
+      .elements-sidebar select { padding: 5px 8px; font-size: 0.84rem; }
+      .elements-sidebar input[type="text"] { font-size: 0.8rem; }
+      .elements-sidebar .presets { gap: 4px; }
+      .elements-sidebar > .control-group .presets {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--lab-border);
+      }
+      .elements-sidebar .element-row {
+        gap: 5px;
+        padding: 8px;
+        border-color: var(--lab-border);
+        background: var(--lab-panel);
+      }
+      .elements-sidebar .element-row button { padding: 4px 6px; font-size: 0.76rem; }
+      .elements-sidebar .background-presets button { padding: 5px 6px; font-size: 0.78rem; }
       .elements-group > .presets { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
       .elements-group > .presets label { padding: 0; border: 0; background: transparent; }
       .elements-group > .presets #add-element { grid-column: 1 / -1; width: 100%; }
@@ -196,6 +254,23 @@
       body.stage-full-window .scene-column { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100vh; }
       body.stage-full-window .stage-actions { display: flex; position: fixed; top: 14px; right: 14px; z-index: 110; margin: 0; }
       body.stage-full-window #stage { position: fixed; inset: 0; z-index: 1; width: 100vw; height: 100vh; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; }
+      @media (min-width: 981px) {
+        .lab-workspace { align-items: start; }
+        .lab-workspace > .side-controls,
+        .lab-workspace > .scene-column {
+          position: sticky;
+          top: 12px;
+        }
+        .lab-workspace > .side-controls {
+          max-height: calc(100vh - 24px);
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          scrollbar-gutter: stable;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .lab-workspace > .side-controls::-webkit-scrollbar { display: none; }
+      }
       @media (max-width: 980px) {
         .lab-workspace { grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr); }
         .elements-sidebar { grid-column: 1 / -1; }
@@ -216,7 +291,7 @@
           <img class="lab-logo" src="/examples/card-engine-lab/lab-logo.png" alt="Cardinal Card Engine lab logo">
           <div class="lab-title">
             <h1>Cardinal Card Lab</h1>
-            <p>True 3D WebGL cards · composable motion · dynamic faces and elements · responsive zones · multi-card control</p>
+            <p>True 3D WebGL cards · composable motion · dynamic faces and elements · responsive zones and arrangements · multi-card interaction · consumer-controlled access</p>
           </div>
         </div>
         <nav class="header-links" aria-label="Lab links">
@@ -382,8 +457,8 @@
             <output id="flip-y-value" for="flip-y-slider">0°</output>
           </label>
           <div class="presets" aria-label="Flip presets">
-            <button type="button" data-flip="0">Face up</button>
-            <button type="button" data-flip="1">Face down</button>
+            <button type="button" data-flip="0">Reveal</button>
+            <button type="button" data-flip="1">Conceal</button>
           </div>
           </details>
         </div>
@@ -407,6 +482,7 @@
               </select>
             </label>
             <div id="card-list" role="group" aria-label="Cards in the lab"></div>
+            <p id="card-list-help">Cards marked “Not pickable” are blocked by their zone rules. In a Draw Stack, only the top card can be picked.</p>
             <p id="selection-status" aria-live="polite"></p>
             <p id="selection-detail" aria-live="polite"></p>
           </details>
@@ -435,6 +511,13 @@
                 <option value="compact">Compact bundle</option>
               </select>
             </label>
+            <label class="control-row select-row" for="drag-anchor">
+              <span title="Choose what the pointer anchors when a card is picked up">Anchor</span>
+              <select id="drag-anchor" aria-label="Drag pointer anchor">
+                <option value="grab" selected>Grab point</option>
+                <option value="center">Card center</option>
+              </select>
+            </label>
             <details class="drag-motion-tuning" open>
               <summary>Motion tuning</summary>
               <label class="control-row select-row" for="drag-motion-preset">
@@ -459,7 +542,7 @@
                 <output id="drag-lift-time-value" for="drag-lift-time">90 ms</output>
               </label>
               <label class="control-row" for="drag-lift-depth">
-                <span title="Temporary camera-facing depth while a card is carried; set to 0 to disable 3D lift">3D lift</span>
+                <span title="Temporary camera-facing depth while a card is carried; Lab enables perspective while this is above 0">3D lift</span>
                 <input id="drag-lift-depth" type="range" min="0" max="100" step="1" value="0" aria-describedby="drag-lift-depth-value">
                 <output id="drag-lift-depth-value" for="drag-lift-depth">0 units</output>
               </label>
@@ -578,17 +661,18 @@
           <details class="control-group" id="zones-group" open>
             <summary>Zones</summary>
             <div id="zone-list" role="list" aria-label="Zones in the lab"></div>
+            <span class="zone-actions-label">Sent to</span>
+            <div class="zone-actions">
+              <button type="button" data-transfer-zone="lake">Lake</button>
+              <button type="button" data-transfer-zone="river">River</button>
+              <button type="button" data-transfer-zone="ocean">Ocean</button>
+            </div>
             <label class="control-row select-row" for="zone-slot">
               <span>Slot</span>
               <select id="zone-slot" aria-label="Destination slot">
                 <option value="0" selected>0</option>
               </select>
             </label>
-            <div class="zone-actions">
-              <button type="button" data-transfer-zone="lake">Lake</button>
-              <button type="button" data-transfer-zone="river">River</button>
-              <button type="button" data-transfer-zone="ocean">Ocean</button>
-            </div>
             <p>Cycle each populated zone through grids, rows, columns, splay, piles, stacks, and hand-held fans. Arrangement settings also expose target scale, face side, alignment speed, order enforcement, and fixed destination slots.</p>
           </details>
         </aside>

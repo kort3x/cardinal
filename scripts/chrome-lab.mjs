@@ -32,7 +32,7 @@ if (!Number.isInteger(port) || port <= 0) throw new Error(`Invalid ${browserLabe
 if (typeof WebSocket !== "function") {
   throw new Error(`${browserLabel} automation requires Node 22+ with the built-in WebSocket API`);
 }
-if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", "arrangements", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown ${browserLabel} lab scenario: ${scenario}`);
+if (!new Set(["elements", "acceptance", "layout", "resize", "movement", "random", "spin-state", "demo-toggles", "performance", "random-performance", "diagnostics", "zones", "main-zones", "arrangements", "drag-lift", ...Object.keys(inputScenarios)]).has(scenario)) throw new Error(`Unknown ${browserLabel} lab scenario: ${scenario}`);
 
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
@@ -511,6 +511,15 @@ const layoutScenario = String.raw`(async () => {
     const right = document.querySelector(".elements-sidebar")?.getBoundingClientRect();
     return Boolean(left && right) && Math.abs(left.width - right.width) <= 1;
   });
+  record("desktop side rails scroll independently when they exceed the viewport", () => {
+    const rails = [...document.querySelectorAll(".lab-workspace > .side-controls")];
+    const sceneColumn = document.querySelector(".lab-workspace > .scene-column");
+    return innerWidth <= 980 || (rails.length === 2
+      && rails.every((rail) => getComputedStyle(rail).position === "sticky"
+        && getComputedStyle(rail).overflowY === "auto"
+        && getComputedStyle(rail).maxHeight !== "none")
+      && getComputedStyle(sceneColumn).position === "sticky");
+  });
   record("element rail is visible", () => visible(elementsPanel));
   record("element rows fit the rail", () => rows.length > 0 && rows.every((row) => within(row, elementsPanel)));
   record("element editors have usable width", () => rows.every((row) => {
@@ -525,6 +534,19 @@ const layoutScenario = String.raw`(async () => {
     return Boolean(actions && actions.clientWidth >= 120 && actions.clientHeight <= 40 && within(actions, row));
   }));
   record("add-element controls fit the rail", () => within(document.querySelector("#add-element"), elementsPanel));
+  record("right rail controls use compact sizing", () => {
+    const add = document.querySelector("#add-element");
+    const type = document.querySelector("#element-type");
+    const presets = [...document.querySelectorAll("[data-background-preset]")];
+    return Boolean(add && type && presets.length)
+      && Number.parseFloat(getComputedStyle(add).paddingTop) <= 6
+      && type.clientHeight <= 32
+      && presets.every((button) => button.clientHeight <= 32);
+  });
+  record("right rail text fields use compact typography", () => {
+    const fields = [...document.querySelectorAll('.elements-sidebar input[type="text"]')];
+    return fields.length > 0 && fields.every((field) => Number.parseFloat(getComputedStyle(field).fontSize) <= 13);
+  });
   record("model dropdowns align inside their boxes", () => ["#shape", "#face-count"].every((selector) => {
     const select = document.querySelector(selector);
     const row = select?.closest(".control-row");
@@ -1172,14 +1194,21 @@ const arrangementsScenario = String.raw`(async () => {
   const initialZones = scene.snapshot().desired.zones;
   const initialOceanCard = initialZones.find(({ id }) => id === 'ocean')?.cardIds[0];
   const initialOceanVisual = scene.snapshot().visual.find(({ cardId }) => cardId === initialOceanCard);
-  record('Lake and Ocean default to columns with Ocean face down', initialZones.find(({ id }) => id === 'lake')?.arrangement.type === 'column'
-    && initialZones.find(({ id }) => id === 'ocean')?.arrangement.type === 'column'
+  record('Lake defaults to columns and Ocean to a concealed stack', initialZones.find(({ id }) => id === 'lake')?.arrangement.type === 'column'
+    && initialZones.find(({ id }) => id === 'ocean')?.arrangement.type === 'stack'
     && initialOceanVisual?.physicalSide === 'back');
   record('example card backs contain the Cardinal logo element', initialCards.every((card) => {
     const logo = card.back?.elements?.find(({ id }) => id === 'cardinal-logo');
     return logo?.type === 'image' && logo.content?.src?.endsWith('/assets/cards/paint.png');
   }));
-  record('lab includes the new ice and owl card art', initialCards.length === 3
+  record('lab starts with the requested 50-card distribution', initialCards.length === 50
+    && initialZones.find(({ id }) => id === 'lake')?.cardIds.length === 1
+    && initialZones.find(({ id }) => id === 'river')?.cardIds.length === 1
+    && initialZones.find(({ id }) => id === 'ocean')?.cardIds.length === 48
+    && initialZones.find(({ id }) => id === 'lake')?.cardIds.includes('owl-demo')
+    && initialZones.find(({ id }) => id === 'river')?.cardIds.includes('cardinal-demo'));
+  record('lab includes the new ice and owl card art', initialCards.find((card) => card.id === 'ice-demo')
+    && initialCards.find((card) => card.id === 'owl-demo')
     && initialCards.find((card) => card.id === 'ice-demo')?.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src?.endsWith('/ice.png')
     && initialCards.find((card) => card.id === 'owl-demo')?.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src?.endsWith('/owl.png'));
   record('primary selection is marked on the card shell', document.querySelector('.cardinal-webgl-card[data-card-id="cardinal-demo"]')?.dataset.selected === 'true'
@@ -1188,6 +1217,59 @@ const arrangementsScenario = String.raw`(async () => {
     && Boolean(document.querySelector('#move')?.title)
     && Boolean(document.querySelector('[data-zone-arrangement="river"]')?.title)
     && Boolean(document.querySelector('[data-zone-overflow="river"]')?.title));
+  record('Ocean exposes the draw stack preset', document.querySelector('[data-zone-setting="ocean"][data-zone-policy-key="preset"]')?.value === 'drawStack'
+    && document.querySelector('[data-zone-setting="ocean"][data-zone-policy-key="selectionMode"]')?.value === 'forced'
+    && document.querySelector('[data-zone-setting="ocean"][data-zone-policy-key="selectionCount"]')?.value === '1'
+    && document.querySelector('[data-zone-setting="ocean"][data-zone-policy-key="selectionCount"]')?.disabled
+    && initialZones.find(({ id }) => id === 'ocean')?.preset === 'drawStack');
+  const lakePreset = document.querySelector('[data-zone-setting="lake"][data-zone-policy-key="preset"]');
+  if (lakePreset) {
+    lakePreset.value = 'drawStack';
+    lakePreset.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(250);
+  }
+  const lakeCardId = scene.snapshot().desired.zones.find(({ id }) => id === 'lake')?.cardIds[0];
+  record('draw stack preset conceals Lake cards', scene.snapshot().desired.zones.find(({ id }) => id === 'lake')?.preset === 'drawStack'
+    && scene.snapshot().desired.cards.find(({ id }) => id === lakeCardId)?.faceUp === false);
+  if (lakePreset) {
+    lakePreset.value = '';
+    lakePreset.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(250);
+  }
+  const originalSpawnZone = document.querySelector('#spawn-zone')?.value;
+  const oceanSpawn = document.querySelector('#spawn-zone');
+  if (oceanSpawn) {
+    oceanSpawn.value = 'ocean';
+    oceanSpawn.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#add-card')?.click();
+    document.querySelector('#add-card')?.click();
+    await sleep(250);
+  }
+  await sleep(250);
+  const oceanSelectionCount = document.querySelector('[data-zone-setting="ocean"][data-zone-policy-key="selectionCount"]');
+  const oceanState = scene.snapshot();
+  const oceanZone = oceanState.desired.zones.find(({ id }) => id === 'ocean');
+  const oceanTopIds = oceanZone?.cardIds.slice(-1) ?? [];
+  const forcedSelection = oceanTopIds.length === 1 ? scene.select(oceanTopIds) : { accepted: false };
+  record('draw stack preset selects only Ocean top card', Boolean(oceanSelectionCount)
+    && oceanZone?.selectionPolicy?.mode === 'forced'
+    && oceanZone.selectionPolicy.count === 1
+    && forcedSelection.accepted === true
+    && JSON.stringify(forcedSelection.cardIds) === JSON.stringify(oceanTopIds));
+  const oceanRows = [...document.querySelectorAll('#card-list label')]
+    .filter((row) => row.querySelector('.card-zone[data-zone-id="ocean"]'));
+  const topOceanRow = oceanRows.find((row) => row.dataset.cardId === oceanZone?.cardIds.at(-1));
+  record('card list marks draw stack cards that are not pickable', oceanRows.length === oceanZone?.cardIds.length
+    && topOceanRow?.dataset.pickable === 'true'
+    && oceanRows.some((row) => row.dataset.pickable === 'false'
+      && row.querySelector('.card-pickability')?.textContent === 'Not pickable'));
+  if (oceanSpawn && originalSpawnZone) {
+    oceanSpawn.value = originalSpawnZone;
+    oceanSpawn.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  await sleep(250);
+  record('lab exposes grab-point and card-center drag anchors', document.querySelector('#drag-anchor')?.value === 'grab'
+    && scene.snapshot().dragAnchor === 'grab');
   const zoneRailFits = () => [...document.querySelectorAll('#zone-list .zone-row')].every((row) => {
     const list = document.querySelector('#zone-list');
     const listRect = list.getBoundingClientRect();
@@ -1199,8 +1281,9 @@ const arrangementsScenario = String.raw`(async () => {
   const cardArtSources = new Set(['/examples/card-engine-lab/majestic.png', '/examples/card-engine-lab/assets/cards/ice.png', '/examples/card-engine-lab/assets/cards/owl.png']);
   const imageSource = (card) => card.faces?.['face-a']?.elements?.find(({ id }) => id === 'image')?.content?.src;
   record('new cards randomize across the three card artworks', scene.snapshot().desired.cards.slice(3).every((card) => cardArtSources.has(imageSource(card))));
-  const totalCards = scene.snapshot().desired.cards.length;
-  document.querySelector('#select-all').click();
+  document.querySelector('#deselect-all').click();
+  for (const { id } of scene.snapshot().desired.cards) scene.select([id], { mode: 'add' });
+  const selectedCardCount = scene.snapshot().selection.cardIds.length;
   document.querySelector('[data-transfer-zone="river"]').click();
   await sleep(900);
   const zone = () => scene.snapshot().desired.zones.find(({ id }) => id === 'river');
@@ -1213,7 +1296,7 @@ const arrangementsScenario = String.raw`(async () => {
     types.push(zone().arrangement.type);
   }
   record('cycle control visits every arrangement type', JSON.stringify(types) === JSON.stringify(['grid', 'row', 'column', 'splay', 'pile', 'stack', 'hand']));
-  record('splay, pile, stack, and hand leave cards in the populated zone', ['splay', 'pile', 'stack', 'hand'].every((type) => types.includes(type)) && zone().cardIds.length === totalCards);
+  record('splay, pile, stack, and hand leave selected cards in the populated zone', ['splay', 'pile', 'stack', 'hand'].every((type) => types.includes(type)) && zone().cardIds.length === selectedCardCount);
   const beforeOrder = [...zone().cardIds];
   document.querySelector('[data-zone-reorder="river"]').click();
   await sleep(400);
@@ -1243,6 +1326,14 @@ const arrangementsScenario = String.raw`(async () => {
   }
   await sleep(250);
   record('hand arrangement exposes concave or convex curve control', Boolean(curveControl) && scene.snapshot().desired.zones.find(({ id }) => id === 'river')?.arrangement.curve === 'concave');
+  const zonesGroup = document.querySelector('#zones-group');
+  const sentToLabel = zonesGroup?.querySelector('.zone-actions-label');
+  const transferActions = zonesGroup?.querySelector('.zone-actions');
+  const slotControl = zonesGroup?.querySelector('#zone-slot');
+  const zoneControls = zonesGroup?.querySelector('#zone-list');
+  const controlOrder = [zoneControls, sentToLabel, transferActions, slotControl?.closest('.control-row')]
+    .map((element) => element ? [...(zonesGroup?.children ?? [])].indexOf(element) : -1);
+  record('zone transfer controls are ordered below the zone controls', controlOrder.every((index, position) => index >= 0 && (position === 0 || index > controlOrder[position - 1])));
   const positionSpeedControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="positionSpeed"]');
   const scaleControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="scale"]');
   const faceControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="faceUp"]');
@@ -1264,6 +1355,7 @@ const arrangementsScenario = String.raw`(async () => {
     && riverPolicy?.motion?.positionSpeed === 2 && riverPolicy.scale === 0.75 && riverPolicy.faceUp === false);
   const orderControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="orderMode"]');
   const slotModeControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="slotMode"]');
+  const concealedReorderControl = document.querySelector('[data-zone-setting="river"][data-zone-policy-key="concealedReorder"]');
   if (orderControl) {
     orderControl.value = 'locked';
     orderControl.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1272,18 +1364,55 @@ const arrangementsScenario = String.raw`(async () => {
     slotModeControl.value = 'fixed';
     slotModeControl.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  if (concealedReorderControl) {
+    concealedReorderControl.value = 'allow';
+    concealedReorderControl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   await sleep(250);
   const enforcedRiver = scene.snapshot().desired.zones.find(({ id }) => id === 'river');
   record('zone controls expose optional order and slot enforcement', Boolean(orderControl && slotModeControl)
     && enforcedRiver?.orderPolicy?.mode === 'locked'
     && enforcedRiver?.slotPolicy?.mode === 'fixed'
     && Object.keys(enforcedRiver.slotPolicy.slots).length === enforcedRiver.cardIds.length);
+  record('zone controls expose concealed reorder policy', Boolean(concealedReorderControl)
+    && enforcedRiver?.reorderPolicy?.concealed === 'allow');
   const handVisual = scene.snapshot().visual
     .filter(({ cardId }) => zone().cardIds.includes(cardId))
     .sort((first, second) => first.pose.x - second.pose.x);
   record('hand layering follows left-to-right visual order', handVisual.every((entry, index) => index === 0
     || (entry.pose.z >= handVisual[index - 1].pose.z && entry.pose.drawOrder > handVisual[index - 1].pose.drawOrder)));
   window.scrollTo(0, 0);
+  return { ok: results.every(({ pass }) => pass), results };
+})()`;
+
+const dragLiftScenario = String.raw`(async () => {
+  const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const results = [];
+  const record = (label, pass) => results.push({ label, pass: Boolean(pass) });
+  const lab = await import('/examples/card-engine-lab/main.js');
+  const scene = () => lab.getScene();
+  const setDepth = (value) => {
+    const control = document.querySelector('#drag-lift-depth');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(control, String(value));
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  await sleep(700);
+  const initial = scene();
+  record('3D lift starts disabled without changing the Lab camera', initial.snapshot().projection === 'orthographic'
+    && initial.snapshot().dragMotion.liftDepth === 0);
+  setDepth(80);
+  await sleep(350);
+  const lifted = scene();
+  const basePoint = lifted.sceneToClient({ x: 600, y: 300, z: 0 });
+  const liftedPoint = lifted.sceneToClient({ x: 600, y: 300, z: 80 });
+  record('3D lift enables visible perspective depth in the Lab', lifted.snapshot().projection === 'perspective'
+    && lifted.snapshot().dragMotion.liftDepth === 80
+    && Math.hypot(liftedPoint.x - basePoint.x, liftedPoint.y - basePoint.y) > 1);
+  setDepth(0);
+  await sleep(350);
+  record('disabling 3D lift restores the orthographic Lab camera', scene().snapshot().projection === 'orthographic'
+    && scene().snapshot().dragMotion.liftDepth === 0);
   return { ok: results.every(({ pass }) => pass), results };
 })()`;
 
@@ -1327,6 +1456,7 @@ async function run() {
                   : scenario === "zones" ? zonesScenario
                   : scenario === "main-zones" ? mainZonesScenario
                   : scenario === "arrangements" ? arrangementsScenario
+                  : scenario === "drag-lift" ? dragLiftScenario
                   : acceptanceScenario,
           awaitPromise: true,
           returnByValue: true,

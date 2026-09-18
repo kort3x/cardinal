@@ -76,6 +76,53 @@ test("zone order and slot policies reject invalid commits without changing membe
   scene.destroy();
 });
 
+test("drawStack zone preset uses a stack and makes only the top card pickable", () => {
+  const scene = createCardScene({
+    motion: { reducedMotion: true },
+    interaction: { rules: {
+      canStart: () => ({ allowed: true }),
+      canDrop: () => ({ allowed: true }),
+    } },
+  });
+  const drawZone = zone("ocean", ["a", "b", "c"]);
+  delete drawZone.arrangement;
+  scene.apply({
+    cards: ["a", "b", "c"].map(card),
+    zones: [{ ...drawZone, preset: "drawStack" }],
+  });
+
+  const ocean = scene.snapshot().desired.zones[0];
+  assert.equal(ocean.preset, "drawStack");
+  assert.equal(ocean.faceUp, false);
+  assert.equal(scene.snapshot().desired.cards.every(({ faceUp }) => faceUp === false), true);
+  assert.deepEqual(ocean.arrangement, { type: "stack", axis: "y", step: 0 });
+  assert.deepEqual(ocean.selectionPolicy, { mode: "forced", count: 1, from: "top" });
+  assert.equal(scene.select(["a"]).accepted, false);
+  assert.deepEqual(scene.select(["c"]), {
+    cardIds: ["c"], primaryCardId: "c", anchorCardId: "c", accepted: true,
+  });
+  assert.throws(() => scene.drag({ cardIds: ["a"], primaryCardId: "a" }), /available for dragging/);
+  const topDrag = scene.drag({ cardIds: ["c"], primaryCardId: "c" });
+  topDrag.cancel("test cleanup");
+  scene.destroy();
+});
+
+test("concealed reorder policy protects direct reorders while preserving revealed reordering", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  const input = initial();
+  input.cards.forEach((candidate) => { candidate.faceUp = false; });
+  scene.apply(input);
+  const before = scene.snapshot().desired.zones.map(({ cardIds }) => [...cardIds]);
+  assert.throws(() => scene.transact([{ type: "reorder", zoneId: "source", cardIds: ["b", "a"] }]),
+    /reorderPolicy denies transaction.*concealed card order/);
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), before);
+
+  scene.transact([{ type: "zone", zoneId: "source", changes: { reorderPolicy: { concealed: "allow" } } }], { immediate: true });
+  scene.transact([{ type: "reorder", zoneId: "source", cardIds: ["b", "a"] }], { immediate: true });
+  assert.deepEqual(scene.snapshot().desired.zones[0].cardIds, ["b", "a"]);
+  scene.destroy();
+});
+
 test("an atomic exchange into full zones and reduced motion reach identical states", async () => {
   const input = initial();
   input.zones[0].capacity = 2;

@@ -66,6 +66,8 @@ function permissiveRules(overrides = {}) {
   return {
     canStart: () => ({ allowed: true }),
     canDrop: () => ({ allowed: true }),
+    canReveal: () => ({ allowed: true }),
+    canConceal: () => ({ allowed: true }),
     ...overrides,
   };
 }
@@ -129,6 +131,27 @@ test("drag lift temporarily enlarges the carried card and restores its scale", (
   scene.destroy();
 });
 
+test("center drag anchor places the card midpoint under the pointer", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: {
+    rules: permissiveRules(), dragAnchor: "center",
+  } });
+  scene.apply(input());
+  const initial = pose(scene, "a");
+  const pointer = { x: initial.x + 24, y: initial.y - 16 };
+  const session = scene.drag({ cardIds: ["a"], primaryCardId: "a", point: pointer });
+  assert.equal(session.snapshot().anchor, "center");
+  assert.equal(pose(scene, "a").x, pointer.x);
+  assert.equal(pose(scene, "a").y, pointer.y);
+  session.cancel("test cleanup");
+
+  scene.setDragAnchor("grab");
+  const override = scene.drag({ cardIds: ["a"], primaryCardId: "a", point: pointer, anchor: "center" });
+  assert.equal(override.snapshot().anchor, "center");
+  override.cancel("test cleanup");
+  assert.throws(() => scene.setDragAnchor("invalid"), /grab or center/);
+  scene.destroy();
+});
+
 test("pickup during a move has no jump and preserves rotation and independent spin", () => {
   const timer = clock();
   const { scene } = sceneWith({ rules: permissiveRules(), reducedMotion: false, timer, duration: 100 });
@@ -186,6 +209,26 @@ test("zone policy denial is visible on a drag candidate and valid destination sl
   assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), [["a", "c", "d"], ["b"]]);
   session.cancel("test cleanup");
   scene.destroy();
+});
+
+test("concealed same-zone reorder denial is visible on a drag candidate", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
+  scene.apply(input({ source: ["a", "b", "c"], destination: ["d"], zones: { source: { faceUp: false } } }));
+  const session = start(scene, ["a"]);
+  const denied = session.update({ toZoneId: "source", index: 2 });
+  assert.equal(denied.candidate.allowed, false);
+  assert.match(denied.candidate.reason, /reorderPolicy denies batch move.*concealed card order/);
+  session.cancel("test cleanup");
+  scene.destroy();
+
+  const allowedScene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
+  allowedScene.apply(input({ source: ["a", "b", "c"], destination: ["d"], zones: {
+    source: { faceUp: false, reorderPolicy: { concealed: "allow" } },
+  } }));
+  const allowedSession = start(allowedScene, ["a"]);
+  assert.equal(allowedSession.update({ toZoneId: "source", index: 2 }).candidate.allowed, true);
+  allowedSession.cancel("test cleanup");
+  allowedScene.destroy();
 });
 
 test("face-down drag preview keeps the concealed physical side while dangle physics runs", () => {
@@ -274,6 +317,24 @@ test("a concealed source stays concealed during face-up preview and pending reje
 
   assert.equal(scene.resolveDrop(intent.id, { accepted: false }).status, "rejected");
   assert.equal(scene.snapshot().visual.find(({ cardId }) => cardId === "a").physicalSide, "back");
+  scene.destroy();
+});
+
+test("drag previews enforce reveal and conceal permissions before release", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: {
+    rules: permissiveRules({ canReveal: () => ({ allowed: false, reason: "Reveal is locked" }) }),
+  } });
+  scene.apply(input({ zones: {
+    source: { faceUp: false },
+    destination: { faceUp: true },
+  } }));
+
+  const session = start(scene, ["a"]);
+  const preview = session.update({ toZoneId: "destination", index: 0 });
+  assert.equal(preview.candidate.allowed, false);
+  assert.equal(preview.candidate.reason, "Reveal is locked");
+  assert.equal(session.release(), null);
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ cardIds }) => cardIds), [["a", "b", "c", "d"], []]);
   scene.destroy();
 });
 

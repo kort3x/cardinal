@@ -108,6 +108,56 @@ values below `1` are slower:
 }
 ```
 
+Zones can require an atomic multi-card selection. A forced policy makes the
+zone's top `count` cards the only selectable members. Selecting any one of them
+selects the complete group; toggling or removing one removes the complete group.
+Zone membership order is bottom-to-top, so `from: "top"` uses the final members
+of `cardIds`. The consumer still decides what the selected cards do:
+
+The reusable `preset: "drawStack"` combines a zero-offset vertical stack with
+`selectionPolicy: { mode: "forced", count: 1, from: "top" }` and
+`faceUp: false`. It makes only the top card selectable and therefore pickable
+through engine interaction. Set an explicit `faceUp` value to override the
+preset's concealed side.
+
+```js
+{ id: "ocean", cardIds, preset: "drawStack", geometry }
+```
+
+```js
+const scene = createCardScene({
+  element,
+  selection: { multiple: true, max: 3, scope: "zone" },
+});
+
+scene.apply({
+  cards,
+  zones: [
+    {
+      id: "ocean",
+      geometry: { x: 0, y: 0, width: 600, height: 400, depth: 0 },
+      cardIds: ["card-1", "card-2", "card-3", "card-4", "card-5"],
+      selectionPolicy: { mode: "forced", count: 3, from: "top" },
+    },
+    {
+      id: "hand",
+      geometry: { x: 0, y: 420, width: 600, height: 220, depth: 0 },
+      cardIds: [],
+    },
+  ],
+});
+
+// Selecting card-5 returns card-3, card-4, and card-5 as one cohort.
+scene.select(["card-5"]);
+await scene.transact([
+  { type: "moveBatch", cardIds: ["card-3", "card-4", "card-5"], to: "hand" },
+]).finished;
+```
+
+If the zone has fewer cards than the required count, selection is denied until
+the zone contains enough cards. The policy affects engine selection and input
+handling; it does not grant permission to commit a move.
+
 Zones can also enforce membership order and destination slots. Both policies are
 optional and are checked during previews as well as commits, so a rejected drag
 does not briefly show an invalid arrangement:
@@ -125,7 +175,11 @@ does not briefly show an invalid arrangement:
 `order`; `slotPolicy.mode: "fixed"` pins configured cards to their zero-based
 destination slots. Use `{ mode: "free" }` or omit a policy to allow ordinary
 reordering. A locked order may include cards currently in other zones so a
-later transfer can be validated against the same canonical order.
+later transfer can be validated against the same canonical order. Zones deny
+same-zone reordering of concealed cards by default. Set
+`reorderPolicy: { concealed: "allow" }` to opt in; revealed cards remain freely
+reorderable, and moving a card between zones is governed by the destination's
+other policies.
 
 The zone speed settings apply to position, arrangement orientation, target
 scale, and face transitions independently. Set a channel to `1` when it should
@@ -210,9 +264,13 @@ const scene = createCardScene({
     touchDrag: false, // opt in before touch contact; otherwise preserve scrolling
     touchSelection: false, // explicit tap-to-toggle selection mode
     dragPresentation: "preserve", // or an animated "compact" bundle
+    dragAnchor: "grab", // or "center" to place the card midpoint under the pointer
     rules: {
-      canStart: ({ cardIds }) => ({ allowed: cardIds.length <= 10 }),
-      canDrop: ({ toZoneId }) => ({ allowed: toZoneId !== "locked" }),
+      canTake: ({ sources }) => ({ allowed: sources.every(({ zoneId }) => zoneId === "hand") }),
+      canPut: ({ toZoneId }) => ({ allowed: toZoneId !== "locked" }),
+      canReveal: ({ zoneId }) => ({ allowed: zoneId === "table" }),
+      canConceal: ({ zoneId }) => ({ allowed: zoneId === "hand" }),
+      canSpin: ({ zoneId }) => ({ allowed: zoneId === "hand" }),
     },
   },
 });
@@ -224,7 +282,34 @@ scene.on("drop", async (intent) => {
 scene.apply({ cards, zones });
 ```
 
-`canStart` and `canDrop` are synchronous and return `{ allowed, reason? }`.
+`canTake`, `canPut`, `canReveal`, `canConceal`, and `canSpin` are synchronous and
+return `{ allowed, reason? }`. `canStart` and `canDrop` remain aliases for
+`canTake` and `canPut`. Take requests include the card IDs, source zone and
+index for each card, the proposed destination, and a read-only `snapshot`.
+Put requests use the same shape and also include `position` for free placement.
+Reveal and conceal requests include `face`, `zoneId`, `sources`, `snapshot`,
+and `via` (`"drag"`, `"move"`, or `"face"`).
+
+User initiated programmatic commands must identify themselves with
+`{ origin: "user" }`, which gives consumers the same access boundary as a
+pointer gesture:
+
+```js
+await scene.transact([
+  { type: "move", cardId: "card-7", to: "table", index: 0 },
+], { origin: "user" }).finished;
+
+scene.transact([
+  { type: "face", cardId: "card-7", face: "faceUp" },
+], { origin: "user" });
+
+scene.spin("card-7", { origin: "user", axis: "y" });
+```
+
+Missing user permission callbacks deny the action. A move into a zone with a
+`faceUp` policy also requires the matching reveal or conceal permission. A
+normal transaction without an origin remains an authoritative consumer update;
+this is how a project applies server state or other trusted game results.
 Call `scene.invalidateRules()` when project permissions change; pending approvals
 are cancelled, so their late replies return `stale`. Membership remains committed
 to its source until approval; rejection returns to the latest committed layout.
@@ -239,6 +324,9 @@ A new gesture supersedes older gesture previews; there is no global pending lock
 
 For programmatic interaction, `scene.drag({ cardIds: [id], primaryCardId: id,
 point: { x, y } })` returns `update`, `release`, `cancel`, `snapshot`, and `finished`.
+The scene-level `dragAnchor` defaults to `"grab"`, preserving the clicked point;
+set it to `"center"` to snap the card midpoint under the pointer. A single drag
+may override the scene setting with `anchor: "grab"` or `anchor: "center"`.
 Update with `{ point: { x, y } }` or `{ toZoneId, index }`. Points refer to the
 world Z=0 plane. `clientToScene({ x, y }, depth)` and `sceneToClient({ x, y, z })`
 convert through the actual camera and canvas bounds. `release()` returns an intent
@@ -438,10 +526,14 @@ or consumer controlled reveals may opt out for one command with
 `{ zoneFacePolicy: "override" }` on transact() or spin(); ordinary movement
 and drag commits continue to enforce the zone policy.
 
+In human-facing language, a card showing its back is **concealed** and a card
+showing its front is **revealed**. The public API retains
+`faceUp` and `faceDown` as its stable state and operation names.
+
 Drag previews preserve a concealed source card's physical back, even when the
-candidate destination enforces face-up cards. The face-up transition starts
+candidate destination enforces revealed cards. The reveal transition starts
 only after the drop is accepted and committed, so hovering over a destination
-or waiting for asynchronous approval cannot reveal hidden information.
+or waiting for asynchronous approval cannot reveal concealed information.
 
 For persistent in-place motion, use the spin handle:
 
@@ -516,6 +608,7 @@ const scene = createCardScene({
 });
 
 scene.setDragMotion({ responseTime: 140, maxTilt: 18 });
+scene.setDragAnchor("center");
 console.log(scene.snapshot().dragMotion);
 ```
 

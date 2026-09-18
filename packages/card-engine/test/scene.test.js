@@ -478,6 +478,96 @@ test("a scene applies one card and exposes its committed state", () => {
   assert.deepEqual(scene.snapshot().desired.zones, [zone]);
 });
 
+test("a scene applies a forced top-card selection cohort from zone policy", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, selection: { multiple: true, max: 3, scope: "zone" } });
+  const cards = ["a", "b", "c", "d"].map((id) => ({ ...card, id }));
+  scene.apply({
+    cards,
+    zones: [{ ...zone, cardIds: ["a", "b", "c", "d"], selectionPolicy: { mode: "forced", count: 3, from: "top" } }],
+  });
+
+  assert.deepEqual(scene.snapshot().desired.zones[0].selectionPolicy, { mode: "forced", count: 3, from: "top" });
+  assert.deepEqual(scene.select(["d"]), {
+    cardIds: ["b", "c", "d"], primaryCardId: "d", anchorCardId: "d", accepted: true,
+  });
+  assert.equal(scene.select(["a"]).accepted, false);
+  scene.destroy();
+});
+
+test("user-originated card access is governed by take, put, reveal, conceal, and spin rules", async () => {
+  let allowReveal = false;
+  const calls = [];
+  const scene = createCardScene({
+    motion: { reducedMotion: true },
+    interaction: { rules: {
+      canTake(request) {
+        calls.push("take");
+        return { allowed: request.sources.every(({ zoneId }) => zoneId === "hand"), reason: "Card cannot be taken from that zone" };
+      },
+      canPut(request) {
+        calls.push("put");
+        return { allowed: request.toZoneId === "table", reason: "Card cannot be put there" };
+      },
+      canReveal(request) {
+        calls.push("reveal");
+        return { allowed: allowReveal && request.zoneId === "table", reason: "Reveal is not permitted" };
+      },
+      canConceal() {
+        calls.push("conceal");
+        return { allowed: false, reason: "Conceal is not permitted" };
+      },
+      canSpin() {
+        calls.push("spin");
+        return { allowed: false, reason: "Spin is not permitted" };
+      },
+    } },
+  });
+  const handCard = { ...card, id: "hand-card", faceUp: false };
+  const tableCard = { ...card, id: "table-card", faceUp: true };
+  scene.apply({
+    cards: [handCard, tableCard],
+    zones: [
+      { ...zone, id: "hand", cardIds: [handCard.id], faceUp: false },
+      { ...zone, id: "table", cardIds: [tableCard.id], faceUp: true, geometry: { ...zone.geometry, x: 700 } },
+    ],
+  });
+
+  assert.throws(
+    () => scene.transact([{ type: "move", cardId: tableCard.id, to: "hand" }], { origin: "user" }),
+    /Card cannot be taken from that zone/,
+  );
+  assert.throws(
+    () => scene.transact([{ type: "move", cardId: handCard.id, to: "table" }], { origin: "user" }),
+    /Reveal is not permitted/,
+  );
+  assert.throws(
+    () => scene.transact([{ type: "face", cardId: handCard.id, face: "faceUp" }], { origin: "user" }),
+    /Reveal is not permitted/,
+  );
+  assert.throws(
+    () => scene.transact([{ type: "face", cardId: handCard.id, face: "faceDown" }], { origin: "user" }),
+    /Conceal is not permitted/,
+  );
+  assert.throws(
+    () => scene.spin(handCard.id, { origin: "user" }),
+    /Spin is not permitted/,
+  );
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ id, cardIds }) => ({ id, cardIds })), [
+    { id: "hand", cardIds: [handCard.id] },
+    { id: "table", cardIds: [tableCard.id] },
+  ]);
+
+  allowReveal = true;
+  await scene.transact([{ type: "move", cardId: handCard.id, to: "table", index: 0 }], { origin: "user" }).finished;
+  assert.deepEqual(scene.snapshot().desired.zones.map(({ id, cardIds }) => ({ id, cardIds })), [
+    { id: "hand", cardIds: [] },
+    { id: "table", cardIds: [handCard.id, tableCard.id] },
+  ]);
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === handCard.id).faceUp, true);
+  assert.deepEqual(calls, ["take", "take", "put", "reveal", "reveal", "conceal", "spin", "take", "put", "reveal"]);
+  scene.destroy();
+});
+
 test("card faces require canonical element arrays", () => {
   const legacyCard = { ...card, faces: { front: { title: "Legacy" } } };
   assert.throws(

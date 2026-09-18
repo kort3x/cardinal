@@ -28,6 +28,7 @@ const touchDrag = document.querySelector("#drag-touch");
 const touchSelection = document.querySelector("#touch-selection");
 const crossZoneSelection = document.querySelector("#cross-zone-selection");
 const dragPresentation = document.querySelector("#drag-presentation");
+const dragAnchor = document.querySelector("#drag-anchor");
 const dragMotionPreset = document.querySelector("#drag-motion-preset");
 const dragLiftScale = document.querySelector("#drag-lift-scale");
 const dragLiftTime = document.querySelector("#drag-lift-time");
@@ -53,6 +54,32 @@ const dragResponse = document.querySelector("#drag-response");
 const dragAcceptButton = document.querySelector("#drag-accept");
 const dragRejectButton = document.querySelector("#drag-reject");
 const interactionStatus = document.querySelector("#interaction-status");
+
+function capitalizeDisplayName(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\b([a-z])/g, (_, character) => character.toUpperCase());
+}
+
+function cardDisplayName(card, index) {
+  const title = card?.faces?.[card.activeFaceId]?.elements?.find(({ id }) => id === "title")?.content?.text;
+  return capitalizeDisplayName(title || card?.id || `Card ${Number(index) + 1}`);
+}
+
+function cardDisplayNameForId(cardId, state = scene?.snapshot()) {
+  if (!cardId) return "None";
+  const index = state?.desired?.cards?.findIndex(({ id }) => id === cardId) ?? -1;
+  const card = index < 0 ? undefined : state.desired.cards[index];
+  return card ? cardDisplayName(card, index) : capitalizeDisplayName(cardId);
+}
+
+function zoneDisplayName(zoneOrId) {
+  return capitalizeDisplayName(typeof zoneOrId === "string" ? zoneOrId : zoneOrId?.label ?? zoneOrId?.id);
+}
+
 const shape = document.querySelector("#shape");
 const faceCount = document.querySelector("#face-count");
 const cardSizing = document.querySelector("#card-sizing");
@@ -119,6 +146,7 @@ const backgroundPresets = Object.freeze({
 });
 const LAB_CAMERA_CENTER = Object.freeze({ x: 450, y: 250 });
 const LAB_CAMERA_UNITS_PER_PIXEL = 1;
+const LAB_CAMERA_FOV = 55;
 // Keep 1× at the lab's original 1.5× timing; the factor still scales
 // proportionally from that baseline (higher is faster, lower is slower).
 const LAB_MOTION_DURATION = 500 / 1.5;
@@ -159,8 +187,14 @@ function syncDragMotionControls(motion, { custom = false } = {}) {
 function setDragMotionPatch(patch, { custom = true } = {}) {
   try {
     const next = scene?.setDragMotion?.(patch) ?? normalizeDragMotion(patch, dragMotionState);
+    const projectionNeedsRestart = scene
+      && (next.liftDepth > 0) !== (scene.snapshot().projection === "perspective");
     dragMotionState = next;
     syncDragMotionControls(next, { custom });
+    if (projectionNeedsRestart) {
+      startScene();
+      return;
+    }
     if (scene?.setDragMotion) status.textContent = `Drag motion tuned: ${next.preset}.`;
   } catch (error) {
     interactionStatus.textContent = `Drag motion update failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -196,11 +230,12 @@ touchDrag.checked = isTouchCapable();
 const LAB_ZONE_DEFINITIONS = Object.freeze([
   { id: "lake", label: "Lake", anchor: "#zone-lake", arrangement: { type: "column", gap: 16 }, faceUp: true },
   { id: "river", label: "River", anchor: "#zone-river", arrangement: { type: "hand", curve: "concave" }, faceUp: true },
-  { id: "ocean", label: "Ocean", anchor: "#zone-ocean", arrangement: { type: "column", gap: 16 }, faceUp: false },
+  { id: "ocean", label: "Ocean", anchor: "#zone-ocean", preset: "drawStack", arrangement: { type: "stack", axis: "y", step: 0 }, faceUp: false },
 ]);
 const ARRANGEMENT_CYCLE = Object.freeze(["grid", "row", "column", "splay", "pile", "stack", "hand"]);
 const OVERFLOW_POLICIES = Object.freeze(["scroll", "overlap", "fit", "reject"]);
 const zoneArrangements = new Map(LAB_ZONE_DEFINITIONS.map(({ id, arrangement }) => [id, { ...arrangement }]));
+const zonePresets = new Map(LAB_ZONE_DEFINITIONS.map(({ id, preset }) => [id, preset]));
 const zonePolicies = new Map(LAB_ZONE_DEFINITIONS.map(({ id, faceUp }) => [id, { faceUp }]));
 const zoneArrangementSettingsOpen = new Map();
 const ARRANGEMENT_SETTING_DEFINITIONS = Object.freeze([
@@ -218,12 +253,16 @@ const ARRANGEMENT_SETTING_DEFINITIONS = Object.freeze([
 const ZONE_POLICY_SETTING_DEFINITIONS = Object.freeze([
   { key: "orderMode", label: "Order", kind: "select", options: [["free", "Free"], ["locked", "Locked"]], defaultValue: "free", title: "Allow free reordering or enforce the zone's current membership order." },
   { key: "slotMode", label: "Slots", kind: "select", options: [["free", "Free"], ["fixed", "Fixed"]], defaultValue: "free", title: "Allow free insertion or keep configured cards in their assigned destination slots." },
+  { key: "concealedReorder", label: "Concealed", kind: "select", options: [["deny", "Deny reorder"], ["allow", "Allow reorder"]], defaultValue: "deny", title: "Allow or deny changing the order of concealed cards in this zone." },
+  { key: "selectionMode", label: "Select", kind: "select", options: [["free", "Free"], ["forced", "Force top N"]], defaultValue: "free", title: "Allow individual selection or force the top cards to be selected as one cohort." },
+  { key: "selectionCount", label: "Draw", kind: "range", min: 1, max: 6, step: 1, defaultValue: 3, suffix: " cards", title: "Set how many top cards are selected together." },
   { key: "scale", label: "Size", kind: "range", min: 0.25, max: 2, step: 0.05, defaultValue: 1, suffix: "×", title: "Set the target card scale governed by this zone." },
   { key: "positionSpeed", label: "Move", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target position." },
   { key: "orientationSpeed", label: "Turn", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target orientation." },
   { key: "scaleSpeed", label: "Scale", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's target scale." },
   { key: "faceSpeed", label: "Flip", group: "motion", kind: "range", min: 0.25, max: 3, step: 0.25, defaultValue: 1.5, suffix: "×", title: "Set how quickly cards align to this zone's face side." },
-  { key: "faceUp", kind: "select", options: [["", "Keep side"], ["true", "Face up"], ["false", "Face down"]], defaultValue: "", title: "Keep cards in this zone face up or face down." },
+  { key: "faceUp", kind: "select", options: [["", "Keep side"], ["true", "Revealed"], ["false", "Concealed"]], defaultValue: "", title: "Keep cards in this zone revealed or concealed." },
+  { key: "preset", label: "Preset", kind: "select", options: [["", "Custom"], ["drawStack", "Draw stack"]], defaultValue: "", title: "Apply a reusable zone behavior preset." },
 ]);
 
 const LAB_CONTROL_TOOLTIPS = Object.freeze([
@@ -260,6 +299,7 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["#drag-touch", "Enable touch dragging when using a touch-capable device."],
   ["#touch-selection", "Use touch taps to toggle card selection."],
   ["#drag-presentation", "Choose whether a carried selection keeps offsets or compacts."],
+  ["#drag-anchor", "Choose whether pickup keeps the grab point or centers the card under the pointer."],
   ["#drag-motion-preset", "Choose a complete drag motion profile."],
   ["#drag-lift-scale", "Set the temporary scale while a card is carried."],
   ["#drag-lift-time", "Set how quickly the carried card reaches its lift scale."],
@@ -301,7 +341,7 @@ for (const [selector, tooltip] of LAB_CONTROL_TOOLTIPS) {
 for (const button of document.querySelectorAll("[data-move-preset]")) button.title = `Move the selected cards to the ${button.dataset.movePreset} position.`;
 for (const button of document.querySelectorAll("[data-rotate]")) button.title = `Set the selected cards to ${button.dataset.rotate} degrees.`;
 for (const button of document.querySelectorAll("[data-scale]")) button.title = `Set the selected cards to ${Number(button.dataset.scale) * 100}% scale.`;
-for (const button of document.querySelectorAll("[data-flip]")) button.title = button.dataset.flip === "1" ? "Turn the selected cards face down." : "Turn the selected cards face up.";
+for (const button of document.querySelectorAll("[data-flip]")) button.title = button.dataset.flip === "1" ? "Conceal the selected cards." : "Reveal the selected cards.";
 for (const button of document.querySelectorAll("[data-background-preset]")) button.title = button.dataset.backgroundPreset === "none"
   ? "Remove the background image."
   : `Apply the ${button.textContent.trim()} background preset.`;
@@ -831,9 +871,21 @@ const LAB_CARD_PROTOTYPES = Object.freeze([
   ...additionalLabCards.map(({ zoneId, ...card }) => card),
 ]);
 
+const initialOceanCards = Array.from({ length: 47 }, (_, index) => {
+  const prototype = LAB_CARD_PROTOTYPES[Math.floor(Math.random() * LAB_CARD_PROTOTYPES.length)];
+  return {
+    ...randomizeCardQuip(prototype),
+    id: `ocean-card-${String(index + 1).padStart(2, "0")}`,
+    zoneId: "ocean",
+    faceUp: false,
+    pose: { scale: defaultCardScale() },
+  };
+});
+
 let cardZoneIds = new Map([
   [baseCard.id, "river"],
   ...additionalLabCards.map(({ id, zoneId }) => [id, zoneId]),
+  ...initialOceanCards.map(({ id }) => [id, "ocean"]),
 ]);
 
 let selectedCardIds = new Set([baseCard.id]);
@@ -1160,8 +1212,9 @@ function stagePointerTarget(sceneX, sceneY) {
   const hit = candidates[0];
   if (!hit) return { kind: "stage", label: "Empty card stage" };
   const cardIndex = state.desired.cards.findIndex(({ id }) => id === hit.card.id) + 1;
+  const cardLabel = cardDisplayName(hit.card, cardIndex - 1);
   const side = engineHit?.side ?? hit.visual.physicalSide ?? "unknown";
-  if (side === "edge") return { kind: "card", cardId: hit.card.id, label: `Card ${cardIndex} · edge` };
+  if (side === "edge") return { kind: "card", cardId: hit.card.id, label: `${cardLabel} · Edge` };
   const content = side === "back"
     ? hit.card.back
     : hit.card.faces?.[hit.card.faceCycleNextFaceId ?? hit.card.activeFaceId];
@@ -1172,7 +1225,7 @@ function stagePointerTarget(sceneX, sceneY) {
     elementId: element?.id,
     elementType: element?.type,
     side,
-    label: element ? `Card ${cardIndex} · ${side} · ${element.id}` : `Card ${cardIndex} · ${side}`,
+    label: element ? `${cardLabel} · ${capitalizeDisplayName(side)} · ${element.id}` : `${cardLabel} · ${capitalizeDisplayName(side)}`,
   };
 }
 
@@ -1341,6 +1394,7 @@ function initialCards() {
       },
     },
     ...additionalLabCards.map(({ zoneId, ...card }) => ({ ...card, template: shape.value })),
+    ...initialOceanCards.map((card) => ({ ...card, template: shape.value })),
   ];
 }
 
@@ -1366,17 +1420,20 @@ function zoneSnapshot(cards) {
   return LAB_ZONE_DEFINITIONS.map(({ id, label, anchor, geometry }) => {
     const committedZone = committed.find((zone) => zone.id === id);
     const policy = zonePolicies.get(id) ?? {};
+    const preset = zonePresets.get(id);
     const zone = {
       ...committedZone,
       ...policy,
       ...(policy.motion ? { motion: { ...(committedZone?.motion ?? {}), ...policy.motion } } : {}),
       id,
       label,
+      ...(preset ? { preset } : {}),
       ...(anchor ? { anchor } : { geometry }),
       cardIds: memberships.get(id),
       arrangement: zoneArrangements.get(id) ?? { type: "grid", gap: 16 },
       visible: zoneVisibility.get(id) !== false,
     };
+    if (preset === undefined) delete zone.preset;
     if (zone.orderPolicy?.mode === "locked") {
       const currentIds = new Set(cards.map(({ id: cardId }) => cardId));
       const order = zone.orderPolicy.order.filter((cardId) => currentIds.has(cardId));
@@ -1394,6 +1451,7 @@ function zoneSnapshot(cards) {
       if (policy.faceUp === null) delete zone.faceUp;
       else zone.faceUp = policy.faceUp;
     }
+    if (!Object.hasOwn(policy, "selectionPolicy")) delete zone.selectionPolicy;
     return zone;
   });
 }
@@ -1917,28 +1975,39 @@ function interactionDestination(request = {}) {
 }
 
 const interactionRules = {
-  canStart() {
+  canTake() {
     return dragEnabled.checked
       ? { allowed: true }
       : { allowed: false, reason: "Dragging is disabled in the lab." };
   },
-  canDrop(request) {
+  canPut(request) {
     if (!request.cardIds?.length) return { allowed: false, reason: "No cards in the proposed batch." };
     if (request.cardIds.includes(dragDeniedCard.value)) {
-      return { allowed: false, reason: `${dragDeniedCard.value} is denied; the whole batch is unavailable.` };
+      return { allowed: false, reason: `${cardDisplayNameForId(dragDeniedCard.value)} is denied; the whole batch is unavailable.` };
     }
     const toZoneId = interactionDestination(request);
     if (!toZoneId) return { allowed: false, reason: "No visible destination zone." };
     if (dragDeniedZone.value && toZoneId === dragDeniedZone.value) {
-      const label = LAB_ZONE_DEFINITIONS.find(({ id }) => id === toZoneId)?.label ?? toZoneId;
+      const label = zoneDisplayName(LAB_ZONE_DEFINITIONS.find(({ id }) => id === toZoneId) ?? toZoneId);
       return { allowed: false, reason: `${label} is denied by the lab rule.` };
     }
+    return { allowed: true };
+  },
+  canReveal() {
+    return { allowed: true };
+  },
+  canConceal() {
+    return { allowed: true };
+  },
+  canSpin() {
     return { allowed: true };
   },
 };
 
 function cohortLabel({ cardIds = [], primaryCardId } = {}) {
-  return `${cardIds.length} card${cardIds.length === 1 ? "" : "s"} (primary ${primaryCardId ?? cardIds[0] ?? "none"})`;
+  return `${cardIds.length} card${cardIds.length === 1 ? "" : "s"} (primary ${primaryCardId
+    ? cardDisplayNameForId(primaryCardId)
+    : "None"})`;
 }
 
 function renderPendingDropControls() {
@@ -2006,10 +2075,12 @@ function shouldPaintInteractionStatus(interaction) {
 }
 
 function interactionZoneLabel(state, zoneId) {
-  return state?.zones?.find(({ id }) => id === zoneId)?.label
-    ?? state?.desired?.zones?.find(({ id }) => id === zoneId)?.label
-    ?? zoneId
-    ?? "destination";
+  return zoneDisplayName(
+    state?.zones?.find(({ id }) => id === zoneId)
+      ?? state?.desired?.zones?.find(({ id }) => id === zoneId)
+      ?? zoneId
+      ?? "Destination",
+  );
 }
 
 function updateInteractionStatus(state = scene?.snapshot(), interaction = state?.interaction) {
@@ -2119,7 +2190,13 @@ function startScene(cards = sceneCards()) {
         shield: { width: 220, height: 307, thickness: 6, shape: "shield" },
       },
       camera: {
-        projection: "orthographic",
+        // A camera-facing lift is invisible in an orthographic projection.
+        // Switch only while depth lift is enabled so the normal lab keeps its
+        // established stage geometry and the 3D control gets a visible cue.
+        projection: dragMotionState.liftDepth > 0 ? "perspective" : "orthographic",
+        distance: Math.max(1, stage.getBoundingClientRect().height
+          / (2 * Math.tan(LAB_CAMERA_FOV * Math.PI / 360))),
+        fov: LAB_CAMERA_FOV,
         scaleMode: "stage",
         unitsPerPixel: LAB_CAMERA_UNITS_PER_PIXEL,
         center: LAB_CAMERA_CENTER,
@@ -2134,6 +2211,7 @@ function startScene(cards = sceneCards()) {
         touchDrag: touchDrag.checked,
         touchSelection: touchSelection.checked,
         dragPresentation: dragPresentation.value,
+        dragAnchor: dragAnchor.value,
         motion: readDragMotionControls(),
       },
     });
@@ -2219,7 +2297,7 @@ function renderZones(state = scene.snapshot()) {
     row.setAttribute("aria-hidden", String(zone.visible === false));
     const name = document.createElement("span");
     name.className = "zone-name";
-    name.textContent = `${zone.label ?? zone.id}${zone.visible === false ? " · hidden" : ""}`;
+    name.textContent = `${zoneDisplayName(zone)}${zone.visible === false ? " · Hidden" : ""}`;
     const count = document.createElement("span");
     count.className = "zone-count";
     count.textContent = `${zone.cardIds.length} card${zone.cardIds.length === 1 ? "" : "s"}`;
@@ -2230,7 +2308,7 @@ function renderZones(state = scene.snapshot()) {
     visibility.addEventListener("click", () => toggleZone(zone.id));
     const arrangement = document.createElement("select");
     arrangement.dataset.zoneArrangement = zone.id;
-    arrangement.setAttribute("aria-label", `Arrangement for ${zone.label ?? zone.id}`);
+    arrangement.setAttribute("aria-label", `Arrangement for ${zoneDisplayName(zone)}`);
     arrangement.title = "Choose grid, row, column, splay, pile, stack, or hand placement.";
     for (const type of ARRANGEMENT_CYCLE) {
       const option = document.createElement("option");
@@ -2242,7 +2320,7 @@ function renderZones(state = scene.snapshot()) {
     arrangement.addEventListener("change", () => updateZoneArrangement(zone.id, { type: arrangement.value }));
     const overflow = document.createElement("select");
     overflow.dataset.zoneOverflow = zone.id;
-    overflow.setAttribute("aria-label", `Overflow for ${zone.label ?? zone.id}`);
+    overflow.setAttribute("aria-label", `Overflow for ${zoneDisplayName(zone)}`);
     overflow.title = "Choose scrolling, intentional overlap, bounded fitting, or rejection.";
     for (const policy of OVERFLOW_POLICIES) {
       const option = document.createElement("option");
@@ -2287,7 +2365,7 @@ function renderZones(state = scene.snapshot()) {
       const control = definition.kind === "select" ? document.createElement("select") : document.createElement("input");
       control.dataset.zoneSetting = zone.id;
       control.dataset.arrangementKey = definition.key;
-      control.setAttribute("aria-label", `${definition.label} for ${zone.label ?? zone.id}`);
+      control.setAttribute("aria-label", `${definition.label} for ${zoneDisplayName(zone)}`);
       if (definition.kind === "select") {
         for (const [optionValue, optionLabel] of definition.options) control.append(new Option(optionLabel, optionValue));
         control.value = String(value);
@@ -2311,7 +2389,8 @@ function renderZones(state = scene.snapshot()) {
       label.append(caption, control, output);
       fields.append(label);
     }
-    for (const definition of ZONE_POLICY_SETTING_DEFINITIONS) {
+    for (const definition of ZONE_POLICY_SETTING_DEFINITIONS.filter((candidate) =>
+      candidate.key !== "selectionCount" || zone.selectionPolicy?.mode === "forced")) {
       const label = document.createElement("label");
       label.className = "zone-arrangement-field";
       label.title = definition.title;
@@ -2321,15 +2400,25 @@ function renderZones(state = scene.snapshot()) {
         ? zone.orderPolicy?.mode ?? definition.defaultValue
         : definition.key === "slotMode"
           ? zone.slotPolicy?.mode ?? definition.defaultValue
+          : definition.key === "concealedReorder"
+            ? zone.reorderPolicy?.concealed ?? definition.defaultValue
           : definition.group === "motion"
         ? zone.motion?.[definition.key] ?? definition.defaultValue
-        : definition.key === "faceUp"
+          : definition.key === "faceUp"
           ? zone.faceUp === undefined ? definition.defaultValue : String(zone.faceUp)
+          : definition.key === "selectionMode"
+            ? zone.selectionPolicy?.mode ?? definition.defaultValue
+            : definition.key === "selectionCount"
+              ? zone.selectionPolicy?.count ?? definition.defaultValue
           : zone[definition.key] ?? definition.defaultValue;
       const control = definition.kind === "select" ? document.createElement("select") : document.createElement("input");
       control.dataset.zoneSetting = zone.id;
       control.dataset.zonePolicyKey = definition.key;
-      control.setAttribute("aria-label", `${definition.label} for ${zone.label ?? zone.id}`);
+      control.setAttribute("aria-label", `${definition.label} for ${zoneDisplayName(zone)}`);
+      if (zone.preset === "drawStack" && ["selectionMode", "selectionCount"].includes(definition.key)) {
+        control.disabled = true;
+        control.title = "The draw stack preset keeps only its top card selectable.";
+      }
       if (definition.kind === "select") {
         for (const [optionValue, optionLabel] of definition.options) control.append(new Option(optionLabel, optionValue));
         control.value = String(value);
@@ -2379,7 +2468,22 @@ function updateZoneArrangement(zoneId, changes) {
 function updateZonePolicy(zoneId, definition, value) {
   const current = structuredClone(zonePolicies.get(zoneId) ?? {});
   const next = structuredClone(current);
-  if (definition.key === "orderMode") {
+  const currentPreset = zonePresets.get(zoneId);
+  if (definition.key === "preset") {
+    const zoneDefinition = LAB_ZONE_DEFINITIONS.find(({ id }) => id === zoneId);
+    if (value === "") {
+      zonePresets.delete(zoneId);
+      next.faceUp = zoneDefinition?.faceUp ?? null;
+      delete next.selectionPolicy;
+    } else {
+      zonePresets.set(zoneId, value);
+      if (value === "drawStack") {
+        zoneArrangements.set(zoneId, { type: "stack", axis: "y", step: 0 });
+        next.faceUp = false;
+        delete next.selectionPolicy;
+      }
+    }
+  } else if (definition.key === "orderMode") {
     if (value === "free") delete next.orderPolicy;
     else {
       const desired = scene.snapshot().desired;
@@ -2400,6 +2504,20 @@ function updateZonePolicy(zoneId, definition, value) {
         slots: Object.fromEntries((zone?.cardIds ?? []).map((cardId, index) => [cardId, index])),
       };
     }
+  } else if (definition.key === "concealedReorder") {
+    if (value === "deny") delete next.reorderPolicy;
+    else next.reorderPolicy = { concealed: "allow" };
+  } else if (definition.key === "selectionMode") {
+    if (value === "free") delete next.selectionPolicy;
+    else next.selectionPolicy = {
+      mode: "forced",
+      count: next.selectionPolicy?.count ?? 3,
+      from: "top",
+    };
+  } else if (definition.key === "selectionCount") {
+    if (next.selectionPolicy?.mode === "forced") {
+      next.selectionPolicy = { ...next.selectionPolicy, count: value, from: "top" };
+    }
   } else if (definition.group === "motion") {
     next.motion = { ...(next.motion ?? {}), [definition.key]: value };
   } else if (definition.key === "faceUp") {
@@ -2411,6 +2529,10 @@ function updateZonePolicy(zoneId, definition, value) {
   try {
     scene.apply(desiredSnapshot(sceneCards()));
   } catch (error) {
+    if (definition.key === "preset") {
+      if (currentPreset === undefined) zonePresets.delete(zoneId);
+      else zonePresets.set(zoneId, currentPreset);
+    }
     zonePolicies.set(zoneId, current);
     renderZones();
     showStatusMessage(`Zone policy update failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -2450,21 +2572,30 @@ function reverseZoneOrder(zoneId) {
 function renderCardList() {
   const state = scene.snapshot();
   syncZoneMembership(state);
-  const zoneNames = new Map(state.zones.map((zone) => [zone.id, zone.label ?? zone.id]));
+  const zoneNames = new Map(state.zones.map((zone) => [zone.id, zoneDisplayName(zone)]));
   const items = state.desired.cards.map((card, index) => {
     const label = document.createElement("label");
     const input = document.createElement("input");
     const depth = document.createElement("output");
     const zone = document.createElement("span");
+    const pickability = document.createElement("span");
+    const pickable = scene.isSelectable?.(card.id) ?? true;
+    label.dataset.cardId = card.id;
+    label.dataset.pickable = String(pickable);
+    label.title = pickable ? `Select or drag Card ${index + 1}.` : `Card ${index + 1} is not pickable in its current zone.`;
     input.type = "checkbox";
     input.checked = selectedCardIds.has(card.id);
-    input.setAttribute("aria-label", `Select card ${index + 1}`);
+    input.disabled = !pickable;
+    input.setAttribute("aria-label", `Select Card ${index + 1}`);
     input.title = `Select or deselect Card ${index + 1}.`;
     depth.className = "card-z";
     depth.dataset.cardId = card.id;
     zone.className = "card-zone";
     zone.dataset.zoneId = cardZoneIds.get(card.id) ?? "";
-    zone.textContent = zoneNames.get(cardZoneIds.get(card.id)) ?? "zone —";
+    zone.textContent = zoneNames.get(cardZoneIds.get(card.id)) ?? "Zone —";
+    pickability.className = "card-pickability";
+    pickability.textContent = pickable ? "" : "Not pickable";
+    pickability.hidden = pickable;
     input.addEventListener("change", () => {
       selectLabCards([card.id], { mode: "toggle" });
       syncControlsFromSelection();
@@ -2476,18 +2607,18 @@ function renderCardList() {
         .find((candidate) => candidate.dataset.cardId === card.id);
       shell?.focus?.({ preventScroll: true });
     });
-    label.append(input, document.createTextNode(`Card ${index + 1}`), depth, zone);
+    label.append(input, document.createTextNode(`Card ${index + 1}`), depth, zone, pickability);
     return label;
   });
   cardList.replaceChildren(...items);
   const deniedId = dragDeniedCard.value;
   const deniedIds = [...dragDeniedCard.options].slice(1).map(({ value }) => value);
   if (JSON.stringify(deniedIds) !== JSON.stringify(state.desired.cards.map(({ id }) => id))) {
-    dragDeniedCard.replaceChildren(new Option("None", ""), ...state.desired.cards.map(({ id }) => new Option(id, id)));
+    dragDeniedCard.replaceChildren(new Option("None", ""), ...state.desired.cards.map((card, index) => new Option(cardDisplayName(card, index), card.id)));
     dragDeniedCard.value = state.desired.cards.some(({ id }) => id === deniedId) ? deniedId : "";
   }
   selectionStatus.textContent = `${selectedCardIds.size} of ${state.desired.cards.length} selected`;
-  selectionDetail.textContent = selectionReason || `Primary: ${state.selection.primaryCardId ?? "none"} · Anchor: ${state.selection.anchorCardId ?? "none"}`;
+  selectionDetail.textContent = selectionReason || `Primary: ${cardDisplayNameForId(state.selection.primaryCardId, state)} · Anchor: ${cardDisplayNameForId(state.selection.anchorCardId, state)}`;
   updateCardListDepth(state);
 }
 
@@ -3187,7 +3318,11 @@ for (const button of transferZoneButtons) {
 }
 
 selectAllButton.addEventListener("click", () => {
-  selectLabCards(scene.snapshot().desired.cards.map(({ id }) => id));
+  scene.select([]);
+  let result = scene.snapshot().selection;
+  for (const { id } of scene.snapshot().desired.cards) result = scene.select([id], { mode: "add" });
+  selectedCardIds = new Set(result.cardIds);
+  selectionReason = result.accepted === false ? `Selection unavailable: ${result.reason ?? "project limit"}` : "";
   renderCardList();
   syncControlsFromSelection();
   updateStatus();
@@ -3291,6 +3426,7 @@ touchDrag.addEventListener("change", () => startScene());
 touchSelection.addEventListener("change", () => startScene());
 crossZoneSelection.addEventListener("change", () => startScene());
 dragPresentation.addEventListener("change", () => startScene());
+dragAnchor.addEventListener("change", () => startScene());
 dragMotionPreset.addEventListener("change", selectDragMotionPreset);
 for (const [field, control] of DRAG_MOTION_CONTROL_FIELDS) {
   control.addEventListener("input", () => updateDragMotionField(field, control));

@@ -1,8 +1,8 @@
-import { validateZonePolicies } from './model.js';
+import { validateReorderPolicy, validateZonePolicies } from './model.js';
 
 // Input is a normalized scene model. Build one final membership permutation;
 // neither preview nor commit may interpret indices against intermediate moves.
-export function resolveBatchMove(snapshot, { cardIds, toZoneId, index, validate = true } = {}) {
+export function resolveBatchMove(snapshot, { cardIds, toZoneId, index, validate = true, validateReorder = true } = {}) {
   if (!Array.isArray(cardIds) || cardIds.length === 0
     || cardIds.some((id) => typeof id !== 'string' || !id)
     || new Set(cardIds).size !== cardIds.length) {
@@ -55,6 +55,12 @@ export function resolveBatchMove(snapshot, { cardIds, toZoneId, index, validate 
   const destination = next.zones.find((zone) => zone.id === toZoneId);
   const destinationIndex = Math.min(index ?? destination.cardIds.length, destination.cardIds.length);
   destination.cardIds.splice(destinationIndex, 0, ...cardIds);
+  if (validateReorder) {
+    const sourceZoneIds = new Set(sources.map(({ zoneId }) => zoneId));
+    if (sourceZoneIds.size === 1 && sourceZoneIds.has(toZoneId)) {
+      validateReorderPolicy(snapshot.zones.find(({ id }) => id === toZoneId), destination, snapshot.cards, 'batch move');
+    }
+  }
   if (validate) for (const zone of next.zones) {
     if (zone.cardIds.length > (zone.capacity ?? Infinity)) throw new RangeError(`Zone ${zone.id} exceeds capacity`);
     validateZonePolicies(zone, zone.cardIds, 'batch move');

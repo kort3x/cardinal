@@ -15,6 +15,13 @@ export const DEFAULT_POSE = Object.freeze({
 const copy = (value) => structuredClone(value);
 
 export const ARRANGEMENT_TYPES = Object.freeze(["grid", "row", "column", "splay", "pile", "stack", "hand"]);
+export const ZONE_PRESETS = Object.freeze({
+  drawStack: Object.freeze({
+    arrangement: Object.freeze({ type: "stack", axis: "y", step: 0 }),
+    selectionPolicy: Object.freeze({ mode: "forced", count: 1, from: "top" }),
+    faceUp: false,
+  }),
+});
 const ALIGNMENTS = new Set(["start", "center", "end"]);
 const OVERFLOW_POLICIES = new Set(["scroll", "overlap", "fit", "reject"]);
 const ZONE_MOTION_SPEEDS = ["positionSpeed", "orientationSpeed", "scaleSpeed", "faceSpeed"];
@@ -58,15 +65,19 @@ function normalizeSlotMap(slots, zoneId, knownCardIds) {
  *
  *   orderPolicy: { mode: "locked", order: ["card-a", "card-b"] }
  *   slotPolicy: { mode: "fixed", slots: { "card-b": 1 } }
+ *   reorderPolicy: { concealed: "deny" }
  *
  * `order` is a canonical relative order and may include cards currently in
  * another zone. `slots` are absolute destination indices for configured cards.
- * Omitted policies and explicit `free` modes leave insertion and reorder free.
+ * Omitted order and slot policies and explicit `free` modes leave insertion
+ * and ordinary reorder operations free. Concealed-card reorder is denied by
+ * default and can be enabled with `reorderPolicy`.
  */
-export function normalizeZonePolicies({ zoneId, orderPolicy, slotPolicy, cardIds = [], knownCardIds }) {
+export function normalizeZonePolicies({ zoneId, orderPolicy, slotPolicy, reorderPolicy, cardIds = [], knownCardIds }) {
   const known = knownCardIds instanceof Set ? knownCardIds : new Set(knownCardIds ?? cardIds);
   const orderSource = policyObject(orderPolicy, "orderPolicy", zoneId);
   const slotSource = policyObject(slotPolicy, "slotPolicy", zoneId);
+  const reorderSource = policyObject(reorderPolicy, "reorderPolicy", zoneId);
   let normalizedOrder;
   if (orderSource) {
     const mode = orderSource.mode ?? "locked";
@@ -87,8 +98,17 @@ export function normalizeZonePolicies({ zoneId, orderPolicy, slotPolicy, cardIds
     normalizedSlots = mode === "free" ? { mode: "free" }
       : { mode: "fixed", slots: normalizeSlotMap(slotSource.slots, zoneId, known) };
   }
+  let normalizedReorder;
+  if (reorderSource) {
+    const concealed = reorderSource.concealed ?? "deny";
+    if (concealed !== "allow" && concealed !== "deny") {
+      throw new TypeError(`Zone ${zoneId} reorderPolicy concealed mode must be allow or deny`);
+    }
+    normalizedReorder = { concealed };
+  }
   return { ...(normalizedOrder === undefined ? {} : { orderPolicy: normalizedOrder }),
-    ...(normalizedSlots === undefined ? {} : { slotPolicy: normalizedSlots }) };
+    ...(normalizedSlots === undefined ? {} : { slotPolicy: normalizedSlots }),
+    ...(normalizedReorder === undefined ? {} : { reorderPolicy: normalizedReorder }) };
 }
 
 /** Validate the final membership permutation used by previews and commits. */
@@ -112,6 +132,22 @@ export function validateZonePolicies(zone, cardIds = zone.cardIds, context = "op
     }
   }
   return true;
+}
+
+function sameIds(first, second) {
+  return first.length === second.length && first.every((id) => second.includes(id));
+}
+
+/** Prevent relative order changes among concealed cards unless explicitly allowed. */
+export function validateReorderPolicy(previousZone, nextZone, cards = [], context = "reorder") {
+  if (!previousZone || !nextZone || !sameIds(previousZone.cardIds, nextZone.cardIds)) return true;
+  if (nextZone.reorderPolicy?.concealed === "allow") return true;
+  const cardById = new Map(cards.map((card) => [card.id, card]));
+  const concealed = (id) => nextZone.faceUp === false || cardById.get(id)?.faceUp === false;
+  const previousConcealed = previousZone.cardIds.filter(concealed);
+  const nextConcealed = nextZone.cardIds.filter(concealed);
+  if (previousConcealed.every((id, index) => id === nextConcealed[index])) return true;
+  throw new Error(`Zone ${nextZone.id} reorderPolicy denies ${context}: concealed card order cannot change`);
 }
 
 function normalizeDimensions(dimensions) {
@@ -165,6 +201,27 @@ function normalizeZoneMotion(motion) {
     }
   }
   return copy(motion);
+}
+
+function normalizeZoneSelectionPolicy(selectionPolicy, zoneId) {
+  const source = policyObject(selectionPolicy, "selectionPolicy", zoneId);
+  if (!source) return undefined;
+  const mode = source.mode ?? "forced";
+  if (mode !== "forced") throw new TypeError(`Zone ${zoneId} selectionPolicy mode must be forced`);
+  if (!Number.isInteger(source.count) || source.count <= 0) {
+    throw new RangeError(`Zone ${zoneId} selectionPolicy count must be a positive integer`);
+  }
+  const from = source.from ?? "top";
+  if (from !== "top") throw new TypeError(`Zone ${zoneId} selectionPolicy from must be top`);
+  return { mode, count: source.count, from };
+}
+
+export function normalizeZonePreset(preset, zoneId = "zone") {
+  if (preset === undefined || preset === null || preset === false) return undefined;
+  if (typeof preset !== "string" || !Object.hasOwn(ZONE_PRESETS, preset)) {
+    throw new TypeError(`Unknown zone preset for ${zoneId}: ${String(preset)}`);
+  }
+  return preset;
 }
 
 function normalizeBackgroundImage(backgroundImage) {
@@ -354,15 +411,25 @@ export function normalizeSnapshot(snapshot) {
     if (zone.dropTarget !== undefined && !['surface', 'transparent'].includes(zone.dropTarget)) throw new TypeError(`Zone ${zone.id} dropTarget must be surface or transparent`);
     if (zone.scale !== undefined && (!Number.isFinite(zone.scale) || zone.scale <= 0)) throw new RangeError(`Zone ${zone.id} scale must be positive and finite`);
     if (zone.faceUp !== undefined && typeof zone.faceUp !== "boolean") throw new TypeError(`Zone ${zone.id} faceUp must be boolean`);
-    const arrangement = normalizeArrangement(zone.arrangement);
+    const preset = normalizeZonePreset(zone.preset, zone.id);
+    const presetDefinition = preset === undefined ? undefined : ZONE_PRESETS[preset];
+    const faceUp = Object.hasOwn(zone, "faceUp") ? zone.faceUp : presetDefinition?.faceUp;
+    const arrangement = normalizeArrangement(Object.hasOwn(zone, "arrangement")
+      ? zone.arrangement : presetDefinition?.arrangement);
     const motion = normalizeZoneMotion(zone.motion);
+    const selectionPolicy = normalizeZoneSelectionPolicy(Object.hasOwn(zone, "selectionPolicy")
+      ? zone.selectionPolicy : presetDefinition?.selectionPolicy, zone.id);
     const policies = normalizeZonePolicies({ zoneId: zone.id, orderPolicy: zone.orderPolicy, slotPolicy: zone.slotPolicy,
+      reorderPolicy: zone.reorderPolicy,
       cardIds: zone.cardIds, knownCardIds });
     const autoSort = zone.autoSort === undefined || zone.autoSort === null || zone.autoSort === false
       ? undefined : normalizeSortPolicy(zone.autoSort);
-    const normalizedZone = { ...copy(zone), arrangement, ...(motion === undefined ? {} : { motion }), ...policies };
+    const normalizedZone = { ...copy(zone), ...(preset === undefined ? {} : { preset }), ...(faceUp === undefined ? {} : { faceUp }), arrangement, ...(motion === undefined ? {} : { motion }),
+      ...(selectionPolicy === undefined ? {} : { selectionPolicy }), ...policies };
     if (policies.orderPolicy === undefined) delete normalizedZone.orderPolicy;
     if (policies.slotPolicy === undefined) delete normalizedZone.slotPolicy;
+    if (policies.reorderPolicy === undefined) delete normalizedZone.reorderPolicy;
+    if (selectionPolicy === undefined) delete normalizedZone.selectionPolicy;
     validateZonePolicies(normalizedZone, normalizedZone.cardIds, "initial membership");
     if (autoSort === undefined) delete normalizedZone.autoSort;
     else normalizedZone.autoSort = autoSort;

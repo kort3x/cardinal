@@ -35,6 +35,22 @@ test('batch membership removes all members before a same-zone insertion', () => 
   }
 });
 
+test('concealed cards cannot be reordered in place unless the zone opts in', () => {
+  const snapshot = normalizeSnapshot({
+    cards: ['A', 'B', 'C'].map((id) => ({ id, activeFaceId: 'front', faceUp: false,
+      faces: { front: { elements: [] } } })),
+    zones: [
+      { id: 'source', cardIds: ['A', 'B', 'C'], geometry: { x: 0, y: 0, width: 600, height: 400, depth: 0 } },
+    ],
+  });
+  assert.throws(() => resolveBatchMove(snapshot, { cardIds: ['A'], toZoneId: 'source', index: 2 }),
+    /reorderPolicy denies batch move.*concealed card order/);
+
+  snapshot.zones[0].reorderPolicy = { concealed: 'allow' };
+  const result = resolveBatchMove(snapshot, { cardIds: ['A'], toZoneId: 'source', index: 2 });
+  assert.deepEqual(result.nextSnapshot.zones[0].cardIds, ['B', 'C', 'A']);
+});
+
 test('cross-zone membership preserves supplied order and counts destination residents once', () => {
   const snapshot = fixture();
   snapshot.zones[0].cardIds = ['A', 'C', 'E'];

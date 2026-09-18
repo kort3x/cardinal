@@ -21,6 +21,30 @@ test("replace/add/toggle/remove preserve ordered sets, primary and an independen
   assert.deepEqual(s.select([]), { cardIds: [], primaryCardId: null, anchorCardId: null, accepted: true });
 });
 
+test("forced zone selection expands the top card into an atomic top cohort", () => {
+  const desired = { cards: ["a", "b", "c", "d", "e"].map((id) => ({ id })), zones: [
+    { id: "ocean", cardIds: ["a", "b", "c", "d"], selectionPolicy: { mode: "forced", count: 3, from: "top" } },
+    { id: "hand", cardIds: ["e"] },
+  ] };
+  const visual = new Map(desired.cards.map(({ id }) => [id, { visible: true }]));
+  const selection = createSelection({ config: { multiple: true, max: 3, scope: "zone" }, state: () => ({ desired, visual }) });
+
+  assert.deepEqual(selection.context("d").eligibleCardIds, ["b", "c", "d"]);
+  assert.deepEqual(selection.select(["d"]), {
+    cardIds: ["b", "c", "d"], primaryCardId: "d", anchorCardId: "d", accepted: true,
+  });
+  assert.equal(selection.select(["a"]).accepted, false);
+  assert.equal(selection.select(["c"], { mode: "toggle" }).accepted, true);
+  assert.deepEqual(selection.snapshot().cardIds, []);
+});
+
+test("forced zone selection waits for the complete cohort", () => {
+  const { selection: s, desired } = fixture();
+  desired.zones[0].selectionPolicy = { mode: "forced", count: 4, from: "top" };
+  assert.equal(s.select(["c"]).accepted, false);
+  assert.match(s.select(["c"]).reason, /requires selecting 4 cards/);
+});
+
 test("cross-zone selection is denied by default until explicitly enabled", () => {
   const { selection: s } = fixture();
   assert.equal(s.select(["a"]).accepted, true);

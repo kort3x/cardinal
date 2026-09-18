@@ -1,4 +1,4 @@
-import { cardById, normalizeElement, normalizePose, normalizeSnapshot, normalizeZonePolicies, validateZonePolicies, zoneById } from "./model.js";
+import { cardById, normalizeElement, normalizePose, normalizeSnapshot, normalizeZonePolicies, validateReorderPolicy, validateZonePolicies, zoneById } from "./model.js";
 import { cardDimensions, solveAllPoses } from "./layout.js";
 import { createClock, interpolate, shortestAngleTarget } from "./motion.js";
 import { createHeadlessRenderer, createRenderer } from "./renderer.js";
@@ -138,6 +138,11 @@ export function createCardScene(config = {}) {
   }
   if (config.interaction?.motion !== undefined) normalizeDragMotion(config.interaction.motion);
   let dragMotion = normalizeDragMotion({ ...legacyDragMotion, ...config.interaction?.motion });
+  const normalizeDragAnchor = (value) => {
+    if (value !== "grab" && value !== "center") throw new TypeError("dragAnchor must be grab or center");
+    return value;
+  };
+  let dragAnchor = normalizeDragAnchor(config.interaction?.dragAnchor ?? "grab");
   const camera = { projection: "orthographic", ...(config.camera ?? {}) };
   const createRendererAdapter = config.renderer ?? (
     config.renderMode === "css" ? createRenderer : config.element ? createWebGLRenderer : createHeadlessRenderer
@@ -174,6 +179,8 @@ export function createCardScene(config = {}) {
   let pendingInteractionDetail = null;
   let carriedGroups = [];
   let renderPending = false;
+  const permissionRules = config.interaction?.rules ?? {};
+  const origins = new Set(["system", "user"]);
   const selection = createSelection({
     config: config.selection,
     state: () => ({ desired, visual }),
@@ -191,6 +198,64 @@ export function createCardScene(config = {}) {
 
   function sceneToClient(point) {
     return renderer.sceneToClient?.(point) ?? { x: point.x, y: point.y };
+  }
+
+  function authorizeUserRule(name, legacyName, request) {
+    const callback = permissionRules[name] ?? (legacyName ? permissionRules[legacyName] : undefined);
+    let result;
+    try {
+      result = typeof callback === "function" ? callback(copy(request)) : undefined;
+    } catch {
+      result = undefined;
+    }
+    if (result?.allowed !== true) {
+      const labels = { canTake: "Take", canPut: "Put", canReveal: "Reveal", canConceal: "Conceal", canSpin: "Spin" };
+      throw new Error(result?.reason ?? `${labels[name] ?? "User action"} is not permitted`);
+    }
+  }
+
+  function userSources(cardIds, snapshot = desired) {
+    return cardIds.flatMap((cardId) => snapshot.zones.flatMap((zone) => zone.cardIds.includes(cardId)
+      ? [{ cardId, zoneId: zone.id, index: zone.cardIds.indexOf(cardId) }] : []));
+  }
+
+  function authorizeUserOperations(operations) {
+    const snapshot = copy(desired);
+    const zoneMap = new Map(snapshot.zones.map((zone) => [zone.id, zone]));
+    const cardMap = new Map(snapshot.cards.map((card) => [card.id, card]));
+    const facePermission = (cardIds, face, zoneId, extra = {}) => {
+      authorizeUserRule(face === "faceUp" ? "canReveal" : "canConceal", null, {
+        cardIds: [...cardIds], face, zoneId, sources: userSources(cardIds, snapshot), snapshot, ...extra,
+      });
+    };
+    for (const operation of operations) {
+      const cardIds = operation.type === "reorder" ? [...operation.cardIds] : operation.cardIds ?? [operation.cardId];
+      if (["move", "moveBatch", "reorder"].includes(operation.type)) {
+        const toZoneId = operation.type === "reorder" ? operation.zoneId : operation.to;
+        const sources = userSources(cardIds, snapshot);
+        authorizeUserRule("canTake", "canStart", {
+          cardIds, primaryCardId: cardIds[0], sources,
+          toZoneId, index: operation.index, snapshot,
+        });
+        const destinationZoneIds = toZoneId === undefined
+          ? [...new Set(sources.map(({ zoneId }) => zoneId))]
+          : [toZoneId];
+        for (const destinationZoneId of destinationZoneIds) {
+          const destination = zoneMap.get(destinationZoneId);
+          authorizeUserRule("canPut", "canDrop", {
+            cardIds, primaryCardId: cardIds[0], sources,
+            toZoneId: destinationZoneId, index: operation.index, position: operation.position, snapshot,
+          });
+          if (destination?.faceUp !== undefined) {
+            const changed = cardIds.filter((cardId) => cardMap.get(cardId)?.faceUp !== destination.faceUp);
+            if (changed.length) facePermission(changed, destination.faceUp ? "faceUp" : "faceDown", destinationZoneId, { via: "move" });
+          }
+        }
+      } else if (operation.type === "face") {
+        const zone = snapshot.zones.find((candidate) => candidate.cardIds.includes(operation.cardId));
+        facePermission(cardIds, operation.face, zone?.id, { axis: operation.axis, via: "face" });
+      }
+    }
   }
 
   function logicalRestingPose(cardId, pose) {
@@ -626,6 +691,14 @@ export function createCardScene(config = {}) {
   function spin(cardId, options = {}) {
     if (!desired) throw new Error("Call scene.apply before scene.spin");
     if (!desired.cards.some((card) => card.id === cardId)) throw new Error(`Unknown card: ${cardId}`);
+    if (options.origin !== undefined && !origins.has(options.origin)) throw new TypeError("Spin origin must be system or user");
+    if (options.origin === "user") {
+      const zone = desired.zones.find((candidate) => candidate.cardIds.includes(cardId));
+      authorizeUserRule("canSpin", null, {
+        cardIds: [cardId], cardId, zoneId: zone?.id, axis: options.axis, direction: options.direction ?? 1,
+        speed: options.speed ?? 180, snapshot: copy(desired),
+      });
+    }
     const axes = flipAxes(options.axis);
     const direction = options.direction ?? 1;
     if (direction !== 1 && direction !== -1) throw new RangeError("Spin direction must be 1 or -1");
@@ -849,9 +922,11 @@ export function createCardScene(config = {}) {
   function transact(operations, options = {}) {
     if (!desired) throw new Error("Call scene.apply before scene.transact");
     if (!Array.isArray(operations)) throw new TypeError("scene.transact requires an operations array");
+    if (options.origin !== undefined && !origins.has(options.origin)) throw new TypeError("Transaction origin must be system or user");
     if (options.zoneFacePolicy !== undefined && !["enforce", "override"].includes(options.zoneFacePolicy)) {
       throw new TypeError("zoneFacePolicy must be enforce or override");
     }
+    if (options.origin === "user") authorizeUserOperations(operations);
     const enforceZoneFace = options.zoneFacePolicy !== "override";
     const next = copy(desired);
     const cards = cardById(next.cards);
@@ -1010,7 +1085,7 @@ export function createCardScene(config = {}) {
         const destination = zones.get(operation.to);
         if (!destination) throw new Error(`Unknown zone: ${operation.to}`);
         const { nextSnapshot } = resolveBatchMove(next, {
-          cardIds: operation.cardIds, toZoneId: operation.to, index: operation.index, validate: false,
+          cardIds: operation.cardIds, toZoneId: operation.to, index: operation.index, validate: false, validateReorder: false,
         });
         for (const updated of nextSnapshot.zones) zones.get(updated.id).cardIds = [...updated.cardIds];
         for (const id of operation.cardIds) {
@@ -1028,7 +1103,7 @@ export function createCardScene(config = {}) {
         if (!zone) throw new Error(`Unknown zone: ${operation.zoneId}`);
         if (!operation.changes || typeof operation.changes !== "object") throw new TypeError("Zone operation requires changes");
         for (const key of Object.keys(operation.changes)) {
-          if (!["geometry", "depth", "visible", "capacity", "arrangement", "dropTarget", "scale", "faceUp", "motion", "autoSort", "orderPolicy", "slotPolicy"].includes(key)) throw new TypeError(`Unsupported zone change: ${key}`);
+          if (!["geometry", "depth", "visible", "capacity", "arrangement", "dropTarget", "scale", "faceUp", "motion", "autoSort", "orderPolicy", "slotPolicy", "reorderPolicy"].includes(key)) throw new TypeError(`Unsupported zone change: ${key}`);
         }
         const changes = copy(operation.changes);
         const hasAutoSort = Object.hasOwn(changes, "autoSort");
@@ -1039,13 +1114,16 @@ export function createCardScene(config = {}) {
         }
         else if (hasAutoSort) changes.autoSort = normalizeSortPolicy(changes.autoSort);
         Object.assign(zone, changes);
-        if (Object.hasOwn(changes, "orderPolicy") || Object.hasOwn(changes, "slotPolicy")) {
+        if (Object.hasOwn(changes, "orderPolicy") || Object.hasOwn(changes, "slotPolicy") || Object.hasOwn(changes, "reorderPolicy")) {
           const policies = normalizeZonePolicies({ zoneId: zone.id, orderPolicy: zone.orderPolicy, slotPolicy: zone.slotPolicy,
+            reorderPolicy: zone.reorderPolicy,
             cardIds: zone.cardIds, knownCardIds: new Set(next.cards.map(({ id }) => id)) });
           if (policies.orderPolicy === undefined) delete zone.orderPolicy;
           else zone.orderPolicy = policies.orderPolicy;
           if (policies.slotPolicy === undefined) delete zone.slotPolicy;
           else zone.slotPolicy = policies.slotPolicy;
+          if (policies.reorderPolicy === undefined) delete zone.reorderPolicy;
+          else zone.reorderPolicy = policies.reorderPolicy;
         }
         if (changes.faceUp !== undefined) {
           for (const cardId of zone.cardIds) applyZoneFacePolicy(cards.get(cardId), zone);
@@ -1061,6 +1139,10 @@ export function createCardScene(config = {}) {
     }
 
     applyAutoSort(next);
+    for (const previousZone of desired.zones) {
+      const nextZone = next.zones.find(({ id }) => id === previousZone.id);
+      validateReorderPolicy(previousZone, nextZone, next.cards, "transaction");
+    }
     normalizeSnapshot(next); // Validate the complete batch before any state or motion mutation.
     const nextZones = resolveZones(next, renderer, resolvedZones);
     const targets = solve(next, nextZones);
@@ -1229,6 +1311,7 @@ export function createCardScene(config = {}) {
       projection: renderer.projection ?? null,
       interaction: interaction?.snapshot() ?? { sessions: [] },
       dragMotion: copy(dragMotion),
+      dragAnchor,
     };
   }
 
@@ -1272,12 +1355,12 @@ export function createCardScene(config = {}) {
     refresh: refreshGeometry,
     takePosition: (id) => { for (const name of ['x', 'y', 'z']) cancelChannel(id, name); },
     present: presentInteraction,
-    commit: (operations) => {
+    commit: (operations, options) => {
       const previousPositions = interactionPositions;
       committingDrag = previousPositions;
       interactionPositions = new Map();
       try {
-        return transact(operations);
+        return transact(operations, options);
       } catch (error) {
         interactionPositions = previousPositions;
         throw error;
@@ -1294,6 +1377,7 @@ export function createCardScene(config = {}) {
     reducedMotion: () => reducedMotion,
     requestFrame: ensureFrame,
     defaultPresentation: config.interaction?.dragPresentation,
+    defaultAnchor: () => dragAnchor,
     motion: () => dragMotion,
     captureGrab: (cardId, point) => {
       flushRender();
@@ -1312,13 +1396,19 @@ export function createCardScene(config = {}) {
     interaction?.reconcile();
     return copy(dragMotion);
   }
+  function setDragAnchor(value) {
+    if (destroyed) throw new Error("Scene is destroyed");
+    dragAnchor = normalizeDragAnchor(value);
+    return dragAnchor;
+  }
   function invalidateRules() {
     // Cancel an ineligible frozen cohort before exposing its pruned selection.
     interaction.invalidateRules();
     selection.reconcile();
   }
   const api = { apply, transact, sortBy, spin, stopSpin, select, hitTest, target, setMotion, setDragMotion, snapshot, viewport, refreshGeometry, on, destroy,
-    clientToScene, sceneToClient, drag, resolveDrop: interaction.resolveDrop, invalidateRules };
+    clientToScene, sceneToClient, drag, setDragAnchor, isSelectable: selection.isSelectable,
+    resolveDrop: interaction.resolveDrop, invalidateRules };
   if (config.element && config.interaction) input = createInputAdapter({ element: config.element, scene: api, options: config.interaction,
     selectionContext: (focusedCardId) => selection.context(focusedCardId) });
   return api;

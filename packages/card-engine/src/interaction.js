@@ -10,6 +10,11 @@ const DRAG_STOP_GRACE = 48;
 const DRAG_UPRIGHT_GRAB_BASE = 0.7;
 const DEFAULT_ZONE_ORIENTATION_SPEED = 1.5;
 const authoredPosition = (card) => JSON.stringify([card.positionMode, card.pose?.x, card.pose?.y, card.pose?.z]);
+const DRAG_ANCHORS = new Set(['grab', 'center']);
+function normalizeDragAnchor(value, name = 'drag anchor') {
+  if (!DRAG_ANCHORS.has(value)) throw new TypeError(`${name} must be grab or center`);
+  return value;
+}
 function immutable(value) {
   if (value && typeof value === 'object') {
     Object.values(value).forEach(immutable);
@@ -30,7 +35,7 @@ const clamp = (value, min, max) => {
 // Gesture state and hypothetical layouts never mutate committed membership.
 export function createInteraction({ state, solve, sample, refresh, takePosition, present, commit, emit, rules, toClient, fromClient,
   isSelectable = () => true, now = () => 0, reducedMotion = () => false, requestFrame = () => {}, defaultPresentation = 'preserve',
-  motion, captureGrab, dragHangFactor, dragUprightFactor, dragSnapDelay }) {
+  defaultAnchor = 'grab', motion, captureGrab, dragHangFactor, dragUprightFactor, dragSnapDelay }) {
   const sessions = new Map();
   let sequence = 0;
   let revision = 0;
@@ -66,11 +71,17 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       .map((id) => [id, model.zones.find((zone) => zone.id === id)?.cardIds]));
   const targetFor = (session, id) => session.data.targetPoses?.[id];
   const requestFor = (session) => ({ cardIds: [...session.data.cardIds], primaryCardId: session.data.primaryCardId,
-    sources: copy(session.data.sources), toZoneId: session.data.candidate?.toZoneId, index: session.data.candidate?.index, revision });
+    sources: copy(session.data.sources), toZoneId: session.data.candidate?.toZoneId, index: session.data.candidate?.index,
+    snapshot: copy(state().desired), revision });
   function decision(name, request) {
     try {
-      const result = rules?.[name]?.(copy(request));
-      return result?.allowed === true ? { allowed: true } : { allowed: false, reason: result?.reason ?? 'Move is not permitted' };
+      const legacyName = name === 'canTake' ? 'canStart' : name === 'canPut' ? 'canDrop' : null;
+      const callback = rules?.[name] ?? (legacyName ? rules?.[legacyName] : undefined);
+      const result = callback?.(copy(request));
+      const labels = { canTake: 'Take', canPut: 'Put', canReveal: 'Reveal', canConceal: 'Conceal' };
+      return result?.allowed === true ? { allowed: true } : {
+        allowed: false, reason: result?.reason ?? `${labels[name] ?? 'Move'} is not permitted`,
+      };
     } catch { return { allowed: false, reason: 'Project rules could not be evaluated' }; }
   }
   function hypothetical(session, zoneId, index) {
@@ -152,9 +163,25 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     const key = JSON.stringify([revision, hit.zone.id, index]);
     if (force || session.ruleKey !== key) {
       session.ruleKey = key;
-      session.ruleDecision = decision('canDrop', requestFor(session));
+      session.ruleDecision = decision('canPut', requestFor(session));
     }
     Object.assign(session.data.candidate, session.ruleDecision);
+    if (session.data.candidate.allowed && hit.zone.faceUp !== undefined) {
+      const model = state().desired;
+      const changed = session.data.cardIds.filter((cardId) => {
+        const card = model.cards.find(({ id }) => id === cardId);
+        return card && card.faceUp !== hit.zone.faceUp;
+      });
+      if (changed.length) {
+        const face = hit.zone.faceUp ? 'faceUp' : 'faceDown';
+        const faceDecision = decision(face === 'faceUp' ? 'canReveal' : 'canConceal', {
+          ...requestFor(session), cardIds: changed,
+          sources: copy(session.data.sources.filter(({ cardId }) => changed.includes(cardId))),
+          face, zoneId: hit.zone.id, via: 'drag',
+        });
+        Object.assign(session.data.candidate, faceDecision);
+      }
+    }
     if (session.data.candidate.allowed) {
       session.preview = preview;
       session.data.targetPose = copy(preview.get(session.data.primaryCardId));
@@ -511,7 +538,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
         if (cohortChanged(session, current.desired) || session.data.cardIds.some((id) =>
           current.visual.get(id)?.visible === false || !isSelectable(id))
           || (previousDestination && (!destination || destination.visible === false || destination.dropTarget === 'transparent'))
-          || !decision('canStart', requestFor(session)).allowed) {
+          || !decision('canTake', requestFor(session)).allowed) {
           finish(session, 'cancelled', 'Card or source changed'); continue;
         }
         evaluate(session, true);
@@ -550,12 +577,15 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     if (!cardIds.includes(id)) throw new TypeError('Primary card must belong to drag');
     const presentation = request.presentation ?? defaultPresentation;
     if (!['preserve', 'compact'].includes(presentation)) throw new TypeError('Unknown drag presentation');
+    const configuredAnchor = typeof defaultAnchor === 'function' ? defaultAnchor() : defaultAnchor;
+    const anchor = normalizeDragAnchor(request.anchor ?? configuredAnchor);
     const current = state();
     if (cardIds.some((id) => !current.desired.cards.some((card) => card.id === id)
       || !current.visual.get(id) || current.visual.get(id).visible === false || !isSelectable(id))) throw new Error('Card is not available for dragging');
     const data = { id: `drag-${++sequence}`, phase: 'dragging', cardIds, primaryCardId: id,
-      sources: cardIds.flatMap((id) => sourcesFor(id)), presentation, candidate: null, targetPose: null, targetPoses: null, revision };
-    const allowed = decision('canStart', data);
+      sources: cardIds.flatMap((id) => sourcesFor(id)), presentation, anchor,
+      candidate: null, targetPose: null, targetPoses: null, revision };
+    const allowed = decision('canTake', { ...data, snapshot: copy(current.desired) });
     if (!allowed.allowed) throw new Error(allowed.reason);
     const startPoint = request.point === undefined ? null : point(request.point);
     sample();
@@ -564,7 +594,8 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     for (const cardId of cardIds) takePosition(cardId);
     const pose = state().visual.get(id);
     const center = toClient(pose);
-    const client = startPoint ? toClient({ ...startPoint, z: 0 }) : center;
+    const pointerClient = startPoint ? toClient({ ...startPoint, z: 0 }) : center;
+    const client = pointerClient;
     const projectedRight = toClient({ ...pose, x: pose.x + (pose.width ?? 1) * (pose.scale ?? 1) * (pose.layoutScale ?? 1) / 2 });
     const projectedBottom = toClient({ ...pose, y: pose.y + (pose.height ?? 1) * (pose.scale ?? 1) * (pose.layoutScale ?? 1) / 2 });
     const halfWidth = Math.max(1, Math.abs(projectedRight.x - center.x));
@@ -578,13 +609,16 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
         authored: authoredPosition(current.desired.cards.find((card) => card.id === cardId)) }];
     }));
     const weight = current.desired.cards.find((card) => card.id === id)?.weight ?? 1;
+    const pointerOffset = anchor === 'center' && startPoint
+      ? { x: 0, y: 0 }
+      : { x: pointerClient.x - center.x, y: pointerClient.y - center.y };
     const grabDistance = clamp(Math.hypot(
-      (client.x - center.x) / halfWidth,
-      (client.y - center.y) / halfHeight,
+      pointerOffset.x / halfWidth,
+      pointerOffset.y / halfHeight,
     ), 0, 1);
     const session = { data, client, members, cohort: new Set(cardIds), pointerOwned: startPoint !== null,
       startedAt: now(), compactSettled: false,
-      offset: { x: client.x - center.x, y: client.y - center.y },
+      offset: pointerOffset,
       initialAngle: pose.angle ?? 0,
       tiltHalfSize: { width: halfWidth, height: halfHeight },
       grabPivot: {
@@ -597,7 +631,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
       cardWeight: weight,
       grabDistance,
       grabResponse: DRAG_UPRIGHT_GRAB_BASE + (1 - DRAG_UPRIGHT_GRAB_BASE) * grabDistance,
-      grab: startPoint && typeof captureGrab === 'function'
+      grab: anchor === 'grab' && startPoint && typeof captureGrab === 'function'
         ? captureGrab(id, { ...client }) : undefined,
       physics: {
         angle: 0,
@@ -708,7 +742,7 @@ export function createInteraction({ state, solve, sample, refresh, takePosition,
     sessions.delete(id);
     let result;
     try {
-      result = commit([{ type: 'moveBatch', cardIds: [...session.data.cardIds], to: candidate.toZoneId, index: candidate.index }]);
+      result = commit([{ type: 'moveBatch', cardIds: [...session.data.cardIds], to: candidate.toZoneId, index: candidate.index }], { origin: 'user' });
     } catch (error) {
       finish(session, 'cancelled', 'Drop commit failed');
       publish();

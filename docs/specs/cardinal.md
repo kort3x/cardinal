@@ -114,21 +114,41 @@ All zones support zero, one, or many cards. An optional capacity is configured
 explicitly. Zone IDs carry no built-in meaning. Face belongs to each card and is
 independent of selection, arrangement, and region visibility. A card has one or
 more named content faces and an `activeFaceId`. With no `faceCycle`, the default
-card has one logical front face and one shared concealed back. `faceUp` displays that content face;
-`faceDown` displays the concealed back/sleeve. Cards may additionally declare a
+card has one logical front face and one shared concealed back. A revealed card
+displays that content face; a concealed card displays the concealed back/sleeve.
+The public API names these states `faceUp` and `faceDown`. Cards may additionally declare a
 `faceCycle`, an ordered list of at least two named content-face IDs. For such a
 card, each completed return to the physical front advances the logical face to
 the next entry and wraps to the first; every back-facing state uses the one
 concealed back presentation. The physical card still has only two surfaces.
-Changing the active content face does not reveal a face-down card. See the
+Changing the active content face does not reveal a concealed card. See the
 content-face contract below.
 
-Zone membership may optionally carry an `orderPolicy` and a `slotPolicy`.
+Zone membership may optionally carry an `orderPolicy`, a `slotPolicy`, and a
+`reorderPolicy`. `reorderPolicy: { concealed: "deny" }` is the default safety
+rule: a same-zone reorder must preserve the relative order of concealed cards.
+`reorderPolicy: { concealed: "allow" }` opts a zone into concealed-card
+reordering. Revealed cards and cross-zone transfers remain independently
+governed by the destination's other policies.
 `orderPolicy: { mode: "locked", order }` defines the canonical relative order
 for members, while `slotPolicy: { mode: "fixed", slots }` assigns zero-based
 destination slots to selected card IDs. Both policies are enforced against the
 complete hypothetical result before a preview or commit is accepted; omitted or
 `free` policies preserve ordinary user-controlled insertion and reordering.
+
+A zone may also carry `selectionPolicy: { mode: "forced", count, from: "top" }`.
+This makes the final `count` members of the zone's bottom-to-top membership
+sequence one atomic selection cohort. Selecting any eligible member selects the
+whole cohort; lower members are unavailable, and removing or toggling one
+removes the cohort. The consumer must enable multiple selection with a maximum
+at least equal to `count`; the engine selection policy does not authorize the
+resulting move or other game action.
+
+The reusable zone preset `preset: "drawStack"` supplies a zero-offset vertical
+stack, a forced top-card selection policy (`count: 1`), and `faceUp: false`.
+Only the final member of the zone's bottom-to-top sequence is selectable or
+pickable through engine interaction. An explicit `faceUp` value overrides the
+preset's concealed side.
 
 A card belongs to exactly one zone in a committed scene. Zone membership is stored
 once as a sequence of IDs. A stack uses that sequence as explicit bottom-to-top
@@ -440,8 +460,8 @@ An operation is never implicitly queued until movement finishes.
   interrupted turn does not advance the cycle.
   Camera perspective must not choose the logical side: moving a card while it
   is edge-on may change its apparent angle, but it must not reveal the concealed
-  face for a logically face-up card or the content face for a logically
-  face-down card. At the exact edge orientation, neither large face is treated
+  face for a logically revealed card or the content face for a logically
+  concealed card. At the exact edge orientation, neither large face is treated
   as the displayed side; only the cuboid edge is visible.
   The primary renderer presents each card as a true closed beveled rounded
   cuboid: two large face surfaces and continuous side geometry spanning the
@@ -450,6 +470,17 @@ An operation is never implicitly queued until movement finishes.
   Switching between named content faces can use the same turn animation without
   changing faceUp/faceDown. Only one driver owns the combined displayed-surface
   transition, so reveal and content-face changes cannot compete on the flip axis.
+
+User initiated card access is consumer controlled. Interaction rules expose
+`canTake`, `canPut`, `canReveal`, `canConceal`, and `canSpin`, each returning
+`{ allowed, reason? }`; `canStart` and `canDrop` are compatibility aliases for
+the first two. Pointer drag pickup and drop run these rules, including the
+reveal or conceal rule required by a destination zone's `faceUp` policy.
+Programmatic commands that represent a user action pass `{ origin: "user" }`
+to `scene.transact()` or `scene.spin()`, and are denied when the corresponding
+rule is absent or rejects the request. Trusted consumer reconciliation keeps
+using the default system origin. This boundary lets a consumer restrict every
+card entry point by source zone, destination, side change, and spin action.
 
 Define transform composition explicitly, from outermost to innermost: stage
 placement and camera projection, layout orientation, local card rotation/tilt,
@@ -516,6 +547,13 @@ tilt.
 The `dramatic` profile intentionally exaggerates free-drag dangle: it uses a
 3× response, 0.2 damping, and larger tilt and twist limits so the spring
 overshoots and visibly swings past its target.
+
+Pointer pickup anchoring is configured independently of drag motion. The
+default `interaction.dragAnchor: "grab"` keeps the clicked point under the
+pointer. `interaction.dragAnchor: "center"` snaps the card midpoint under the
+pointer at pickup; a programmatic `scene.drag()` may override it with
+`anchor: "grab"` or `anchor: "center"`. Center anchoring also removes the
+edge-grab correction for that pickup.
 
 Natural drag motion uses `liftScale: 1.12`, `liftTime: 90`, `liftDepth: 0`,
 `liftDepthTime: 80`,
@@ -667,7 +705,7 @@ happens when their anchor disappears: hide with the anchor by default, or use an
 explicit card-level fallback. Never retain an obsolete screen rectangle as an anchor.
 
 Attachments declare front, back, or both-face visibility independently of whether
-they are present. A front stamp remains stored while the card is face-down. Templates
+they are present. A front stamp remains stored while the card is concealed. Templates
 provide localized accessible descriptions and optional controls; concealed or
 departing elements cannot retain active hit targets. Removing a focused attachment
 returns focus to the stable card shell. Projects provide attachment rendering and
