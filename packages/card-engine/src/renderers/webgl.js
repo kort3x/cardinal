@@ -1513,7 +1513,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityShell.setAttribute("aria-pressed", String(selected));
       mounted.accessibilityShell.dataset.selected = String(selected);
       mounted.accessibilityShell.dataset.primary = String(isPrimary);
-      mounted.bodyMaterial.color.setHex(selected ? (isPrimary ? 0xe5c07b : 0xc9af76) : 0xffffff);
+      mounted.bodyMaterial.color.setHex(selected && selectionHighlightVisible
+        ? (isPrimary ? 0xe5c07b : 0xc9af76)
+        : 0xffffff);
       mounted.selectionFrameMaterial.color.setHex(isPrimary ? 0xffd166 : 0x61afef);
       mounted.selectionFront.visible = selected && selectionHighlightVisible;
       mounted.selectionBack.visible = selected && selectionHighlightVisible;
@@ -1527,6 +1529,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     selectionHighlightVisible = visible;
     for (const mounted of cards.values()) {
       const selected = mounted.accessibilityShell.dataset.selected === "true";
+      const primary = mounted.accessibilityShell.dataset.primary === "true";
+      mounted.bodyMaterial.color.setHex(selected && visible
+        ? (primary ? 0xe5c07b : 0xc9af76)
+        : 0xffffff);
       mounted.selectionFront.visible = selected && visible;
       mounted.selectionBack.visible = selected && visible;
     }
