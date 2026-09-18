@@ -499,6 +499,11 @@ export function createCardFaceGeometry(shape, dimensions) {
   return geometry;
 }
 
+function createCardFrameGeometry(shape) {
+  const points = shape.getPoints(64).map(({ x, y }) => new THREE.Vector3(x, y, 0));
+  return new THREE.BufferGeometry().setFromPoints(points);
+}
+
 export function textureDimensionsForPose(card, pose, templates = {}, elementRenderers = {}, presentation) {
   const dimensions = cardDimensions(card, templates, elementRenderers, presentation);
   const template = templates[card.template] ?? {};
@@ -935,9 +940,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       height: faceDimensions.height + SELECTION_FRAME_PADDING * 2,
     };
     const selectionFrameShape = createCardShape(card.shape ?? templates[card.template]?.shape, selectionFrameDimensions);
-    const selectionFrameMaterial = new THREE.MeshBasicMaterial({ color: 0xffd166, depthWrite: false });
-    const selectionFront = new THREE.Mesh(createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions), selectionFrameMaterial);
-    const selectionBack = new THREE.Mesh(createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions), selectionFrameMaterial);
+    const selectionFrameMaterial = new THREE.LineBasicMaterial({ color: 0xffd166, depthWrite: false });
+    const selectionFront = new THREE.LineLoop(createCardFrameGeometry(selectionFrameShape), selectionFrameMaterial);
+    const selectionBack = new THREE.LineLoop(createCardFrameGeometry(selectionFrameShape), selectionFrameMaterial);
     const front = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), frontMaterial);
     const back = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), backMaterial);
     frontBase.renderOrder = 1;
@@ -1052,8 +1057,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       height: faceDimensions.height + SELECTION_FRAME_PADDING * 2,
     };
     const selectionFrameShape = createCardShape(card.shape ?? templates[card.template]?.shape, selectionFrameDimensions);
-    const selectionFrontGeometry = createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions);
-    const selectionBackGeometry = createCardFaceGeometry(selectionFrameShape, selectionFrameDimensions);
+    const selectionFrontGeometry = createCardFrameGeometry(selectionFrameShape);
+    const selectionBackGeometry = createCardFrameGeometry(selectionFrameShape);
     const frontGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const backGeometry = createCardFaceGeometry(faceShape, faceDimensions);
     const oldGeometry = mounted.geometry;

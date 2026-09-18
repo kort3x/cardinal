@@ -539,7 +539,7 @@ const demoTogglesScenario = String.raw`(async () => {
     return snapshot?.visual?.find(({ cardId: visualCardId }) => visualCardId === cardId)?.pose;
   };
   const pose = () => selectedPose();
-  const record = (label, predicate) => results.push({ label, pass: Boolean(predicate()) });
+  const record = (label, predicate, details) => results.push({ label, pass: Boolean(predicate()), ...(details === undefined ? {} : { details }) });
   const click = (selector) => document.querySelector(selector)?.click();
   await sleep(700);
 
@@ -1151,10 +1151,12 @@ const diagnosticsScenario = String.raw`(async () => {
   document.querySelector("#run-diagnostics-benchmark")?.click();
   const deadline = performance.now() + 120000;
   while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) await sleep(100);
+  let benchmarkParsed = null;
   record("benchmark measures 1, 5, 10, 50, and 100 cards", () => {
     const text = report();
     let parsed;
     try { parsed = JSON.parse(text); } catch { return false; }
+    benchmarkParsed = parsed;
     return diagnosticsStatus().includes("Benchmark complete")
       && text.includes('"cards": 1')
       && text.includes('"cards": 5')
@@ -1176,7 +1178,7 @@ const diagnosticsScenario = String.raw`(async () => {
         && result.renderer?.lastRender?.calls > 0
         && result.firstFrameMs >= result.startHandlerMs
         && result.sampleMs > 0);
-  });
+  }, benchmarkParsed?.lab?.benchmark);
   record("benchmark restores the lab", () => {
     const restored = lab.getScene().snapshot();
     return restored.desired.cards.length === baseline.desired.cards.length
