@@ -1148,9 +1148,21 @@ const diagnosticsScenario = String.raw`(async () => {
   document.querySelector("#collect-diagnostics")?.click();
   await sleep(300);
   record("diagnostics report collects environment and WebGL data", () => report().includes("devicePixelRatio") && report().includes("webgl"));
+  record("benchmark actions use the compact ordered layout", () => {
+    const actions = [...document.querySelectorAll(".diagnostics-actions button")];
+    return JSON.stringify(actions.map((button) => button.id)) === '["run-diagnostics-benchmark","copy-diagnostics","record-drag","collect-diagnostics"]'
+      && actions[0]?.textContent.trim() === "Run benchmark";
+  });
   document.querySelector("#run-diagnostics-benchmark")?.click();
+  const benchmarkFullWindowStates = [];
+  const benchmarkStartStatuses = [];
   const deadline = performance.now() + 120000;
-  while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) await sleep(100);
+  while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) {
+    benchmarkFullWindowStates.push(document.body.classList.contains("stage-full-window"));
+    benchmarkStartStatuses.push(diagnosticsStatus());
+    await sleep(100);
+  }
+  benchmarkFullWindowStates.push(document.body.classList.contains("stage-full-window"));
   let benchmarkParsed = null;
   record("benchmark measures 1, 5, 10, 50, and 100 cards", () => {
     const text = report();
@@ -1179,6 +1191,10 @@ const diagnosticsScenario = String.raw`(async () => {
         && result.firstFrameMs >= result.startHandlerMs
         && result.sampleMs > 0);
   }, benchmarkParsed?.lab?.benchmark);
+  record("benchmark runs in full window and exits it", () => benchmarkFullWindowStates.includes(true)
+    && document.body.classList.contains("stage-full-window") === false);
+  record("benchmark refreshes diagnostics at start", () => benchmarkStartStatuses.some((status) => status.includes("Collecting diagnostics")
+    || status.includes("Starting benchmark")));
   record("benchmark restores the lab", () => {
     const restored = lab.getScene().snapshot();
     return restored.desired.cards.length === baseline.desired.cards.length

@@ -399,7 +399,7 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["[data-transfer-zone=river]", "Move the selected cards to River."],
   ["[data-transfer-zone=ocean]", "Move the selected cards to Ocean."],
   ["#collect-diagnostics", "Refresh the renderer and device diagnostics report."],
-  ["#run-diagnostics-benchmark", "Run the 1, 5, 10, 50, and 100-card benchmark."],
+  ["#run-diagnostics-benchmark", "Temporarily enter Full window mode, run the 1, 5, 10, 50, and 100-card benchmark, then restore the Lab layout."],
   ["#record-drag", "Capture timing and input details for the next drag."],
   ["#copy-diagnostics", "Copy the current benchmark report."],
   ["#full-window-control", "Toggle the stage into full-window inspection mode."],
@@ -1139,7 +1139,23 @@ async function runDiagnosticsBenchmark() {
   const originalZoneMembership = new Map(cardZoneIds);
   const benchmarkResults = [];
   let restored = false;
+  let benchmarkCompleted = false;
+  const fullWindowControl = document.querySelector("#full-window-control");
+  const wasFullWindow = document.body.classList.contains("stage-full-window");
   const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const waitForLayout = () => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+  const enterBenchmarkFullWindow = async () => {
+    if (wasFullWindow || document.body.classList.contains("stage-full-window")) return;
+    fullWindowControl?.click();
+    await waitForLayout();
+  };
+  const restoreFullWindow = async () => {
+    if (wasFullWindow || !document.body.classList.contains("stage-full-window")) return;
+    fullWindowControl?.click();
+    await waitForLayout();
+  };
   const waitForReady = async (count, timeout = 20000) => {
     const startedAt = performance.now();
     while (performance.now() - startedAt < timeout) {
@@ -1162,6 +1178,8 @@ async function runDiagnosticsBenchmark() {
     throw new Error(`Benchmark fixture with ${count} cards did not become ready`);
   };
   try {
+    await refreshDiagnostics("Starting benchmark…");
+    await enterBenchmarkFullWindow();
     stopRandomMotion();
     stopDemoAnimations();
     scene.setSelectionHighlightVisible(false);
@@ -1238,7 +1256,8 @@ async function runDiagnosticsBenchmark() {
     selectedCardIds = new Set(originalSelection);
     applyLabCards(originalCards);
     restored = true;
-    await refreshDiagnostics("Benchmark complete; the lab state was restored.");
+    await refreshDiagnostics();
+    benchmarkCompleted = true;
   } catch (error) {
     diagnosticsStatus.textContent = `Benchmark failed: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
@@ -1248,9 +1267,11 @@ async function runDiagnosticsBenchmark() {
     selectedCardIds = new Set(originalSelection);
     scene.setSelectionHighlightVisible(true);
     if (!restored) applyLabCards(originalCards);
+    await restoreFullWindow();
     runDiagnosticsBenchmarkButton.disabled = false;
     collectDiagnosticsButton.disabled = false;
     copyDiagnosticsButton.disabled = false;
+    if (benchmarkCompleted) diagnosticsStatus.textContent = "Benchmark complete; the lab state was restored.";
   }
 }
 
