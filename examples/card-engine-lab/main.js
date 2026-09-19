@@ -3030,6 +3030,11 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
   const card = currentCard(state);
   const visual = card && state.visual.find(({ cardId }) => cardId === card.id);
   const pose = visual?.pose;
+  const motionLabels = activeMotionLabels();
+  const motionText = [
+    state.settling ? "animating" : null,
+    motionLabels.length > 0 ? `${motionLabels.join("+")} active` : (!state.settling ? "stable" : null),
+  ].filter(Boolean).join(" · ");
   updateInteractionStatus(state, interaction);
   const rendererLabel = state.renderer === "webgl"
     ? "Three.js WebGL (true 3D)"
@@ -3055,9 +3060,7 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
       scale: pose.scale.toFixed(2),
       logical: card.faceUp === false ? "Concealed" : (card.activeFaceId ?? "Unknown").replace("face-", "").toUpperCase(),
       physical: physicalSide,
-      motion: state.settling
-        ? "animating"
-        : activeMotionLabels().length > 0 ? `${activeMotionLabels().join("+")} active` : "stable",
+      motion: motionText,
     };
     statusParts.push(
       `x ${poseParts.x}`,
