@@ -15,6 +15,7 @@ import { resolveBatchMove } from "./batch.js";
 import { normalizeSortPolicy, sortCardIds } from "./sort.js";
 import { normalizeDragMotion } from "./drag-motion.js";
 import { advanceSpring } from "./drag-physics.js";
+import { normalizeCardRelation, normalizeCardRelations, relationAncestors, relationGroup } from "./relations.js";
 
 const copy = (value) => structuredClone(value);
 const DEFAULT_ZONE_MOTION_SPEED = 1.5;
@@ -54,6 +55,8 @@ const operationResultChannels = {
   contentFace: () => 1,
   element: () => 1,
   attachment: () => 1,
+  attach: () => 1,
+  detach: () => 1,
 };
 
 function flipValue(pose, axis) {
@@ -1050,6 +1053,32 @@ export function createCardScene(config = {}) {
     if (options.zoneFacePolicy !== undefined && !["enforce", "override"].includes(options.zoneFacePolicy)) {
       throw new TypeError("zoneFacePolicy must be enforce or override");
     }
+    operations = operations.map((operation) => {
+      if (operation.type === "attach") {
+        return { ...operation, cardId: operation.childId, cardIds: [operation.parentId, operation.childId] };
+      }
+      if (operation.type === "detach") {
+        const relation = desired.relationships?.find(({ childId }) => childId === operation.childId);
+        return { ...operation, cardId: operation.childId, cardIds: [relation?.parentId, operation.childId].filter(Boolean) };
+      }
+      if (operation.type === "move" && operation.cardId) {
+        if (desired.relationships?.some(({ childId }) => childId === operation.cardId) && operation.detach !== true) {
+          throw new Error(`Card ${operation.cardId} is attached; detach it before moving the child`);
+        }
+        const cardIds = operation.detach === true
+          ? relationGroup([operation.cardId], desired.relationships)
+          : relationGroup([operation.cardId], desired.relationships);
+        return { ...operation, cardIds };
+      }
+      if (operation.type === "moveBatch") {
+        const requested = new Set(operation.cardIds ?? []);
+        const parentByChild = new Map((desired.relationships ?? []).map(({ childId, parentId }) => [childId, parentId]));
+        const hasAttachedChild = operation.cardIds?.some((id) => parentByChild.has(id) && !requested.has(parentByChild.get(id)));
+        if (hasAttachedChild) throw new Error("Attached children require an explicit detach before moving");
+        return { ...operation, cardIds: relationGroup(operation.cardIds ?? [], desired.relationships) };
+      }
+      return operation;
+    });
     if (options.origin === "user") authorizeUserOperations(operations);
     const enforceZoneFace = options.zoneFacePolicy !== "override";
     const next = copy(desired);
@@ -1079,6 +1108,9 @@ export function createCardScene(config = {}) {
 
     const applyOperations = {
       move(operation, card) {
+        if (operation.detach === true) {
+          next.relationships = (next.relationships ?? []).filter(({ childId }) => childId !== card.id);
+        }
         const pose = card.pose ?? normalizePose();
         if (operation.position) {
           card.pose = { ...pose, ...operation.position };
@@ -1087,10 +1119,11 @@ export function createCardScene(config = {}) {
           const destination = zones.get(operation.to);
           if (!destination) throw new Error(`Unknown zone: ${operation.to}`);
           if (operation.index !== undefined && (!Number.isInteger(operation.index) || operation.index < 0)) throw new RangeError("Move index must be a non-negative integer");
-          for (const zone of next.zones) zone.cardIds = zone.cardIds.filter((id) => id !== card.id);
+          const movingIds = operation.cardIds ?? [card.id];
+          for (const zone of next.zones) zone.cardIds = zone.cardIds.filter((id) => !movingIds.includes(id));
           const index = Math.max(0, Math.min(operation.index ?? destination.cardIds.length, destination.cardIds.length));
-          destination.cardIds.splice(index, 0, card.id);
-          applyZoneFacePolicy(card, destination);
+          destination.cardIds.splice(index, 0, ...movingIds);
+          for (const movingId of movingIds) applyZoneFacePolicy(cards.get(movingId), destination);
           delete card.positionMode;
         } else {
           throw new TypeError("Move requires position or destination zone");
@@ -1234,6 +1267,30 @@ export function createCardScene(config = {}) {
         }
         throw new TypeError(`Unknown attachment action: ${operation.action}`);
       },
+      attach(operation) {
+        const relation = normalizeCardRelation({ ...operation.relation, parentId: operation.parentId, childId: operation.childId }, 0,
+          new Set(next.cards.map(({ id }) => id)));
+        next.relationships = (next.relationships ?? []).filter(({ childId }) => childId !== relation.childId);
+        next.relationships.push(relation);
+        next.relationships = normalizeCardRelations(next.relationships, new Set(next.cards.map(({ id }) => id)));
+        const parentZone = next.zones.find(({ cardIds }) => cardIds.includes(relation.parentId));
+        if (!parentZone) throw new Error(`Card ${relation.parentId} has no zone membership`);
+        const movingIds = relationGroup([relation.childId], next.relationships);
+        for (const zone of next.zones) zone.cardIds = zone.cardIds.filter((id) => !movingIds.includes(id));
+        const parentIndex = parentZone.cardIds.indexOf(relation.parentId);
+        parentZone.cardIds.splice(parentIndex < 0 ? parentZone.cardIds.length : parentIndex + 1, 0, ...movingIds);
+        for (const cardId of movingIds) applyZoneFacePolicy(cards.get(cardId), parentZone);
+      },
+      detach(operation) {
+        const relation = next.relationships?.find(({ childId }) => childId === operation.childId);
+        if (!relation) throw new Error(`Card ${operation.childId} is not attached`);
+        next.relationships = next.relationships.filter(({ childId }) => childId !== operation.childId);
+        if (operation.position) {
+          const detached = cards.get(operation.childId);
+          detached.pose = { ...(detached.pose ?? normalizePose()), ...copy(operation.position) };
+          detached.positionMode = "absolute";
+        }
+      },
       reorder(operation, _card, operationIndex) {
         const zone = zones.get(operation.zoneId);
         if (!zone) throw new Error(`Unknown zone: ${operation.zoneId}`);
@@ -1322,7 +1379,10 @@ export function createCardScene(config = {}) {
     desired = next;
     resolvedZones = nextZones;
     const affected = new Set(operations.flatMap((operation) => operation.cardIds ?? [operation.cardId]).filter(Boolean));
-    if (operations.some((operation) => ["move", "moveBatch", "zone", "resize", "thickness", "contentFace", "element", "attachment"].includes(operation.type))) {
+    for (const cardId of [...affected]) {
+      for (const descendantId of relationGroup([cardId], next.relationships ?? []).slice(1)) affected.add(descendantId);
+    }
+    if (operations.some((operation) => ["move", "moveBatch", "zone", "resize", "thickness", "contentFace", "element", "attachment", "attach", "detach"].includes(operation.type))) {
       for (const [cardId, targetPose] of targets) {
         const current = cardPose(cardId);
         if (current) affected.add(cardId);
@@ -1334,9 +1394,15 @@ export function createCardScene(config = {}) {
       if (!targetPose) throw new Error(`Card ${cardId} has no layout target`);
       const current = cardPose(cardId);
       const oldCard = previous.cards.find((candidate) => candidate.id === cardId);
-      const operationIndexes = operations.flatMap((operation, index) => (operation.cardId === cardId || operation.cardIds?.includes(cardId)) ? [index] : []);
-      const hasExplicitRotation = operations.some((operation) => operation.type === "rotate" && operation.cardId === cardId);
-      const hasExplicitScale = operations.some((operation) => operation.type === "scale" && operation.cardId === cardId);
+      const ownOperationIndexes = operations.flatMap((operation, index) => (operation.cardId === cardId || operation.cardIds?.includes(cardId)) ? [index] : []);
+      const ancestorIds = new Set(relationAncestors(cardId, next.relationships ?? []));
+      const inheritedOperationIndexes = operations.flatMap((operation, index) => ancestorIds.has(operation.cardId)
+        || operation.cardIds?.some((id) => ancestorIds.has(id)) ? [index] : []);
+      const operationIndexes = [...new Set([...ownOperationIndexes, ...inheritedOperationIndexes])];
+      const hasExplicitRotation = operations.some((operation) => operation.type === "rotate"
+        && (operation.cardId === cardId || ancestorIds.has(operation.cardId)));
+      const hasExplicitScale = operations.some((operation) => operation.type === "scale"
+        && (operation.cardId === cardId || ancestorIds.has(operation.cardId)));
       const targetZone = zoneForCard(nextZones, cardId);
       if (enforceZoneFace && targetZone?.faceUp === false) {
         cancelChannel(cardId, "flipX");
@@ -1347,6 +1413,12 @@ export function createCardScene(config = {}) {
         current.flipY = 180;
       }
       const scheduleTarget = (channelName, target, operationIndex) => schedule(cardId, channelName, target, transition, operationIndex, targetZone);
+      const scheduleRelationTransition = (operationIndex) => {
+        for (const [name, fallback] of [["x", current.x], ["y", current.y], ["z", current.z], ["scale", current.scale],
+          ["layoutScale", 1], ["width", current.width], ["height", current.height], ["angle", current.angle]]) {
+          scheduleTarget(name, targetPose[name] ?? fallback, operationIndex);
+        }
+      };
       const scheduleOperations = {
         move: (operationIndex) => {
           scheduleTarget("x", targetPose.x, operationIndex);
@@ -1411,17 +1483,35 @@ export function createCardScene(config = {}) {
         attachment: (operationIndex) => {
           scheduleContentResize(cardId, targetPose, transition, operationIndex);
         },
+        attach: scheduleRelationTransition,
+        detach: scheduleRelationTransition,
       };
-      for (const operationIndex of operationIndexes) {
+      for (const operationIndex of ownOperationIndexes) {
         const operation = operations[operationIndex];
         scheduleOperations[operation.type](operationIndex);
       }
-      if (!operationIndexes.some((index) => ["move", "moveBatch", "reorder"].includes(operations[index].type)) && operations.some((op) => ["move", "moveBatch", "reorder", "zone", "resize", "contentFace", "element", "attachment", "thickness"].includes(op.type))) {
+      const inheritedChannels = inheritedOperationIndexes.map((index) => operations[index]);
+      for (const operation of inheritedChannels) {
+        const operationIndex = operations.indexOf(operation);
+        if (["move", "moveBatch", "reorder", "zone", "resize", "contentFace", "element", "attachment", "attach", "detach"].includes(operation.type)) {
+          for (const name of ["x", "y", "z", ...(hasExplicitScale ? [] : ["scale"]), "layoutScale", ...(hasExplicitRotation ? [] : ["angle"]), "width", "height"]) {
+            scheduleTarget(name, targetPose[name] ?? (name === "layoutScale" ? 1 : current[name]), operationIndex);
+          }
+        } else if (operation.type === "rotate") {
+          scheduleTarget("angle", targetPose.angle, operationIndex);
+        } else if (operation.type === "scale") {
+          scheduleTarget("scale", targetPose.scale, operationIndex);
+        } else if (operation.type === "face") {
+          scheduleTarget("flipX", targetPose.flipX ?? 0, operationIndex);
+          scheduleTarget("flipY", targetPose.flipY ?? (card.faceUp ? 0 : 180), operationIndex);
+        }
+      }
+      if (!operationIndexes.some((index) => ["move", "moveBatch", "reorder"].includes(operations[index].type)) && operations.some((op) => ["move", "moveBatch", "reorder", "zone", "resize", "contentFace", "element", "attachment", "thickness", "attach", "detach"].includes(op.type))) {
         const layoutChannels = ["x", "y", "z", ...(hasExplicitScale ? [] : ["scale"]), "layoutScale", ...(hasExplicitRotation ? [] : ["angle"])];
         for (const name of layoutChannels) {
           const active = channels.get(cardId)?.[name];
           if (active && Math.abs(active.to - targetPose[name]) < 0.0001) continue;
-          const owner = operationIndexes[0] ?? operations.findIndex((op) => ["move", "moveBatch", "zone", "resize", "contentFace", "element", "attachment", "thickness"].includes(op.type));
+          const owner = operationIndexes[0] ?? operations.findIndex((op) => ["move", "moveBatch", "zone", "resize", "contentFace", "element", "attachment", "thickness", "attach", "detach"].includes(op.type));
           scheduleTarget(name, targetPose[name], owner);
         }
       }
@@ -1575,8 +1665,15 @@ export function createCardScene(config = {}) {
   });
   function drag(request) {
     if (!desired) throw new Error("Call scene.apply before scene.drag");
-    for (const id of request?.cardIds ?? []) closeInspection(id);
-    return interaction.drag({ ...request, cardIds: selection.order(request?.cardIds, request?.order ?? "source") });
+    const requested = request?.cardIds ?? [];
+    const parentByChild = new Map((desired.relationships ?? []).map(({ childId, parentId }) => [childId, parentId]));
+    const requestedSet = new Set(requested);
+    if (requested.some((id) => parentByChild.has(id) && !requestedSet.has(parentByChild.get(id)))) {
+      throw new Error("Attached children require an explicit detach before dragging");
+    }
+    const ordered = selection.order(requested, request?.order ?? "source");
+    for (const id of ordered) closeInspection(id);
+    return interaction.drag({ ...request, cardIds: relationGroup(ordered, desired.relationships ?? []) });
   }
   function setDragMotion(patch) {
     if (destroyed) throw new Error("Scene is destroyed");

@@ -66,6 +66,37 @@ when `missingAnchor: "card"` is configured. A registered type may provide
 `accessibleLabel({ element })` and `onAction({ cardId, attachmentId, controlId })`;
 inspection previews never execute controls.
 
+Cards can also be attached to other cards as spatial children. These relations
+are separate from card-owned element attachments and are kept in the snapshot:
+
+```js
+scene.apply({
+  cards: [parent, child, grandchild],
+  zones: [{ id: "table", geometry, cardIds: ["parent", "child", "grandchild"] }],
+  relationships: [
+    { parentId: "parent", childId: "child", offsetX: 24, angle: -6 },
+    { parentId: "child", childId: "grandchild", offsetY: 18, scale: 0.7 },
+  ],
+});
+
+await scene.transact([{ type: "move", cardId: "parent", to: "table" }]).finished;
+await scene.transact([{ type: "detach", childId: "child", position: { x: 320, y: 180 } }]).finished;
+```
+
+Relations require one spatial parent per child and are acyclic. `anchorX` and
+`anchorY` select the parent-local attachment point; `offsetX`, `offsetY`, and
+`offsetZ` plus `angle`, `scale`, and `pivotX`/`pivotY` define the child-local
+transform. `affinity` controls whether the child follows the parent's front,
+back, or both surfaces; `clip`, `zIndex`, and `missingAnchor` control the
+relation's presentation. Children remain zone members for capacity and
+permissions, but only roots consume arrangement slots. Attaching across zones
+moves the child subtree into the parent's zone. Moving a root moves its complete
+descendant group atomically. A child cannot be dragged independently until it is
+detached.
+Use `{ type: "attach", parentId, childId, relation }` to replace a child's
+current parent. Invalid parent, cycle, and multiple-parent changes reject the
+whole transaction.
+
 ## Responsive zones
 
 Zones own the sole ordered membership list. Supply either spatial `geometry` or

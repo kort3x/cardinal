@@ -1,5 +1,6 @@
 import { DEFAULT_POSE } from "./model.js";
 import { attachmentContent } from "./attachments.js";
+import { relationMaps, relationRoots } from "./relations.js";
 
 export const DEFAULT_CARD_DIMENSIONS = Object.freeze({ width: 180, height: 250 });
 export const DEFAULT_CARD_THICKNESS = 6;
@@ -36,6 +37,30 @@ function flowElements(content, presentation) {
     .map(({ element }) => element);
 }
 
+function elementAnchorPoint(content, dimensions, elementRenderers, presentation, elementId) {
+  const element = contentElements(content).find(({ id }) => id === elementId);
+  if (!element || !elementVisible(element, presentation)) return null;
+  const layout = element.layout ?? {};
+  if (layout.mode === "overlay") {
+    return {
+      element,
+      x: (layout.x ?? 0) + (layout.width ?? 0.5) / 2,
+      y: (layout.y ?? 0) + (layout.height ?? 0.2) / 2,
+    };
+  }
+  const inner = 18;
+  const width = Math.max(1, dimensions.width - inner * 2);
+  let cursor = inner;
+  for (const flowElement of flowElements(content, presentation)) {
+    const height = measureFlowElement(flowElement, width, dimensions, elementRenderers);
+    if (flowElement.id === elementId) {
+      return { element, x: 0.5, y: (cursor + height / 2) / Math.max(1, dimensions.height) };
+    }
+    cursor += height + 10;
+  }
+  return null;
+}
+
 export function spacerHeight(element) {
   const height = element?.content?.height ?? 20;
   return Number.isFinite(height) && height >= 0 ? height : 20;
@@ -61,7 +86,17 @@ function textLineCount(text, width, fontSize) {
   }, 0);
 }
 
-function elementFlowHeight(element, width, preferredHeight, elementRenderers = {}, dimensions = { width, height: preferredHeight }) {
+/**
+ * Measure one flow element using the same rules as content sizing and
+ * attachment geometry. Renderers may supply a more accurate environment
+ * specific measurement, such as Canvas text metrics.
+ */
+export function measureFlowElement(element, width, dimensions = { width, height: 250 }, elementRenderers = {}, measure = null) {
+  if (typeof measure === "function") {
+    const measured = measure(element, width, dimensions);
+    if (!Number.isFinite(measured) || measured < 0) throw new RangeError(`Element ${element.type} returned an invalid height`);
+    return measured;
+  }
   const renderer = elementRenderers[element.type];
   if (renderer && typeof renderer.measure === "function") {
     const measured = renderer.measure({ element, width, dimensions });
@@ -69,7 +104,7 @@ function elementFlowHeight(element, width, preferredHeight, elementRenderers = {
     return measured;
   }
   if (element.type === "spacer") return spacerHeight(element);
-  if (element.type === "image") return element.layout?.height ? preferredHeight * element.layout.height : 120;
+  if (element.type === "image") return element.layout?.height ? dimensions.height * element.layout.height : 120;
   if (element.type === "text") {
     const style = element.style ?? {};
     const title = style.variant === "title" || element.variant === "title" || element.id === "title";
@@ -78,6 +113,10 @@ function elementFlowHeight(element, width, preferredHeight, elementRenderers = {
     return textLineCount(element.content?.text ?? element.content?.value ?? "", width, fontSize) * lineHeight;
   }
   return 20;
+}
+
+function elementFlowHeight(element, width, preferredHeight, elementRenderers = {}, dimensions = { width, height: preferredHeight }) {
+  return measureFlowElement(element, width, dimensions, elementRenderers);
 }
 
 export function contentHeight(content, dimensions, sizing = {}, elementRenderers = {}, presentation) {
@@ -393,6 +432,8 @@ export function solveCardPose(card, zone, index = 0, camera, templates, layerOff
     scale,
     layoutScale,
     angle: angleDegrees,
+    flipX: card.pose?.flipX ?? 0,
+    flipY: card.pose?.flipY ?? (card.faceUp === false ? 180 : 0),
     visible: zone.visible !== false,
     depthScale: depthScale(camera, zone.geometry.depth),
   };
@@ -400,11 +441,14 @@ export function solveCardPose(card, zone, index = 0, camera, templates, layerOff
 
 export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}) {
   const cards = new Map(snapshot.cards.map((card) => [card.id, card]));
+  const relations = snapshot.relationships ?? [];
+  const { byChild } = relationMaps(relations);
   const poses = new Map();
   const placedCards = [];
   let drawOrder = 0;
   for (const zone of snapshot.zones) {
-    const zoneCards = zone.cardIds.map((id) => cards.get(id)).filter(Boolean);
+    const rootIds = relationRoots(zone.cardIds, relations);
+    const zoneCards = rootIds.map((id) => cards.get(id)).filter(Boolean);
     const layout = solveZoneLayout(zone, zoneCards, templates, elementRenderers);
     const sizes = zoneCards.map((card) => {
       const dimensions = cardDimensions(card, templates, elementRenderers, zone.presentation);
@@ -414,7 +458,7 @@ export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}
     const tracks = { width: Math.max(1, ...sizes.map(({ width }) => width)), height: Math.max(1, ...sizes.map(({ height }) => height)) };
     let layerOffset = 0;
     let previousDepth = null;
-    zone.cardIds.forEach((cardId, index) => {
+    rootIds.forEach((cardId, index) => {
       const card = cards.get(cardId);
       const layoutEntry = arrangementOf(zone).type === "grid" ? undefined : layout.get(cardId);
       const effectiveScale = (zone.scale ?? card.pose?.scale ?? 1) * (layoutEntry?.layoutScale ?? 1);
@@ -447,15 +491,15 @@ export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}
       drawOrder += 1;
     });
     if (arrangementOf(zone).type === "hand") {
-      const availableDepths = zone.cardIds
+      const availableDepths = rootIds
         .map((cardId) => poses.get(cardId)?.z)
         .filter((depth) => Number.isFinite(depth))
         .sort((first, second) => first - second);
-      const availableOrders = zone.cardIds
+      const availableOrders = rootIds
         .map((cardId) => poses.get(cardId)?.drawOrder)
         .filter((order) => Number.isFinite(order))
         .sort((first, second) => first - second);
-      const spatialOrder = [...zone.cardIds].sort((first, second) => (poses.get(first)?.x ?? 0) - (poses.get(second)?.x ?? 0));
+      const spatialOrder = [...rootIds].sort((first, second) => (poses.get(first)?.x ?? 0) - (poses.get(second)?.x ?? 0));
       spatialOrder.forEach((cardId, index) => {
         const pose = poses.get(cardId);
         if (!pose) return;
@@ -464,5 +508,74 @@ export function solveAllPoses(snapshot, camera, templates, elementRenderers = {}
       });
     }
   }
+
+  // Children do not consume arrangement slots. Their pose is composed from the
+  // current parent target, so nested relations inherit movement, fit scale,
+  // rotation, and depth without a second layout projection.
+  const composed = new Set();
+  const composeChild = (childId) => {
+    if (composed.has(childId)) return poses.get(childId);
+    const relation = byChild.get(childId);
+    if (!relation) return poses.get(childId);
+    const parentPose = composeChild(relation.parentId);
+    const child = cards.get(childId);
+    if (!parentPose || !child) return undefined;
+    const parentCard = cards.get(relation.parentId);
+    const parentZone = snapshot.zones.find(({ cardIds }) => cardIds.includes(relation.parentId));
+    const parentFaceId = Math.abs((parentPose.flipY ?? 0) % 360) === 180 ? "back" : parentFaceIdFor(parentCard);
+    const parentContent = attachmentContent(parentCard, parentFaceId, parentZone?.presentation);
+    const parentDimensions = cardDimensions(parentCard, templates, elementRenderers, parentZone?.presentation);
+    const anchorPoint = relation.anchor === "card" ? { x: relation.anchorX, y: relation.anchorY }
+      : elementAnchorPoint(parentContent, parentDimensions, elementRenderers, parentZone?.presentation, relation.anchor);
+    const anchorAvailable = Boolean(anchorPoint);
+    const facing = Math.cos(((parentPose.flipX ?? 0) * Math.PI) / 180) * Math.cos(((parentPose.flipY ?? 0) * Math.PI) / 180);
+    const surfaceVisible = relation.affinity === "both"
+      || (Math.abs(facing) > 0.000001 && (relation.affinity === "front" ? facing > 0 : facing < 0));
+    const zone = snapshot.zones.find(({ cardIds }) => cardIds.includes(childId));
+    const dimensions = cardDimensions(child, templates, elementRenderers, zone?.presentation);
+    const parentScale = (parentPose.scale ?? 1) * (parentPose.layoutScale ?? 1);
+    const radians = ((parentPose.angle ?? 0) * Math.PI) / 180;
+    const anchorX = anchorPoint?.x ?? relation.anchorX;
+    const anchorY = anchorPoint?.y ?? relation.anchorY;
+    const anchorOffsetX = (anchorX - 0.5) * (parentPose.width ?? dimensions.width) * parentScale;
+    const anchorOffsetY = (anchorY - 0.5) * (parentPose.height ?? dimensions.height) * parentScale;
+    const localX = (anchorOffsetX + relation.offsetX * parentScale);
+    const localY = (anchorOffsetY + relation.offsetY * parentScale);
+    const childScale = parentScale * relation.scale * (child.pose?.scale ?? 1);
+    const childAngle = (parentPose.angle ?? 0) + relation.angle + (child.pose?.angle ?? 0);
+    const childRadians = (childAngle * Math.PI) / 180;
+    const pivotX = (0.5 - relation.pivotX) * dimensions.width * childScale;
+    const pivotY = (0.5 - relation.pivotY) * dimensions.height * childScale;
+    const pose = {
+      ...DEFAULT_POSE,
+      ...child.pose,
+      width: dimensions.width,
+      height: dimensions.height,
+      thickness: cardThickness(child, templates),
+      x: parentPose.x + localX * Math.cos(radians) - localY * Math.sin(radians)
+        + pivotX * Math.cos(childRadians) - pivotY * Math.sin(childRadians),
+      y: parentPose.y + localX * Math.sin(radians) + localY * Math.cos(radians)
+        + pivotX * Math.sin(childRadians) + pivotY * Math.cos(childRadians),
+      z: parentPose.z + (relation.offsetZ + (child.pose?.z ?? 0)) * parentScale,
+      scale: childScale,
+      layoutScale: 1,
+      angle: childAngle,
+      flipX: (parentPose.flipX ?? 0) + (child.pose?.flipX ?? 0),
+      flipY: (parentPose.flipY ?? 0) + (child.pose?.flipY ?? (child.faceUp === false ? 180 : 0)),
+      visible: parentPose.visible !== false && zone?.visible !== false && (anchorAvailable || relation.missingAnchor === "card") && surfaceVisible,
+      depthScale: parentPose.depthScale ?? depthScale(camera, zone?.geometry?.depth ?? 0),
+      drawOrder: drawOrder++ + relation.zIndex,
+      pivotX: relation.pivotX,
+      pivotY: relation.pivotY,
+    };
+    poses.set(childId, pose);
+    composed.add(childId);
+    return pose;
+  };
+  for (const relation of relations) composeChild(relation.childId);
   return poses;
+}
+
+function parentFaceIdFor(card) {
+  return card?.activeFaceId ?? Object.keys(card?.faces ?? {})[0] ?? "front";
 }

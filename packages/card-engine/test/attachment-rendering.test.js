@@ -38,3 +38,15 @@ test("presentation removes attachment boxes before control or plane consumers se
   const boxes = resolveAttachmentGeometry(content, { width: 100, height: 100 }, {}, null, { elements: ["visible"] });
   assert.deepEqual([...boxes.keys()], ["visible"]);
 });
+
+test("attachment flow geometry shares card sizing text measurement", () => {
+  const content = { elements: [{ id: "title", type: "text", variant: "title", content: { text: "hello\nworld" }, layout: { mode: "flow" } }] };
+  const boxes = resolveAttachmentGeometry(content, { width: 200, height: 300 });
+  assert.equal(boxes.get("title").height, 42);
+});
+
+test("attachment flow geometry preserves zero spacer heights", () => {
+  const content = { elements: [{ id: "gap", type: "spacer", content: { height: 0 }, layout: { mode: "flow" } }] };
+  const boxes = resolveAttachmentGeometry(content, { width: 200, height: 300 });
+  assert.equal(boxes.get("gap").height, 0);
+});

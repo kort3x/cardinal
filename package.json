@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test:chrome:attachments": "node scripts/chrome-lab.mjs --headless --scenario attachments",
+    "test:chrome:relations": "node scripts/chrome-lab.mjs --headless --scenario relations",
     "test:chrome:tutorial": "node scripts/chrome-lab.mjs --headless --scenario tutorial",
     "test:chrome:inspection": "node scripts/chrome-lab.mjs --headless --scenario inspection",
     "test": "npm --prefix packages/card-engine test",

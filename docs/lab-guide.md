@@ -278,3 +278,17 @@ CARDINAL_CHROME_PORT=9469 npm run test:chrome:attachments
 ```
 
 The acceptance uses public scene operations for setup and CDP mouse/keyboard input for the projected counter control. It records browser environment data and writes the visible attachment screenshot to `/tmp/cardinal-attachments-visible.png`. Follow [docs/verification/browser-testing.md](verification/browser-testing.md) for browser setup and evidence requirements.
+
+Card-to-card relations are a separate engine feature from stamps, counters, and
+stickers. A relation keeps the child card's own faces and animations while its
+position, rotation, scale, and depth follow the parent. The relation graph is
+acyclic, roots alone consume arrangement slots, and moving a root carries all
+descendants. Attaching across zones adopts the child subtree into the parent's
+zone. Consumers use `relationships` in `scene.apply()` and `attach` or `detach`
+transactions; the Lab's ordinary element attachment controls do not change this
+graph.
+
+Run the focused browser relation scenario with `npm run test:chrome:relations`.
+It sets up a parent, child, and grandchild through the public scene API, moves
+the parent across zones while changing its face, and detaches the child before
+restoring the original Lab snapshot.

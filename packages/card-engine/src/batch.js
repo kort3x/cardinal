@@ -1,4 +1,5 @@
 import { validateReorderPolicy, validateZonePolicies } from './model.js';
+import { relationGroup } from './relations.js';
 
 // Input is a normalized scene model. Build one final membership permutation;
 // neither preview nor commit may interpret indices against intermediate moves.
@@ -14,6 +15,13 @@ export function resolveBatchMove(snapshot, { cardIds, toZoneId, index, validate 
   if (!snapshot || !Array.isArray(snapshot.cards) || !Array.isArray(snapshot.zones)) {
     throw new TypeError('Batch move requires a normalized scene snapshot');
   }
+  const attachedChildren = new Set((snapshot.relationships ?? []).map(({ childId }) => childId));
+  const requested = new Set(cardIds);
+  const parentByChild = new Map((snapshot.relationships ?? []).map(({ childId, parentId }) => [childId, parentId]));
+  if (cardIds.some((cardId) => attachedChildren.has(cardId) && !requested.has(parentByChild.get(cardId)))) {
+    throw new Error('Attached children require an explicit detach before moving');
+  }
+  cardIds = relationGroup(cardIds, snapshot.relationships ?? []);
   const cards = new Map();
   for (const card of snapshot.cards) {
     if (typeof card?.id !== 'string' || !card.id || cards.has(card.id)) throw new Error('Card IDs must be unique non-empty strings');

@@ -1,3 +1,5 @@
+import { measureFlowElement } from "../layout.js";
+
 const DEFAULT_LAYOUT = Object.freeze({
   mode: "overlay",
   anchor: "card",
@@ -39,15 +41,7 @@ export function normalizeAttachmentLayout(layout = {}) {
 
 function measurement(element, dimensions, elementRenderers = {}, measure = null) {
   const width = Math.max(1, dimensions.width - 36);
-  if (typeof measure === "function") return measure(element, width, dimensions);
-  const renderer = elementRenderers[element.type];
-  if (renderer?.measure) return renderer.measure({ element, width, dimensions });
-  if (element.type === "spacer") return element.content?.height ?? 20;
-  if (element.type === "image") return element.layout?.height ? dimensions.height * element.layout.height : 120;
-  const text = element.content?.text ?? element.content?.value ?? element.content ?? "";
-  const fontSize = element.style?.variant === "title" || element.id === "title" ? 18.4 : 14.4;
-  const lineHeight = element.style?.lineHeight ?? (fontSize > 18 ? 21 : 20);
-  return Math.max(1, Math.ceil(String(text).length / Math.max(1, Math.floor(width / (fontSize * 0.52))))) * lineHeight;
+  return measureFlowElement(element, width, dimensions, elementRenderers, measure);
 }
 
 /**

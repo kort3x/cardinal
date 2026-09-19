@@ -1,5 +1,6 @@
 import { normalizeSortPolicy } from "./sort.js";
 import { normalizeAttachment, validateAttachmentAnchors } from "./attachments.js";
+import { normalizeCardRelations } from "./relations.js";
 
 export const DEFAULT_POSE = Object.freeze({
   x: 0,
@@ -473,6 +474,7 @@ export function normalizeSnapshot(snapshot) {
     throw new Error("Card ids must be unique");
   }
   const knownCardIds = new Set(cards.map((card) => card.id));
+  const relationships = normalizeCardRelations(snapshot.relationships, knownCardIds);
 
   const zones = snapshot.zones.map((zone) => {
     if (!zone || typeof zone.id !== "string" || zone.id.length === 0) {
@@ -553,7 +555,7 @@ export function normalizeSnapshot(snapshot) {
     }
   }
 
-  return { cards, zones };
+  return { cards, zones, relationships };
 }
 
 export function cardById(cards) {
