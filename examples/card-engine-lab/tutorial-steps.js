@@ -71,6 +71,12 @@ export const LAB_TUTORIAL_STEPS = [
     target: "#element-demo",
   },
   {
+    id: "attachments",
+    title: "Attach live content to a card",
+    body: "Attachments are card-owned instances such as stamps, counters, and stickers. The engine keeps each attachment ID, placement, face affinity, anchor, and lifecycle while the Lab supplies the renderer and game meaning. Select a card, open Attachments, then try Stamp travelling card, Add counter, or Add two stickers. The counter's projected Increment counter control updates its value through a consumer transaction. Hide image anchor demonstrates missing-anchor behavior; Remove sticker mid-flip exercises cleanup during motion. Restore scenario returns the captured card state.",
+    target: ".attachments-group",
+  },
+  {
     id: "diagnostics",
     title: "Read the benchmark",
     body: "Benchmark reports the browser, WebGL renderer, viewport, card readiness, frame rate, and scene details. Refresh the report for the current scene, run the 1 / 5 / 10 / 50 / 100-card benchmark, or Record next drag to capture one drag session. Use Copy report when sharing a rendering or performance problem.",

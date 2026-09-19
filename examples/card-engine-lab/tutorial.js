@@ -20,6 +20,8 @@ const TUTORIAL_KEYWORDS = Object.freeze([
   "Dramatic dangle", "Lift scale", "Dangly", "Damping", "Landing", "Bounce", "Delay", "Move",
   "Rotate", "Scale", "Flip", "Spin", "Demo", "Random", "Test", "Dimensions", "Weight", "Reveal",
   "Conceal", "Inspection", "Content face", "Hide", "Remove", "Reflow", "Update text", "Benchmark",
+  "Attachments", "Stamp", "Counter", "Sticker", "Flow", "Overlay", "Increment counter", "Add two stickers",
+  "Hide image anchor", "Remove sticker mid-flip", "Restore scenario", "face affinity", "missing-anchor",
   "Refresh the report", "Refresh report", "Copy report", "Next", "Back", "Finish", "Close",
 ]);
 const TUTORIAL_KEYWORD_SET = new Set(TUTORIAL_KEYWORDS.map((keyword) => keyword.toLowerCase()));
