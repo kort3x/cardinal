@@ -897,6 +897,12 @@ const baseCard = {
   back: {
     elements: [
       {
+        id: "concealed-card-shape",
+        type: "spacer",
+        content: { height: 271 },
+        layout: { mode: "flow", order: 0 },
+      },
+      {
         id: "cardinal-logo",
         type: "image",
         content: { src: "/examples/card-engine-lab/assets/cards/paint.png", alt: "Cardinal paint logo" },

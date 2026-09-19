@@ -39,6 +39,7 @@ export async function runAttachmentsScenario({ command }) {
   const baselineBackHeight = await evaluate(`(async()=>{const scene=(await import('/examples/card-engine-lab/main.js')).getScene();return scene.snapshot().visual.find(v=>v.cardId==='ice-demo')?.pose.height})()`);
   await evaluate(`window.__attachmentShellBeforeRestore=document.querySelector('.cardinal-webgl-card[data-card-id="cardinal-demo"]')`);
   try {
+    await record("concealed Lab cards keep portrait geometry", `(async()=>{const pose=(await import('/examples/card-engine-lab/main.js')).getScene().snapshot().visual.find(v=>v.cardId==='ice-demo')?.pose;return pose?.height>pose?.width;})()`);
     await evaluate(`(async()=>{(await import('/examples/card-engine-lab/main.js')).getScene().select(['cardinal-demo'])})()`);
     await click('.attachments-group > summary');
     await click('[data-attachment-demo="stamp"]');
