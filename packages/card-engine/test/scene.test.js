@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createCardScene } from "../src/index.js";
 import { normalizeSnapshot } from "../src/model.js";
-import { cameraViewportForStage, clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardShape, createSafeWebGLContext, drawCardTextureContent, flowTransitionPolicy, textureDimensionsForPose } from "../src/renderers/webgl.js";
+import { cameraViewportForStage, cardGeometryKey, clearCardDepth, createCardCamera, createCardFaceGeometry, createCardFaceMaterial, createCardGeometry, createCardGeometryBundle, createGeometryCache, createCardShape, createSafeWebGLContext, drawCardTextureContent, flowTransitionPolicy, textureDimensionsForPose } from "../src/renderers/webgl.js";
 
 function face({ title, image, imageAlt, flavour, ...rest } = {}) {
   return {
@@ -191,6 +191,51 @@ test("a thin cuboid keeps the front content surface outside its bevel", () => {
 
   assert.equal(maximumZ < thickness / 2 + 0.06, true);
   geometry.dispose();
+});
+
+test("geometry cache shares a card bundle and disposes it after the final release", () => {
+  const cache = createGeometryCache();
+  const dimensions = { width: 180, height: 250 };
+  const key = cardGeometryKey("rounded-rectangle", dimensions, 6);
+  const first = cache.acquire(key, () => createCardGeometryBundle("rounded-rectangle", dimensions, 6));
+  const second = cache.acquire(key, () => assert.fail("a matching geometry bundle must be reused"));
+  let disposals = 0;
+  for (const geometry of Object.values(first.value)) geometry.addEventListener("dispose", () => { disposals += 1; });
+
+  assert.equal(cache.size, 1);
+  assert.equal(first.value, second.value);
+  assert.notEqual(first.value.faceGeometry, first.value.selectionFrameGeometry);
+  assert.equal(first.value.faceGeometry, second.value.faceGeometry);
+
+  first.release();
+  assert.equal(disposals, 0);
+  assert.equal(cache.size, 1);
+  second.release();
+  assert.equal(disposals, Object.keys(first.value).length);
+  assert.equal(cache.size, 0);
+});
+
+test("geometry keys include the shape, dimensions, thickness, bevel, and selection inputs", () => {
+  const base = cardGeometryKey("rounded-rectangle", { width: 180, height: 250 }, 6);
+  assert.notEqual(base, cardGeometryKey("shield", { width: 180, height: 250 }, 6));
+  assert.notEqual(base, cardGeometryKey("rounded-rectangle", { width: 181, height: 250 }, 6));
+  assert.notEqual(base, cardGeometryKey("rounded-rectangle", { width: 180, height: 250 }, 7));
+  assert.notEqual(base, cardGeometryKey("rounded-rectangle", { width: 180, height: 250 }, 6, { bevelSize: 1 }));
+  assert.notEqual(base, cardGeometryKey("rounded-rectangle", { width: 180, height: 250 }, 6, { selectionPadding: 9 }));
+});
+
+test("destroying a geometry cache disposes outstanding bundles exactly once", () => {
+  const cache = createGeometryCache();
+  const lease = cache.acquire("card", () => createCardGeometryBundle("rounded-rectangle", { width: 180, height: 250 }, 6));
+  let disposals = 0;
+  for (const geometry of Object.values(lease.value)) geometry.addEventListener("dispose", () => { disposals += 1; });
+
+  cache.destroy();
+  lease.release();
+  cache.destroy();
+
+  assert.equal(disposals, Object.keys(lease.value).length);
+  assert.equal(cache.size, 0);
 });
 
 test("card face geometries use normalized texture coordinates", () => {
@@ -1576,6 +1621,24 @@ test("a logical face cycle commits only after the flip settles", async () => {
   clock.tick(320);
   await returnTransition.finished;
   assert.equal(scene.snapshot().desired.cards[0].activeFaceId, "b");
+});
+
+test("concealing makes front content unavailable before the physical flip settles", async () => {
+  const clock = testClock();
+  const scene = createCardScene({ clock, motion: { clock, duration: 320 }, renderer: () => ({ update() {}, remove() {}, destroy() {} }) });
+  scene.apply({ cards: [card], zones: [zone] });
+
+  const transition = scene.transact([{ type: "face", cardId: "card-1", face: "faceDown", axis: "y" }]);
+  assert.equal(scene.snapshot().desired.cards[0].faceUp, false);
+
+  clock.tick(160);
+  const halfway = scene.snapshot();
+  assert.equal(halfway.desired.cards[0].faceUp, false);
+  assert.ok(halfway.visual[0].pose.flipY > 0 && halfway.visual[0].pose.flipY < 180);
+
+  clock.tick(160);
+  await transition.finished;
+  assert.equal(scene.snapshot().visual[0].physicalSide, "back");
 });
 
 test("an interrupted logical face transition does not consume a face", async () => {

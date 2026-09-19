@@ -5,7 +5,11 @@ import { createTexturePool } from "./texture-pool.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
-const SELECTION_FRAME_PADDING = 3;
+const CARD_BEVEL_SEGMENTS = 4;
+const CARD_CURVE_SEGMENTS = 24;
+const CARD_FACE_CURVE_SEGMENTS = 12;
+const SELECTION_FRAME_CURVE_SEGMENTS = 64;
+const SELECTION_FRAME_PADDING = 8;
 const zeroShaderPrecision = Object.freeze({ rangeMin: 0, rangeMax: 0, precision: 0 });
 const webglContextAttributes = Object.freeze({
   alpha: true,
@@ -164,6 +168,30 @@ export function createCardShape(shapeDefinition, dimensions) {
 
 export function createCardFaceMaterial() {
   return createCardFaceSurfaceMaterial(0xffffff);
+}
+
+export function resolveFaceVisibility({
+  faceUp = true,
+  frontSuppressed = false,
+  frontReady = false,
+  backReady = false,
+  poseVisible = true,
+  flipX = 0,
+  flipY = 0,
+} = {}) {
+  const safeFrontReady = frontSuppressed || frontReady;
+  const side = physicalSide({ flipX, flipY });
+  const concealingFront = faceUp === false && !frontSuppressed && frontReady && side !== "back";
+  const card = poseVisible !== false && (faceUp !== false ? safeFrontReady && backReady : concealingFront || backReady);
+  const front = card && (faceUp !== false ? frontReady : concealingFront);
+  const concealedCover = card && faceUp === false && !concealingFront && side !== "back";
+  return {
+    front,
+    frontBase: front || concealedCover,
+    back: card && backReady,
+    backBase: card && backReady,
+    card,
+  };
 }
 
 export function clearCardDepth(renderer, scene, camera, geometry, material, group) {
@@ -468,7 +496,12 @@ function logicalFaceContent(card, side, presentation) {
   return filterContentElements(destinationFace, presentation);
 }
 
-export function createCardGeometry(shape, { depth = DEFAULT_CARD_THICKNESS, bevelSize = CARD_BEVEL_SIZE } = {}) {
+export function createCardGeometry(shape, {
+  depth = DEFAULT_CARD_THICKNESS,
+  bevelSize = CARD_BEVEL_SIZE,
+  bevelSegments = CARD_BEVEL_SEGMENTS,
+  curveSegments = CARD_CURVE_SEGMENTS,
+} = {}) {
   // The bevel is part of the requested depth. Keep the body inside its depth
   // envelope so the face layers remain visible even on very thin cards.
   const safeBevelSize = Math.min(bevelSize, Math.max(0, depth / 2 - 0.06));
@@ -478,15 +511,15 @@ export function createCardGeometry(shape, { depth = DEFAULT_CARD_THICKNESS, beve
     bevelEnabled: true,
     bevelThickness: safeBevelSize,
     bevelSize: safeBevelSize,
-    bevelSegments: 4,
-    curveSegments: 24,
+    bevelSegments,
+    curveSegments,
   });
   geometry.translate(0, 0, -extrusionDepth / 2);
   return geometry;
 }
 
-export function createCardFaceGeometry(shape, dimensions) {
-  const geometry = new THREE.ShapeGeometry(shape);
+export function createCardFaceGeometry(shape, dimensions, curveSegments = CARD_FACE_CURVE_SEGMENTS) {
+  const geometry = new THREE.ShapeGeometry(shape, curveSegments);
   const uv = geometry.getAttribute("uv");
   for (let index = 0; index < uv.count; index += 1) {
     uv.setXY(
@@ -499,9 +532,125 @@ export function createCardFaceGeometry(shape, dimensions) {
   return geometry;
 }
 
-function createCardFrameGeometry(shape) {
-  const points = shape.getPoints(64).map(({ x, y }) => new THREE.Vector3(x, y, 0));
+function createCardFrameGeometry(shape, curveSegments = SELECTION_FRAME_CURVE_SEGMENTS) {
+  const points = shape.getPoints(curveSegments).map(({ x, y }) => new THREE.Vector3(x, y, 0));
   return new THREE.BufferGeometry().setFromPoints(points);
+}
+
+function createSelectionHaloGeometry(shapeDefinition, outerDimensions, innerDimensions, curveSegments = CARD_FACE_CURVE_SEGMENTS) {
+  const outer = createCardShape(shapeDefinition, outerDimensions);
+  outer.holes = [createCardShape(shapeDefinition, innerDimensions)];
+  return new THREE.ShapeGeometry(outer, curveSegments);
+}
+
+function stableGeometryValue(value) {
+  if (value === undefined) return null;
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(stableGeometryValue);
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableGeometryValue(value[key])]));
+}
+
+export function cardGeometryKey(shapeDefinition, dimensions, thickness, {
+  bevelSize = CARD_BEVEL_SIZE,
+  bevelSegments = CARD_BEVEL_SEGMENTS,
+  curveSegments = CARD_CURVE_SEGMENTS,
+  faceCurveSegments = CARD_FACE_CURVE_SEGMENTS,
+  selectionFrameCurveSegments = SELECTION_FRAME_CURVE_SEGMENTS,
+  selectionPadding = SELECTION_FRAME_PADDING,
+} = {}) {
+  return JSON.stringify({
+    shape: stableGeometryValue(shapeDefinition),
+    dimensions: { width: dimensions.width, height: dimensions.height },
+    thickness,
+    bevelSize,
+    bevelSegments,
+    curveSegments,
+    faceCurveSegments,
+    selectionFrameCurveSegments,
+    selectionPadding,
+  });
+}
+
+export function createCardGeometryBundle(shapeDefinition, dimensions, thickness, {
+  bevelSize = CARD_BEVEL_SIZE,
+  bevelSegments = CARD_BEVEL_SEGMENTS,
+  curveSegments = CARD_CURVE_SEGMENTS,
+  faceCurveSegments = CARD_FACE_CURVE_SEGMENTS,
+  selectionFrameCurveSegments = SELECTION_FRAME_CURVE_SEGMENTS,
+  selectionPadding = SELECTION_FRAME_PADDING,
+} = {}) {
+  const width = dimensions.width;
+  const height = dimensions.height;
+  const shape = createCardShape(shapeDefinition, { width, height });
+  const faceDimensions = {
+    width: Math.max(1, width - bevelSize * 2),
+    height: Math.max(1, height - bevelSize * 2),
+  };
+  const faceShape = createCardShape(shapeDefinition, faceDimensions);
+  const selectionFrameDimensions = {
+    width: faceDimensions.width + selectionPadding * 2,
+    height: faceDimensions.height + selectionPadding * 2,
+  };
+  const selectionFrameShape = createCardShape(shapeDefinition, selectionFrameDimensions);
+  return {
+    bodyGeometry: createCardGeometry(shape, { depth: thickness, bevelSize, bevelSegments, curveSegments }),
+    faceGeometry: createCardFaceGeometry(faceShape, faceDimensions, faceCurveSegments),
+    selectionFrameGeometry: createCardFrameGeometry(selectionFrameShape, selectionFrameCurveSegments),
+    selectionHaloGeometry: createSelectionHaloGeometry(shapeDefinition, selectionFrameDimensions, faceDimensions, faceCurveSegments),
+  };
+}
+
+function disposeGeometryBundle(bundle) {
+  const resources = new Set(Object.values(bundle ?? {}));
+  for (const resource of resources) resource?.dispose?.();
+}
+
+export function createGeometryCache() {
+  const entries = new Map();
+  let destroyed = false;
+
+  const releaseEntry = (key, entry) => {
+    if (entry.disposed) return;
+    entry.refs -= 1;
+    if (entry.refs > 0) return;
+    if (entries.get(key) === entry) entries.delete(key);
+    entry.disposed = true;
+    disposeGeometryBundle(entry.value);
+  };
+
+  return {
+    acquire(key, factory) {
+      if (destroyed) throw new Error("Cannot acquire geometry after cache destruction");
+      let entry = entries.get(key);
+      if (!entry) {
+        entry = { value: factory(), refs: 0, disposed: false };
+        entries.set(key, entry);
+      }
+      entry.refs += 1;
+      let released = false;
+      return {
+        value: entry.value,
+        release() {
+          if (released) return;
+          released = true;
+          releaseEntry(key, entry);
+        },
+      };
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      for (const [key, entry] of entries) {
+        entries.delete(key);
+        if (entry.disposed) continue;
+        entry.disposed = true;
+        disposeGeometryBundle(entry.value);
+      }
+    },
+    get size() {
+      return entries.size;
+    },
+  };
 }
 
 export function textureDimensionsForPose(card, pose, templates = {}, elementRenderers = {}, presentation) {
@@ -765,6 +914,15 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   let selectionHighlightVisible = true;
   const imageCache = new Map();
   const texturePool = createTexturePool();
+  const geometryCache = createGeometryCache();
+  const selectionFrameMaterials = {
+    primary: new THREE.LineBasicMaterial({ color: 0xffd166, depthWrite: false, toneMapped: false }),
+    secondary: new THREE.LineBasicMaterial({ color: 0x8fc9ff, depthWrite: false, toneMapped: false }),
+  };
+  const selectionHaloMaterials = {
+    primary: new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+    secondary: new THREE.MeshBasicMaterial({ color: 0x50b7ff, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+  };
   // Cumulative counters are sampled explicitly, never through scene snapshots.
   const work = { renders: 0, renderCpuMs: 0, textureCreates: 0, textureDraws: 0, textureDrawCpuMs: 0, textureUploads: 0, geometryBuilds: 0 };
   const interactionPreview = new THREE.Group();
@@ -911,51 +1069,48 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
 
   function mount(card, dimensions, thickness) {
     if (cards.has(card.id)) return cards.get(card.id);
-    work.geometryBuilds += 1;
     const width = dimensions.width;
     const height = dimensions.height;
     const depth = thickness;
-    const shape = createCardShape(card.shape ?? templates[card.template]?.shape, { width, height });
-    const geometry = createCardGeometry(shape, { depth });
-    const faceShape = createCardShape(card.shape ?? templates[card.template]?.shape, {
-      width: Math.max(1, width - CARD_BEVEL_SIZE * 2),
-      height: Math.max(1, height - CARD_BEVEL_SIZE * 2),
+    const shapeDefinition = card.shape ?? templates[card.template]?.shape;
+    const geometryKey = cardGeometryKey(shapeDefinition, dimensions, depth);
+    const geometryLease = geometryCache.acquire(geometryKey, () => {
+      work.geometryBuilds += 1;
+      return createCardGeometryBundle(shapeDefinition, dimensions, depth);
     });
-    const faceDimensions = {
-      width: Math.max(1, width - CARD_BEVEL_SIZE * 2),
-      height: Math.max(1, height - CARD_BEVEL_SIZE * 2),
-    };
+    const geometryBundle = geometryLease.value;
+    const geometry = geometryBundle.bodyGeometry;
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0x17212b, roughness: 0.62, metalness: 0 });
     const sideMaterial = new THREE.MeshStandardMaterial({ color: 0x727d86, roughness: 0.75, metalness: 0 });
     const body = new THREE.Mesh(geometry, [bodyMaterial, sideMaterial]);
-    const frontBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
-    const backBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
-    const frontBaseMaterial = createCardFaceBaseMaterial(0xffffff);
+    const frontBaseGeometry = geometryBundle.faceGeometry;
+    const backBaseGeometry = geometryBundle.faceGeometry;
+    const frontBaseMaterial = createCardFaceBaseMaterial(0x17212b);
     const backBaseMaterial = createCardFaceBaseMaterial(0x17212b);
     const frontBase = new THREE.Mesh(frontBaseGeometry, frontBaseMaterial);
     const backBase = new THREE.Mesh(backBaseGeometry, backBaseMaterial);
     const frontMaterial = createCardFaceMaterial();
     const backMaterial = createCardFaceMaterial();
-    const selectionFrameDimensions = {
-      width: faceDimensions.width + SELECTION_FRAME_PADDING * 2,
-      height: faceDimensions.height + SELECTION_FRAME_PADDING * 2,
-    };
-    const selectionFrameShape = createCardShape(card.shape ?? templates[card.template]?.shape, selectionFrameDimensions);
-    const selectionFrameMaterial = new THREE.LineBasicMaterial({ color: 0xffd166, depthWrite: false });
-    const selectionFront = new THREE.LineLoop(createCardFrameGeometry(selectionFrameShape), selectionFrameMaterial);
-    const selectionBack = new THREE.LineLoop(createCardFrameGeometry(selectionFrameShape), selectionFrameMaterial);
-    const front = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), frontMaterial);
-    const back = new THREE.Mesh(createCardFaceGeometry(faceShape, faceDimensions), backMaterial);
+    const selectionFront = new THREE.LineLoop(geometryBundle.selectionFrameGeometry, selectionFrameMaterials.secondary);
+    const selectionBack = new THREE.LineLoop(geometryBundle.selectionFrameGeometry, selectionFrameMaterials.secondary);
+    const selectionFrontHalo = new THREE.Mesh(geometryBundle.selectionHaloGeometry, selectionHaloMaterials.secondary);
+    const selectionBackHalo = new THREE.Mesh(geometryBundle.selectionHaloGeometry, selectionHaloMaterials.secondary);
+    const front = new THREE.Mesh(geometryBundle.faceGeometry, frontMaterial);
+    const back = new THREE.Mesh(geometryBundle.faceGeometry, backMaterial);
     frontBase.renderOrder = 1;
     backBase.renderOrder = 1;
     selectionFront.renderOrder = 1.5;
     selectionBack.renderOrder = 1.5;
+    selectionFrontHalo.renderOrder = 1.45;
+    selectionBackHalo.renderOrder = 1.45;
     front.renderOrder = 2;
     back.renderOrder = 2;
     frontBase.position.z = depth / 2 + 0.04;
     backBase.position.z = -depth / 2 - 0.04;
     selectionFront.position.z = depth / 2 + 0.05;
     selectionBack.position.z = -depth / 2 - 0.05;
+    selectionFrontHalo.position.z = depth / 2 + 0.045;
+    selectionBackHalo.position.z = -depth / 2 - 0.045;
     front.position.z = depth / 2 + 0.06;
     back.position.z = -depth / 2 - 0.06;
     backBase.rotation.y = Math.PI;
@@ -963,8 +1118,10 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     back.rotation.y = Math.PI;
     selectionFront.visible = false;
     selectionBack.visible = false;
+    selectionFrontHalo.visible = false;
+    selectionBackHalo.visible = false;
     const faceGroup = new THREE.Group();
-    faceGroup.add(body, frontBase, backBase, selectionFront, selectionBack, front, back);
+    faceGroup.add(body, frontBase, backBase, selectionFrontHalo, selectionBackHalo, selectionFront, selectionBack, front, back);
     const cardGroup = new THREE.Group();
     cardGroup.userData.cardId = card.id;
     const bodyGroup = new THREE.Group();
@@ -994,9 +1151,13 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       backBaseMaterial,
       selectionFront,
       selectionBack,
-      selectionFrameMaterial,
-      selectionFrontGeometry: selectionFront.geometry,
-      selectionBackGeometry: selectionBack.geometry,
+      selectionFrontHalo,
+      selectionBackHalo,
+      geometryLease,
+      geometryKey,
+      selectionFrontGeometry: geometryBundle.selectionFrameGeometry,
+      selectionBackGeometry: geometryBundle.selectionFrameGeometry,
+      selectionHaloGeometry: geometryBundle.selectionHaloGeometry,
       geometry,
       bodyMaterial,
       sideMaterial,
@@ -1029,6 +1190,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       textureTargetHeight: null,
       texturePresentationKey: null,
       frontSuppressed: false,
+      concealFrontRetained: false,
       width,
       height,
       thickness,
@@ -1042,43 +1204,29 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   }
 
   function updateGeometry(mounted, card, dimensions, thickness) {
-    if (mounted.width === dimensions.width && mounted.height === dimensions.height && mounted.thickness === thickness) return;
-    work.geometryBuilds += 1;
-    const shape = createCardShape(card.shape ?? templates[card.template]?.shape, dimensions);
-    const geometry = createCardGeometry(shape, { depth: thickness });
-    const faceDimensions = {
-      width: Math.max(1, dimensions.width - CARD_BEVEL_SIZE * 2),
-      height: Math.max(1, dimensions.height - CARD_BEVEL_SIZE * 2),
-    };
-    const faceShape = createCardShape(card.shape ?? templates[card.template]?.shape, faceDimensions);
-    const frontBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
-    const backBaseGeometry = createCardFaceGeometry(faceShape, faceDimensions);
-    const selectionFrameDimensions = {
-      width: faceDimensions.width + SELECTION_FRAME_PADDING * 2,
-      height: faceDimensions.height + SELECTION_FRAME_PADDING * 2,
-    };
-    const selectionFrameShape = createCardShape(card.shape ?? templates[card.template]?.shape, selectionFrameDimensions);
-    const selectionFrontGeometry = createCardFrameGeometry(selectionFrameShape);
-    const selectionBackGeometry = createCardFrameGeometry(selectionFrameShape);
-    const frontGeometry = createCardFaceGeometry(faceShape, faceDimensions);
-    const backGeometry = createCardFaceGeometry(faceShape, faceDimensions);
-    const oldGeometry = mounted.geometry;
-    const oldFrontBaseGeometry = mounted.frontBaseGeometry;
-    const oldBackBaseGeometry = mounted.backBaseGeometry;
-    const oldSelectionFrontGeometry = mounted.selectionFrontGeometry;
-    const oldSelectionBackGeometry = mounted.selectionBackGeometry;
-    const oldFrontGeometry = mounted.front.geometry;
-    const oldBackGeometry = mounted.back.geometry;
-    mounted.geometry = geometry;
-    mounted.frontBaseGeometry = frontBaseGeometry;
-    mounted.backBaseGeometry = backBaseGeometry;
-    mounted.body.geometry = geometry;
-    mounted.frontBase.geometry = frontBaseGeometry;
-    mounted.backBase.geometry = backBaseGeometry;
-    mounted.selectionFront.geometry = selectionFrontGeometry;
-    mounted.selectionBack.geometry = selectionBackGeometry;
-    mounted.front.geometry = frontGeometry;
-    mounted.back.geometry = backGeometry;
+    const shapeDefinition = card.shape ?? templates[card.template]?.shape;
+    const geometryKey = cardGeometryKey(shapeDefinition, dimensions, thickness);
+    if (mounted.geometryKey === geometryKey) return;
+    const geometryLease = geometryCache.acquire(geometryKey, () => {
+      work.geometryBuilds += 1;
+      return createCardGeometryBundle(shapeDefinition, dimensions, thickness);
+    });
+    const geometryBundle = geometryLease.value;
+    const oldGeometryLease = mounted.geometryLease;
+    mounted.geometryLease = geometryLease;
+    mounted.geometryKey = geometryKey;
+    mounted.geometry = geometryBundle.bodyGeometry;
+    mounted.frontBaseGeometry = geometryBundle.faceGeometry;
+    mounted.backBaseGeometry = geometryBundle.faceGeometry;
+    mounted.body.geometry = geometryBundle.bodyGeometry;
+    mounted.frontBase.geometry = geometryBundle.faceGeometry;
+    mounted.backBase.geometry = geometryBundle.faceGeometry;
+    mounted.selectionFront.geometry = geometryBundle.selectionFrameGeometry;
+    mounted.selectionBack.geometry = geometryBundle.selectionFrameGeometry;
+    mounted.selectionFrontHalo.geometry = geometryBundle.selectionHaloGeometry;
+    mounted.selectionBackHalo.geometry = geometryBundle.selectionHaloGeometry;
+    mounted.front.geometry = geometryBundle.faceGeometry;
+    mounted.back.geometry = geometryBundle.faceGeometry;
     mounted.width = dimensions.width;
     mounted.height = dimensions.height;
     mounted.thickness = thickness;
@@ -1086,17 +1234,14 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.backBase.position.z = -thickness / 2 - 0.04;
     mounted.selectionFront.position.z = thickness / 2 + 0.05;
     mounted.selectionBack.position.z = -thickness / 2 - 0.05;
+    mounted.selectionFrontHalo.position.z = thickness / 2 + 0.045;
+    mounted.selectionBackHalo.position.z = -thickness / 2 - 0.045;
     mounted.front.position.z = thickness / 2 + 0.06;
     mounted.back.position.z = -thickness / 2 - 0.06;
-    mounted.selectionFrontGeometry = selectionFrontGeometry;
-    mounted.selectionBackGeometry = selectionBackGeometry;
-    oldGeometry.dispose();
-    oldFrontBaseGeometry.dispose();
-    oldBackBaseGeometry.dispose();
-    oldSelectionFrontGeometry.dispose();
-    oldSelectionBackGeometry.dispose();
-    oldFrontGeometry.dispose();
-    oldBackGeometry.dispose();
+    mounted.selectionFrontGeometry = geometryBundle.selectionFrameGeometry;
+    mounted.selectionBackGeometry = geometryBundle.selectionFrameGeometry;
+    mounted.selectionHaloGeometry = geometryBundle.selectionHaloGeometry;
+    oldGeometryLease.release();
   }
 
   function updateTexture(mounted, side, content, dimensions, targetDimensions, identity = null) {
@@ -1140,19 +1285,39 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (!isResizing) mounted[transitionName] = null;
   }
 
+  function releaseFrontTexture(mounted) {
+    mounted.frontMaterial.map = null;
+    mounted.frontLease?.release();
+    mounted.frontLease = null;
+    mounted.frontTexture = null;
+    mounted.frontMaterial.needsUpdate = true;
+    mounted.frontKey = null;
+    mounted.frontContent = null;
+    mounted.frontContentKey = null;
+    mounted.frontTransition = null;
+    mounted.frontSuppressed = true;
+    mounted.concealFrontRetained = false;
+  }
+
   function updateReadyVisibility(mounted) {
     const frontReady = mounted.frontSuppressed || readyTextures.has(mounted.frontTexture);
     const backReady = readyTextures.has(mounted.backTexture);
-    const ready = backReady && frontReady;
-    const visible = mounted.lastPose?.visible !== false && ready;
-    const frontVisible = mounted.lastCard?.faceUp !== false && frontReady;
-    mounted.front.visible = frontVisible;
-    mounted.frontBase.visible = frontVisible;
-    mounted.back.visible = backReady;
-    mounted.backBase.visible = backReady;
-    mounted.cardGroup.visible = visible;
-    mounted.accessibilityShell.hidden = !visible;
-    mounted.accessibilityShell.inert = !visible;
+    const visibility = resolveFaceVisibility({
+      faceUp: mounted.lastCard?.faceUp,
+      frontSuppressed: mounted.frontSuppressed,
+      frontReady,
+      backReady,
+      poseVisible: mounted.lastPose?.visible,
+      flipX: mounted.lastPose?.flipX,
+      flipY: mounted.lastPose?.flipY,
+    });
+    mounted.front.visible = visibility.front;
+    mounted.frontBase.visible = visibility.frontBase;
+    mounted.back.visible = visibility.back;
+    mounted.backBase.visible = visibility.backBase;
+    mounted.cardGroup.visible = visibility.card;
+    mounted.accessibilityShell.hidden = !visibility.card;
+    mounted.accessibilityShell.inert = !visibility.card;
   }
 
   function update(card, pose, { render: shouldRender = true, presentation } = {}) {
@@ -1167,11 +1332,19 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.accessibilityShell.dataset.pending = String(feedback.pending === true);
     mounted.accessibilityShell.setAttribute("aria-disabled", String(feedback.disabled === true));
     mounted.accessibilityShell.setAttribute("aria-busy", String(feedback.pending === true));
-    mounted.front.visible = card.faceUp !== false;
-    mounted.frontBase.visible = card.faceUp !== false;
     mounted.lastCard = card;
     mounted.lastPose = pose;
     mounted.lastPresentation = presentation;
+    const physical = physicalSide(pose);
+    const canRetainPublicFront = card.faceUp === false
+      && physical !== "back"
+      && mounted.frontTexture
+      && !mounted.frontSuppressed
+      && (mounted.concealFrontRetained || mounted.textureCard?.faceUp !== false);
+    if (canRetainPublicFront) mounted.concealFrontRetained = true;
+    if (card.faceUp === false && mounted.concealFrontRetained && physical === "back") {
+      releaseFrontTexture(mounted);
+    }
     const drawOrder = pose.drawOrder ?? 0;
     if (mounted.drawOrder !== drawOrder) drawOrderRevision += 1;
     mounted.drawOrder = drawOrder;
@@ -1207,17 +1380,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       if (card.faceUp !== false) {
         updateTexture(mounted, "front", logicalFaceContent(card, "front", presentation), textureDimensions, targetDimensions, faceId);
         mounted.frontSuppressed = false;
+        mounted.concealFrontRetained = false;
+      } else if (mounted.concealFrontRetained) {
+        mounted.frontSuppressed = false;
       } else {
-        mounted.frontMaterial.map = null;
-        mounted.frontLease?.release();
-        mounted.frontLease = null;
-        mounted.frontTexture = null;
-        mounted.frontMaterial.needsUpdate = true;
-        mounted.frontKey = null;
-        mounted.frontContent = null;
-        mounted.frontContentKey = null;
-        mounted.frontTransition = null;
-        mounted.frontSuppressed = true;
+        releaseFrontTexture(mounted);
       }
       updateTexture(mounted, "back", logicalFaceContent(card, "back", presentation), textureDimensions, targetDimensions, "back");
       mounted.textureCard = card;
@@ -1519,12 +1686,16 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityShell.setAttribute("aria-pressed", String(selected));
       mounted.accessibilityShell.dataset.selected = String(selected);
       mounted.accessibilityShell.dataset.primary = String(isPrimary);
-      mounted.bodyMaterial.color.setHex(selected && selectionHighlightVisible
-        ? (isPrimary ? 0xe5c07b : 0xc9af76)
-        : 0x17212b);
-      mounted.selectionFrameMaterial.color.setHex(isPrimary ? 0xffd166 : 0x61afef);
+      mounted.bodyMaterial.color.setHex(0x17212b);
+      const materialKey = isPrimary ? "primary" : "secondary";
+      mounted.selectionFront.material = selectionFrameMaterials[materialKey];
+      mounted.selectionBack.material = selectionFrameMaterials[materialKey];
+      mounted.selectionFrontHalo.material = selectionHaloMaterials[materialKey];
+      mounted.selectionBackHalo.material = selectionHaloMaterials[materialKey];
       mounted.selectionFront.visible = selected && selectionHighlightVisible;
       mounted.selectionBack.visible = selected && selectionHighlightVisible;
+      mounted.selectionFrontHalo.visible = selected && selectionHighlightVisible;
+      mounted.selectionBackHalo.visible = selected && selectionHighlightVisible;
     }
     if (changed) render();
   }
@@ -1535,12 +1706,11 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     selectionHighlightVisible = visible;
     for (const mounted of cards.values()) {
       const selected = mounted.accessibilityShell.dataset.selected === "true";
-      const primary = mounted.accessibilityShell.dataset.primary === "true";
-      mounted.bodyMaterial.color.setHex(selected && visible
-        ? (primary ? 0xe5c07b : 0xc9af76)
-        : 0x17212b);
+      mounted.bodyMaterial.color.setHex(0x17212b);
       mounted.selectionFront.visible = selected && visible;
       mounted.selectionBack.visible = selected && visible;
+      mounted.selectionFrontHalo.visible = selected && visible;
+      mounted.selectionBackHalo.visible = selected && visible;
     }
     render();
   }
@@ -1550,13 +1720,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (!mounted) return;
     renderScene.remove(mounted.cardGroup);
     mounted.accessibilityShell.remove();
-    mounted.geometry.dispose();
-    mounted.frontBaseGeometry.dispose();
-    mounted.backBaseGeometry.dispose();
-    mounted.selectionFrontGeometry.dispose();
-    mounted.selectionBackGeometry.dispose();
-    mounted.front.geometry.dispose();
-    mounted.back.geometry.dispose();
+    mounted.geometryLease.release();
     mounted.bodyMaterial.dispose();
     mounted.sideMaterial.dispose();
     mounted.frontBaseMaterial.dispose();
@@ -1567,7 +1731,6 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.backLease?.release();
     mounted.frontMaterial.dispose();
     mounted.backMaterial.dispose();
-    mounted.selectionFrameMaterial.dispose();
     cards.delete(cardId);
     cardsRevision += 1;
     render();
@@ -1659,6 +1822,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       interactionPreviewKey = null;
       disposeInteractionPreview();
       for (const cardId of cards.keys()) remove(cardId);
+      geometryCache.destroy();
+      for (const material of Object.values(selectionFrameMaterials)) material.dispose();
+      for (const material of Object.values(selectionHaloMaterials)) material.dispose();
       texturePool.destroy();
       for (const entry of imageCache.values()) {
         entry.image.onload = null;
