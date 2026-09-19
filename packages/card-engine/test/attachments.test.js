@@ -122,6 +122,14 @@ test("concealed cards do not expose front attachment sizing through their shell"
   assert.ok(cardDimensions({ ...withCounter, faceUp: true }, {}, {}).height > withCounterHeight);
 });
 
+test("concealed sizing can declare public geometry without a back spacer", () => {
+  const concealedBase = { ...base, faceUp: false, back: { elements: [] }, sizing: { mode: "content", minHeight: 1, concealedHeight: 307 } };
+  const [card] = normalizeSnapshot({ cards: [{ ...concealedBase, attachments: [
+    { id: "counter", type: "counter", content: { value: 1 }, layout: { mode: "flow" } },
+  ] }], zones: [zone] }).cards;
+  assert.equal(cardDimensions(card, {}, {}).height, 307);
+});
+
 test("concealing a content-sized card updates its visual shell to public geometry", async () => {
   const scene = createCardScene({ motion: { reducedMotion: true } });
   scene.apply({ cards: [{ ...base, back: { elements: [] }, attachments: [

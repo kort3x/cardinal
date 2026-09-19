@@ -180,7 +180,7 @@ function normalizeSizing(sizing) {
   if (!sizing || typeof sizing !== "object") throw new TypeError("Card sizing requires an object");
   const mode = sizing.mode ?? "fixed";
   if (mode !== "fixed" && mode !== "content") throw new TypeError(`Unknown card sizing mode: ${mode}`);
-  for (const name of ["minHeight", "maxHeight"]) {
+  for (const name of ["minHeight", "maxHeight", "concealedHeight"]) {
     if (sizing[name] !== undefined && (!Number.isFinite(sizing[name]) || sizing[name] <= 0)) {
       throw new RangeError(`Card sizing ${name} must be positive and finite`);
     }

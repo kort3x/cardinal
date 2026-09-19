@@ -90,7 +90,9 @@ These controls are in the right rail:
   A.
 - **Dimensions** controls sizing mode, width, height, thickness, and weight.
   **Auto height** measures visible flow elements. **Fixed size** keeps the
-  configured width and height while content changes.
+  configured width and height while content changes. Auto-height cards use an
+  explicit public concealed height so their backs retain the card shape without
+  reading front content.
 - **Scale** changes the selected cards' rendered size.
 - **Move** sets scene coordinates and alignment speed.
 - **Rotate** sets the in-plane angle.

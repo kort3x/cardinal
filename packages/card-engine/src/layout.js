@@ -98,7 +98,9 @@ export function cardDimensions(card, templates = {}, elementRenderers = {}, pres
     height: card.dimensions?.height ?? template.height ?? DEFAULT_CARD_DIMENSIONS.height,
   };
   const sizing = card.sizing ?? template.sizing;
-  if (sizing?.mode === "content") {
+  if (card.faceUp === false && Number.isFinite(sizing?.concealedHeight)) {
+    dimensions.height = sizing.concealedHeight;
+  } else if (sizing?.mode === "content") {
     const presentedFaceId = card.faceUp === false ? "back" : card.activeFaceId;
     dimensions.height = contentHeight(attachmentContent(card, presentedFaceId, presentation), dimensions, sizing, elementRenderers, presentation);
   }

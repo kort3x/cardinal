@@ -518,14 +518,17 @@ stable width with a sizing policy:
 ```js
 const card = {
   ...cardDefinition,
-  sizing: { mode: "content", minHeight: 120, maxHeight: 480 },
+  sizing: { mode: "content", minHeight: 120, maxHeight: 480, concealedHeight: 307 },
 };
 ```
 
 Visible flow elements contribute to the measured height. Removing, hiding,
 showing, or adding one animates the shell to its new height; overlay elements
-and reflow-collapsed elements do not contribute. Fixed-size cards keep their
-configured dimensions while their remaining content reflows.
+and reflow-collapsed elements do not contribute. `concealedHeight` declares the
+public shell height used while the card is concealed, without inspecting front
+content. If omitted, a concealed content-sized card measures its public back
+flow content. Fixed-size cards keep their configured dimensions while their
+remaining content reflows.
 
 Element visibility on the card is the retained baseline. A zone can override
 that baseline while a card is resident, without changing the card data:
