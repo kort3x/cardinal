@@ -7,7 +7,24 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
 const inputScenarios = {
-  "benchmark-profile": async (options) => (await import("./chrome-benchmark-profile.mjs")).runBenchmarkProfile(options),
+  "benchmark-profile": async (options) => {
+    const profile = await (await import("./chrome-benchmark-profile.mjs")).runBenchmarkProfile(options);
+    const issue17 = await runIssue17Benchmark(options);
+    return {
+      ok: profile.ok && issue17.ok,
+      results: [...profile.results, ...issue17.results],
+      environment: profile.environment,
+      measurementNotes: {
+        profile: "The CPU profile covers the existing Lab Benchmark button.",
+        issue17: issue17.measurementNotes,
+      },
+      measurements: {
+        profile: profile.measurements,
+        issue17: issue17.measurements,
+      },
+    };
+  },
+  "benchmark-issue17": async (options) => runIssue17Benchmark(options),
   "texture-reuse": async (options) => (await import("./chrome-texture-reuse.mjs")).runTextureReuse(options),
   tutorial: async (options) => (await import("./chrome-tutorial-scenario.mjs")).runTutorialScenario(options),
   inspection: async (options) => (await import("./chrome-inspection-scenario.mjs")).runInspectionScenario(options),
@@ -149,6 +166,215 @@ function connect(target) {
     return result;
   };
   return { socket, command };
+}
+
+async function runIssue17Benchmark({ command }) {
+  const evaluation = await command("Runtime.evaluate", {
+    expression: String.raw`(async () => {
+      const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      const lab = await import('/examples/card-engine-lab/main.js');
+      const scene = lab.getScene();
+      const baseline = scene.snapshot();
+      const baselineDesired = structuredClone(baseline.desired);
+      const source = structuredClone(baselineDesired.cards.find((card) => card.faceUp !== false) ?? baselineDesired.cards[0]);
+      const results = [];
+      const measurements = [];
+      const counts = [6, 50, 200];
+      const modes = [
+        { name: 'disabled', enabled: false },
+        { name: 'enabled', enabled: true },
+      ];
+      const sampleDurationMs = 1500;
+      const fullWindowControl = document.querySelector('#full-window-control');
+      const wasFullWindow = document.body.classList.contains('stage-full-window');
+      const record = (label, pass, details) => results.push({ label, pass: Boolean(pass), details });
+      const diagnostics = () => scene.rendererDiagnostics?.() ?? null;
+      const numericDelta = (before = {}, after = {}) => Object.fromEntries(
+        [...new Set([...Object.keys(before), ...Object.keys(after)])]
+          .filter((key) => Number.isFinite(before[key]) || Number.isFinite(after[key]))
+          .map((key) => [key, Number(((after[key] ?? 0) - (before[key] ?? 0)).toFixed(2))]),
+      );
+      const positions = (count) => {
+        const columns = Math.min(20, Math.max(1, Math.ceil(Math.sqrt(count * 1.6))));
+        return Array.from({ length: count }, (_, index) => ({
+          x: 120 + (index % columns) * 82,
+          y: 150 + Math.floor(index / columns) * 52,
+        }));
+      };
+      const fixture = (count) => {
+        const poses = positions(count);
+        const cards = Array.from({ length: count }, (_, index) => ({
+          ...structuredClone(source),
+          id: 'issue17-card-' + count + '-' + (index + 1),
+          faceUp: true,
+          positionMode: 'absolute',
+          pose: {
+            ...structuredClone(source.pose ?? {}),
+            ...poses[index],
+            angle: 0,
+            flipX: 0,
+            flipY: 0,
+            scale: 1,
+          },
+        }));
+        const ids = cards.map(({ id }) => id);
+        const zones = structuredClone(baselineDesired.zones).map((zone) => ({
+          ...zone,
+          cardIds: zone.id === 'river' ? ids : [],
+        }));
+        return { cards, ids, zones };
+      };
+      const waitForReady = async (count, timeout = 30000) => {
+        const started = performance.now();
+        while (performance.now() - started < timeout) {
+          const state = scene.snapshot();
+          const renderer = diagnostics();
+          if (state.desired.cards.length === count
+            && state.visual.length === count
+            && renderer?.mountedCards === count
+            && !state.settling
+            && (renderer.imageSources?.pending ?? 0) === 0
+            && (renderer.textures?.pending ?? 0) === 0) {
+            return { readyMs: performance.now() - started, renderer };
+          }
+          await sleep(50);
+        }
+        throw new Error('Issue #17 fixture with ' + count + ' cards did not become ready');
+      };
+      const waitForSample = (actionStart) => new Promise((resolve, reject) => {
+        const frameTimes = [];
+        let firstFrameMs = null;
+        const started = performance.now();
+        const timeout = setTimeout(() => reject(new Error('Issue #17 frame sample timed out')), 20000);
+        const sample = (timestamp) => {
+          firstFrameMs ??= performance.now() - actionStart;
+          frameTimes.push(timestamp);
+          if (performance.now() - started < sampleDurationMs) {
+            requestAnimationFrame(sample);
+            return;
+          }
+          clearTimeout(timeout);
+          resolve({ frameTimes, firstFrameMs });
+        };
+        requestAnimationFrame(sample);
+      });
+      const percentile = (values, fraction) => values.length
+        ? values[Math.min(values.length - 1, Math.floor(values.length * fraction))]
+        : 0;
+      const transitionOperations = (cards) => cards.flatMap((card, index) => {
+        const pose = card.pose ?? {};
+        return [
+          { type: 'move', cardId: card.id, position: { x: pose.x + 24, y: pose.y + (index % 2 ? 12 : -12) } },
+          { type: 'rotate', cardId: card.id, angle: (index % 2 ? -1 : 1) * 14 },
+          { type: 'face', cardId: card.id, face: 'faceDown', axis: 'y', angle: 180 },
+        ];
+      });
+      const enterFullWindow = async () => {
+        if (!wasFullWindow && !document.body.classList.contains('stage-full-window')) {
+          fullWindowControl?.click();
+          await nextFrame();
+          await nextFrame();
+        }
+      };
+      const restoreFullWindow = async () => {
+        if (!wasFullWindow && document.body.classList.contains('stage-full-window')) {
+          fullWindowControl?.click();
+          await nextFrame();
+          await nextFrame();
+        }
+      };
+      const runCase = async (count, mode) => {
+        const { cards, ids, zones } = fixture(count);
+        scene.setSelectionHighlightVisible(mode.enabled);
+        const beforeSetup = diagnostics() ?? {};
+        const setupStarted = performance.now();
+        scene.apply({ ...baselineDesired, cards, zones });
+        scene.select(ids, { primaryCardId: ids[0], anchorCardId: ids[0] });
+        const setupMs = performance.now() - setupStarted;
+        await nextFrame();
+        const firstSetupFrameMs = performance.now() - setupStarted;
+        const ready = await waitForReady(count);
+        await sleep(150);
+        const beforeSample = diagnostics() ?? {};
+        const actionStarted = performance.now();
+        scene.transact(transitionOperations(cards), { zoneFacePolicy: 'override' });
+        const startHandlerMs = performance.now() - actionStarted;
+        const sample = await waitForSample(actionStarted);
+        const afterSample = diagnostics() ?? {};
+        const intervals = sample.frameTimes.slice(1).map((time, index) => time - sample.frameTimes[index]);
+        const sorted = [...intervals].sort((a, b) => a - b);
+        const elapsedMs = sample.frameTimes.length > 1 ? sample.frameTimes.at(-1) - sample.frameTimes[0] : 0;
+        const row = {
+          cards: count,
+          selectionHighlight: mode.name,
+          selectedCards: scene.snapshot().selection.cardIds.length,
+          setupMs: Number(setupMs.toFixed(1)),
+          firstSetupFrameMs: Number(firstSetupFrameMs.toFixed(1)),
+          readyMs: Number(ready.readyMs.toFixed(1)),
+          startHandlerMs: Number(startHandlerMs.toFixed(1)),
+          firstFrameMs: Number((sample.firstFrameMs ?? 0).toFixed(1)),
+          sampleMs: Number(elapsedMs.toFixed(1)),
+          frames: sample.frameTimes.length,
+          fps: Number((elapsedMs > 0 ? (sample.frameTimes.length - 1) * 1000 / elapsedMs : 0).toFixed(1)),
+          medianFrameMs: Number(percentile(sorted, 0.5).toFixed(1)),
+          p95FrameMs: Number(percentile(sorted, 0.95).toFixed(1)),
+          missedFramesOver20Ms: intervals.filter((interval) => interval > 20).length,
+          renderer: {
+            mountedCards: afterSample.mountedCards ?? null,
+            mountedSurfaces: afterSample.mountedSurfaces ?? null,
+            textures: afterSample.textures ?? null,
+            resources: afterSample.resources ?? null,
+            lastRender: afterSample.lastRender ?? null,
+            setupWork: numericDelta(beforeSetup.work, ready.renderer?.work),
+            sampleWork: numericDelta(beforeSample.work, afterSample.work),
+          },
+        };
+        measurements.push(row);
+        record(count + '-card ' + mode.name + ' selection benchmark mounts and samples',
+          row.renderer.mountedCards === count && row.selectedCards === count && row.frames > 0,
+          row);
+      };
+
+      try {
+        await enterFullWindow();
+        for (const count of counts) {
+          for (const mode of modes) await runCase(count, mode);
+        }
+        record('issue #17 covers 6, 50, and 200 cards with both highlight modes',
+          JSON.stringify(measurements.map(({ cards, selectionHighlight }) => [cards, selectionHighlight]))
+            === JSON.stringify(counts.flatMap((count) => modes.map((mode) => [count, mode.name]))),
+          measurements.map(({ cards, selectionHighlight }) => [cards, selectionHighlight]));
+      } finally {
+        scene.setSelectionHighlightVisible(true);
+        scene.apply(baselineDesired);
+        scene.select(baseline.selection.cardIds, {
+          primaryCardId: baseline.selection.primaryCardId,
+          anchorCardId: baseline.selection.anchorCardId,
+        });
+        await restoreFullWindow();
+      }
+      return {
+        ok: results.every((result) => result.pass),
+        results,
+        measurementNotes: {
+          fixture: 'Cloned revealed Lab card content, absolute positions, same River zone, deterministic move/rotate/flip transaction.',
+          selection: 'Cards remain selected in both modes; selectionHighlight controls renderer selection visibility.',
+          sample: sampleDurationMs + ' ms requestAnimationFrame sample after a single batched transition.',
+          counters: 'renderer.lastRender.calls/triangles and renderer.resources.geometries are renderer snapshots; work deltas are cumulative counters between captures.',
+          limitation: 'Headless Chrome and emulated viewport evidence does not establish physical Surface GPU or display latency.',
+        },
+        measurements,
+      };
+    })()`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  if (evaluation.exceptionDetails) {
+    throw new Error(evaluation.exceptionDetails.exception?.description
+      ?? evaluation.exceptionDetails.text ?? "Issue #17 benchmark evaluation failed");
+  }
+  return evaluation.result?.value;
 }
 
 // Element and authored-motion checks use an explicit one-card grid fixture,
@@ -700,19 +926,20 @@ const layoutScenario = String.raw`(async () => {
   const speedLayout = (() => {
     const toolbar = document.querySelector(".motion-actions");
     const speed = document.querySelector("#motion-speed-control");
+    const demoGroup = document.querySelector(".motion-demo-group");
     const firstButton = toolbar?.querySelector("button");
     const speedRect = rect(speed);
     const buttonRect = rect(firstButton);
     return {
-      inToolbar: speed?.parentElement === toolbar,
-      isFirst: toolbar?.firstElementChild === speed,
+      inToolbar: speed?.parentElement === demoGroup && toolbar?.contains(speed),
+      isGrouped: demoGroup?.contains(speed),
       speedHeight: speedRect?.height,
       buttonHeight: buttonRect?.height,
       heightMatch: speedRect && buttonRect && Math.abs(speedRect.height - buttonRect.height) <= 2,
     };
   })();
-  record("target speed is the first button-sized stage control", () => speedLayout.inToolbar
-    && speedLayout.isFirst && speedLayout.heightMatch);
+  record("demo speed is grouped with the live demos", () => speedLayout.inToolbar
+    && speedLayout.isGrouped && speedLayout.heightMatch);
   const cardActions = document.querySelector(".cards-sidebar .presets");
   const cardList = document.querySelector("#card-list");
   const spawnZone = document.querySelector("#spawn-zone");
@@ -922,6 +1149,10 @@ const movementScenario = String.raw`(async () => {
   const motionSpeed = document.querySelector("#motion-speed");
   const labModule = await import([...document.querySelectorAll('script[type="module"]')].at(-1).src);
   const liveScene = () => labModule.getScene()?.snapshot();
+  const selectedPose = (snapshot) => {
+    const cardId = snapshot?.selection?.primaryCardId ?? snapshot?.selection?.cardIds?.[0];
+    return snapshot?.visual?.find(({ cardId: visualCardId }) => visualCardId === cardId)?.pose;
+  };
   let fastSnapshot;
   const cameraCenter = { x: 450, y: 250 };
   const visibleWorld = () => ({
@@ -955,14 +1186,16 @@ const movementScenario = String.raw`(async () => {
   await new Promise((resolve) => setTimeout(resolve, 450));
   fastSnapshot = liveScene();
   record("fast target movement reaches its target", () => document.querySelector("#status")?.getAttribute("aria-label")?.includes("stable")
-    && Math.abs((fastSnapshot?.visual?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) < 1);
+    && Math.abs((selectedPose(fastSnapshot)?.x ?? NaN) - Number(moveX?.value)) < 1);
   setRange(motionSpeed, 0.25);
   document.querySelector('button[data-move-preset="left"]')?.click();
   await new Promise((resolve) => setTimeout(resolve, 450));
   const slowSnapshot = liveScene();
+  const slowCardId = slowSnapshot?.selection?.primaryCardId ?? slowSnapshot?.selection?.cardIds?.[0];
+  const slowDesiredPose = slowSnapshot?.desired?.cards?.find(({ id }) => id === slowCardId)?.pose;
   record("slow target movement remains animated longer", () => document.querySelector("#status")?.getAttribute("aria-label")?.includes("animating")
-    && Math.abs((slowSnapshot?.desired?.cards?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) < 1
-    && Math.abs((slowSnapshot?.visual?.[0]?.pose?.x ?? NaN) - Number(moveX?.value)) > 1);
+    && Math.abs((slowDesiredPose?.x ?? NaN) - Number(moveX?.value)) < 1
+    && Math.abs((selectedPose(slowSnapshot)?.x ?? NaN) - Number(moveX?.value)) > 1);
   return { ok: results.every((result) => result.pass), results };
 })()`;
 
