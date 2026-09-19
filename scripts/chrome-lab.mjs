@@ -848,7 +848,15 @@ const demoTogglesScenario = String.raw`(async () => {
   const afterPitch = pose()?.flipX;
   record("pitch toggle continuously spins around X", () => document.querySelector("#pitch")?.getAttribute("aria-pressed") === "true"
     && document.querySelector("#pitch")?.textContent.trim() === "Stop"
+    && document.querySelector("#spin")?.getAttribute("aria-pressed") === "false"
     && Math.abs(afterPitch - beforePitch) > 1);
+  click("#spin");
+  await sleep(100);
+  record("pitch and spin toggles remain independent", () => document.querySelector("#pitch")?.getAttribute("aria-pressed") === "true"
+    && document.querySelector("#spin")?.getAttribute("aria-pressed") === "true");
+  click("#spin");
+  record("stopping spin leaves pitch active", () => document.querySelector("#pitch")?.getAttribute("aria-pressed") === "true"
+    && document.querySelector("#spin")?.getAttribute("aria-pressed") === "false");
   click("#pitch");
   await sleep(350);
   const afterScale = pose()?.scale;

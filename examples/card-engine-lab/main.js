@@ -3206,8 +3206,11 @@ function stopPitch() {
 
 function startPitch() {
   if (spinning) stopContinuousFlip();
+  const cardIds = selectedCardIdsArray();
+  if (cardIds.length === 0) return false;
+  pitching = true;
   const speed = 180 * Number(motionSpeedSlider.value);
-  pitchHandles = new Map(selectedCardIdsArray().map((cardId) => [
+  pitchHandles = new Map(cardIds.map((cardId) => [
     cardId,
     scene.spin(cardId, { axis: "x", direction: 1, speed, zoneFacePolicy: "override" }),
   ]));
