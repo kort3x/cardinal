@@ -69,9 +69,9 @@ function normalizeSlotMap(slots, zoneId, knownCardIds) {
  *
  * `order` is a canonical relative order and may include cards currently in
  * another zone. `slots` are absolute destination indices for configured cards.
- * Omitted order and slot policies and explicit `free` modes leave insertion
- * and ordinary reorder operations free. Concealed-card reorder is denied by
- * default and can be enabled with `reorderPolicy`.
+ * Omitted order, slot, and reorder policies and explicit `free` modes leave
+ * insertion and ordinary reorder operations free. Concealed-card reorder is
+ * denied only when the consumer explicitly sets `reorderPolicy`.
  */
 export function normalizeZonePolicies({ zoneId, orderPolicy, slotPolicy, reorderPolicy, cardIds = [], knownCardIds }) {
   const known = knownCardIds instanceof Set ? knownCardIds : new Set(knownCardIds ?? cardIds);

@@ -125,11 +125,12 @@ Changing the active content face does not reveal a concealed card. See the
 content-face contract below.
 
 Zone membership may optionally carry an `orderPolicy`, a `slotPolicy`, and a
-`reorderPolicy`. `reorderPolicy: { concealed: "deny" }` is the default safety
-rule: a same-zone reorder must preserve the relative order of concealed cards.
-`reorderPolicy: { concealed: "allow" }` opts a zone into concealed-card
-reordering. Revealed cards and cross-zone transfers remain independently
-governed by the destination's other policies.
+`reorderPolicy`. Omitted policies leave ordinary insertion and reordering free,
+including reordering concealed cards. `reorderPolicy: { concealed: "deny" }`
+is an explicit consumer choice that makes a same-zone reorder preserve the
+relative order of concealed cards. `reorderPolicy: { concealed: "allow" }`
+explicitly keeps concealed-card reordering free. Revealed cards and cross-zone
+transfers remain independently governed by the destination's other policies.
 `orderPolicy: { mode: "locked", order }` defines the canonical relative order
 for members, while `slotPolicy: { mode: "fixed", slots }` assigns zero-based
 destination slots to selected card IDs. Both policies are enforced against the
@@ -148,7 +149,10 @@ The reusable zone preset `preset: "drawStack"` supplies a zero-offset vertical
 stack, a forced top-card selection policy (`count: 1`), and `faceUp: false`.
 Only the final member of the zone's bottom-to-top sequence is selectable or
 pickable through engine interaction. An explicit `faceUp` value overrides the
-preset's concealed side.
+preset's concealed side. The preset is opt-in; a zone without it has no
+selection restriction, no capacity limit unless one is configured, and keeps
+each card's own face state when `faceUp` is omitted. Explicit arrangement,
+selection, and face policies override the preset's corresponding values.
 
 A card belongs to exactly one zone in a committed scene. Zone membership is stored
 once as a sequence of IDs. A stack uses that sequence as explicit bottom-to-top

@@ -107,6 +107,51 @@ test("drawStack zone preset uses a stack and makes only the top card pickable", 
   scene.destroy();
 });
 
+test("omitted zone policies remain consumer-free and preserve card face state", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  const input = initial();
+  input.cards[0].faceUp = false;
+  scene.apply(input);
+
+  const source = scene.snapshot().desired.zones.find(({ id }) => id === "source");
+  assert.equal(source.capacity, undefined);
+  assert.equal(source.selectionPolicy, undefined);
+  assert.equal(source.faceUp, undefined);
+  assert.equal(source.orderPolicy, undefined);
+  assert.equal(source.slotPolicy, undefined);
+  assert.equal(source.reorderPolicy, undefined);
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === "a").faceUp, false);
+  assert.equal(scene.select(["b"]).accepted, true);
+
+  scene.transact([{ type: "reorder", zoneId: "source", cardIds: ["b", "a"] }], { immediate: true });
+  assert.deepEqual(scene.snapshot().desired.zones.find(({ id }) => id === "source").cardIds, ["b", "a"]);
+  scene.destroy();
+});
+
+test("drawStack is opt-in and explicit consumer policies override its defaults", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  const input = initial();
+  input.zones[0] = {
+    ...input.zones[0],
+    preset: "drawStack",
+    faceUp: true,
+    selectionPolicy: { mode: "forced", count: 2, from: "top" },
+    arrangement: { type: "grid", gap: 12 },
+  };
+  scene.apply(input);
+
+  const source = scene.snapshot().desired.zones.find(({ id }) => id === "source");
+  assert.equal(source.faceUp, true);
+  assert.deepEqual(source.selectionPolicy, { mode: "forced", count: 2, from: "top" });
+  assert.deepEqual(source.arrangement, { type: "grid", gap: 12 });
+  assert.deepEqual(scene.snapshot().desired.zones.find(({ id }) => id === "destination").selectionPolicy, undefined);
+  assert.deepEqual(scene.select(["a"]), {
+    cardIds: ["a", "b"], primaryCardId: "b", anchorCardId: "b", accepted: true,
+  });
+  assert.equal(scene.snapshot().desired.cards.every(({ faceUp }) => faceUp === true), true);
+  scene.destroy();
+});
+
 test("concealed reorder policy protects direct reorders while preserving revealed reordering", () => {
   const scene = createCardScene({ motion: { reducedMotion: true } });
   const input = initial();
