@@ -1705,15 +1705,15 @@ function updateDemoButtons() {
     [scaleButton, scaleAnimation, "Scale"],
   ];
   for (const [button, active, label] of buttons) {
-    button.textContent = active ? "Stop" : label;
+    button.textContent = label;
     button.setAttribute("aria-pressed", String(Boolean(active)));
     button.disabled = !hasSelection;
   }
   pitchButton.disabled = !hasSelection;
-  pitchButton.textContent = pitching ? "Stop" : "Pitch";
+  pitchButton.textContent = "Pitch";
   pitchButton.setAttribute("aria-pressed", String(pitching));
   spinButton.disabled = !hasSelection;
-  spinButton.textContent = spinning ? "Stop" : "Spin";
+  spinButton.textContent = "Spin";
   spinButton.setAttribute("aria-pressed", String(spinning));
   randomButton.disabled = !hasSelection;
   randomButton.textContent = randomMotion ? "Stop" : "Random";
@@ -3221,7 +3221,7 @@ function startPitch() {
 }
 
 function updateSpinButton() {
-  spinButton.textContent = spinning ? "Stop" : "Spin";
+  spinButton.textContent = "Spin";
   spinButton.setAttribute("aria-pressed", String(spinning));
   spinButton.disabled = selectedCardIds.size === 0;
 }

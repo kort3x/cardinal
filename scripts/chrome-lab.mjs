@@ -778,7 +778,7 @@ const demoTogglesScenario = String.raw`(async () => {
   await sleep(350);
   const afterMove = pose();
   record("move toggle starts continuous bounded motion", () => document.querySelector("#move")?.getAttribute("aria-pressed") === "true"
-    && document.querySelector("#move")?.textContent.trim() === "Stop"
+    && document.querySelector("#move")?.textContent.trim() === "Move"
     && (Math.abs(afterMove.x - beforeMove.x) > 1 || Math.abs(afterMove.y - beforeMove.y) > 1));
   const motionSamples = await new Promise((resolve) => {
     const samples = [];
@@ -847,7 +847,7 @@ const demoTogglesScenario = String.raw`(async () => {
   await sleep(350);
   const afterPitch = pose()?.flipX;
   record("pitch toggle continuously spins around X", () => document.querySelector("#pitch")?.getAttribute("aria-pressed") === "true"
-    && document.querySelector("#pitch")?.textContent.trim() === "Stop"
+    && document.querySelector("#pitch")?.textContent.trim() === "Pitch"
     && document.querySelector("#spin")?.getAttribute("aria-pressed") === "false"
     && Math.abs(afterPitch - beforePitch) > 1);
   click("#spin");
