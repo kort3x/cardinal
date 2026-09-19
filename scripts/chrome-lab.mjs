@@ -842,14 +842,14 @@ const demoTogglesScenario = String.raw`(async () => {
   const beforeScale = pose()?.scale;
   click("#scale");
 
-  const beforeTiltZ = pose()?.angle;
-  click("#tilt-z");
+  const beforePitch = pose()?.flipX;
+  click("#pitch");
   await sleep(350);
-  const afterTiltZ = pose()?.angle;
-  record("tilt Z toggle oscillates the card angle", () => document.querySelector("#tilt-z")?.getAttribute("aria-pressed") === "true"
-    && document.querySelector("#tilt-z")?.textContent.trim() === "Stop"
-    && Math.abs(afterTiltZ - beforeTiltZ) > 1);
-  click("#tilt-z");
+  const afterPitch = pose()?.flipX;
+  record("pitch toggle continuously spins around X", () => document.querySelector("#pitch")?.getAttribute("aria-pressed") === "true"
+    && document.querySelector("#pitch")?.textContent.trim() === "Stop"
+    && Math.abs(afterPitch - beforePitch) > 1);
+  click("#pitch");
   await sleep(350);
   const afterScale = pose()?.scale;
   record("scale toggle continuously changes size", () => document.querySelector("#scale")?.getAttribute("aria-pressed") === "true"
@@ -870,20 +870,22 @@ const demoTogglesScenario = String.raw`(async () => {
 
   click("#move");
   click("#rotate");
-  click("#tilt-z");
+  click("#pitch");
   click("#scale");
   click("#flip");
   await sleep(150);
-  record("live demos compose with the one-shot flip", () => ["move", "rotate", "tilt-z", "scale"]
+  record("live demos compose with the one-shot flip", () => ["move", "rotate", "pitch", "scale"]
     .every((id) => document.querySelector("#" + id)?.getAttribute("aria-pressed") === "true"));
   click("#move");
   click("#rotate");
-  click("#tilt-z");
+  click("#pitch");
   click("#scale");
   click("#deselect-all");
   record("demo controls disable with no selected cards", () => [
-    "#move", "#rotate", "#tilt-z", "#scale", "#spin", "#flip", "#combined", "#random", "#animation-test",
-  ].every((selector) => document.querySelector(selector)?.disabled === true));
+    "#move", "#rotate", "#pitch", "#scale", "#spin", "#flip", "#combined", "#random", "#animation-test",
+  ].every((selector) => document.querySelector(selector)?.disabled === true)
+    && Number.parseFloat(getComputedStyle(document.querySelector("#pitch")).opacity) < 1
+    && getComputedStyle(document.querySelector("#pitch")).cursor === "not-allowed");
   return { ok: results.every((result) => result.pass), results };
 })()`;
 

@@ -69,6 +69,7 @@
       button { cursor: pointer; }
       button:hover, button:focus-visible { border-color: var(--lab-focus); }
       button[aria-pressed="true"], label:has(> input[type="checkbox"]:checked) { border-color: var(--lab-accent); background: #3a3429; color: var(--lab-accent); box-shadow: 0 0 0 1px rgb(229 192 123 / 25%); }
+      button:disabled, button:disabled:hover, button:disabled:focus-visible { cursor: not-allowed; border-color: var(--lab-border); color: var(--lab-muted); background: #1d2026; box-shadow: none; opacity: 0.48; }
       #add-card { border-color: var(--lab-accent); background: var(--lab-panel); color: var(--lab-accent); box-shadow: 0 0 9px rgb(229 192 123 / 25%); }
       #add-card:hover, #add-card:focus-visible { border-color: #f2d69a; color: #f2d69a; background: #303640; box-shadow: 0 0 15px rgb(229 192 123 / 42%); }
       input[type="checkbox"] { accent-color: var(--lab-accent); }
@@ -352,7 +353,7 @@
           <span class="motion-group-label">Live demos</span>
           <button id="move" type="button" aria-pressed="false">Move</button>
           <button id="rotate" type="button" aria-pressed="false">Rotate</button>
-          <button id="tilt-z" type="button" aria-pressed="false">Tilt Z</button>
+          <button id="pitch" type="button" aria-pressed="false">Pitch</button>
           <button id="scale" type="button" aria-pressed="false">Scale</button>
           <button id="spin" type="button" aria-pressed="false">Spin</button>
         </div>
