@@ -128,6 +128,24 @@ test("omitted zone policies remain consumer-free and preserve card face state", 
   scene.destroy();
 });
 
+test("omitted capacity stays unbounded and does not change a card's face state", () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  const input = initial();
+  input.cards[0].faceUp = false;
+  scene.apply(input);
+
+  scene.transact([
+    { type: "move", cardId: "a", to: "destination", index: 0 },
+    { type: "move", cardId: "b", to: "destination", index: 1 },
+  ], { immediate: true });
+
+  const destination = scene.snapshot().desired.zones.find(({ id }) => id === "destination");
+  assert.deepEqual(destination.cardIds, ["a", "b", "c"]);
+  assert.equal(destination.capacity, undefined);
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === "a").faceUp, false);
+  scene.destroy();
+});
+
 test("drawStack is opt-in and explicit consumer policies override its defaults", () => {
   const scene = createCardScene({ motion: { reducedMotion: true } });
   const input = initial();
@@ -144,11 +162,37 @@ test("drawStack is opt-in and explicit consumer policies override its defaults",
   assert.equal(source.faceUp, true);
   assert.deepEqual(source.selectionPolicy, { mode: "forced", count: 2, from: "top" });
   assert.deepEqual(source.arrangement, { type: "grid", gap: 12 });
+  assert.equal(source.capacity, undefined);
+  assert.equal(source.orderPolicy, undefined);
+  assert.equal(source.slotPolicy, undefined);
+  assert.equal(source.reorderPolicy, undefined);
   assert.deepEqual(scene.snapshot().desired.zones.find(({ id }) => id === "destination").selectionPolicy, undefined);
   assert.deepEqual(scene.select(["a"]), {
     cardIds: ["a", "b"], primaryCardId: "b", anchorCardId: "b", accepted: true,
   });
   assert.equal(scene.snapshot().desired.cards.every(({ faceUp }) => faceUp === true), true);
+  scene.destroy();
+});
+
+test("information access remains consumer-controlled when zones omit face policy", () => {
+  const scene = createCardScene({
+    motion: { reducedMotion: true },
+    interaction: { rules: {
+      canReveal: () => ({ allowed: false, reason: "Consumer reveal rule denied access" }),
+    } },
+  });
+  const input = initial();
+  input.cards[0].faceUp = false;
+  scene.apply(input);
+
+  assert.throws(
+    () => scene.transact([{ type: "face", cardId: "a", face: "faceUp" }], { origin: "user" }),
+    /Consumer reveal rule denied access/,
+  );
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === "a").faceUp, false);
+
+  scene.transact([{ type: "face", cardId: "a", face: "faceUp" }], { immediate: true });
+  assert.equal(scene.snapshot().desired.cards.find(({ id }) => id === "a").faceUp, true);
   scene.destroy();
 });
 
