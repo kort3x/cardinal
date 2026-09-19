@@ -36,6 +36,7 @@ export async function runAttachmentsScenario({ command }) {
   const environment = await evaluate(`({userAgent:navigator.userAgent,innerWidth,innerHeight,outerWidth,outerHeight,screenX,screenY,devicePixelRatio,stage:document.querySelector('#stage').getBoundingClientRect().toJSON()})`);
   const baseline = await evaluate(`(async()=>structuredClone((await import('/examples/card-engine-lab/main.js')).getScene().snapshot().desired))()`);
   const baselineHeight = await evaluate(`(async()=>{const scene=(await import('/examples/card-engine-lab/main.js')).getScene();return scene.snapshot().visual.find(v=>v.cardId==='cardinal-demo')?.pose.height})()`);
+  const baselineBackHeight = await evaluate(`(async()=>{const scene=(await import('/examples/card-engine-lab/main.js')).getScene();return scene.snapshot().visual.find(v=>v.cardId==='ice-demo')?.pose.height})()`);
   await evaluate(`window.__attachmentShellBeforeRestore=document.querySelector('.cardinal-webgl-card[data-card-id="cardinal-demo"]')`);
   try {
     await evaluate(`(async()=>{(await import('/examples/card-engine-lab/main.js')).getScene().select(['cardinal-demo'])})()`);
@@ -54,6 +55,12 @@ export async function runAttachmentsScenario({ command }) {
     await key("Enter", "Enter");
     await waitFor(`(async()=> (await import('/examples/card-engine-lab/main.js')).getScene().snapshot().desired.cards[0].attachments.find(a=>a.id==='trip-counter')?.content.value===2)()`);
     await record("renderer counter control accepts keyboard activation", `document.activeElement?.dataset?.attachmentId==='trip-counter'&&document.activeElement?.dataset?.controlId==='increment'`);
+    const counterFrontHeight = await evaluate(`(async()=>{const scene=(await import('/examples/card-engine-lab/main.js')).getScene();return scene.snapshot().visual.find(v=>v.cardId==='cardinal-demo')?.pose.height})()`);
+    await evaluate(`(async()=>{(await import('/examples/card-engine-lab/main.js')).getScene().transact([{type:'face',cardId:'cardinal-demo',face:'faceDown',axis:'y',angle:180}],{zoneFacePolicy:'override'})})()`);
+    await waitFor(`(async()=> !(await import('/examples/card-engine-lab/main.js')).getScene().snapshot().settling)()`);
+    await record("concealed counter card keeps the public back geometry", `(async()=>{const pose=(await import('/examples/card-engine-lab/main.js')).getScene().snapshot().visual.find(v=>v.cardId==='cardinal-demo')?.pose;return pose?.height===${baselineBackHeight}&&pose.height<${counterFrontHeight};})()`);
+    await evaluate(`(async()=>{(await import('/examples/card-engine-lab/main.js')).getScene().transact([{type:'face',cardId:'cardinal-demo',face:'faceUp',axis:'y',angle:0}],{zoneFacePolicy:'override'})})()`);
+    await waitFor(`(async()=> !(await import('/examples/card-engine-lab/main.js')).getScene().snapshot().settling)()`);
 
     await click('[data-attachment-demo="stickers"]');
     await waitFor(`(async()=> (await import('/examples/card-engine-lab/main.js')).getScene().snapshot().desired.cards[0].attachments.filter(a=>a.type==='sticker').length===2)()`);

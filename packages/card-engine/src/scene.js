@@ -1390,6 +1390,8 @@ export function createCardScene(config = {}) {
           const enforcedFace = enforceZoneFace ? targetZone?.faceUp : undefined;
           const axes = enforcedFace === undefined ? flipAxes(operation.axis ?? card.flipAxis ?? "y") : ["x", "y"];
           current.flipAxis = axes[0];
+          scheduleTarget("width", targetPose.width, operationIndex);
+          scheduleTarget("height", targetPose.height, operationIndex);
           if (enforcedFace !== undefined) return;
           for (const axis of axes) {
             cancelChannel(cardId, spinChannel(axis));

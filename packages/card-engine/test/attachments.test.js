@@ -110,6 +110,32 @@ test("an ordinary overlay with an unavailable anchor cannot expose a dependent a
   assert.equal(attachmentContent(card, "front").elements.find(({ id }) => id === "stamp").visible, true);
 });
 
+test("concealed cards do not expose front attachment sizing through their shell", () => {
+  const concealedBase = { ...base, faceUp: false, back: { elements: [] } };
+  const [withoutCounter] = normalizeSnapshot({ cards: [concealedBase], zones: [zone] }).cards;
+  const [withCounter] = normalizeSnapshot({ cards: [{ ...concealedBase, attachments: [{
+    id: "counter", type: "counter", content: { value: 1 }, layout: { mode: "flow" },
+  }] }], zones: [zone] }).cards;
+  const withoutCounterHeight = cardDimensions(withoutCounter, {}, {}).height;
+  const withCounterHeight = cardDimensions(withCounter, {}, {}).height;
+  assert.equal(withCounterHeight, withoutCounterHeight);
+  assert.ok(cardDimensions({ ...withCounter, faceUp: true }, {}, {}).height > withCounterHeight);
+});
+
+test("concealing a content-sized card updates its visual shell to public geometry", async () => {
+  const scene = createCardScene({ motion: { reducedMotion: true } });
+  scene.apply({ cards: [{ ...base, back: { elements: [] }, attachments: [
+    { id: "counter", type: "counter", content: { value: 1 }, layout: { mode: "flow" } },
+  ] }], zones: [zone] });
+  const frontHeight = scene.snapshot().visual[0].pose.height;
+  const expectedBackHeight = cardDimensions({ ...scene.snapshot().desired.cards[0], faceUp: false }, {}, {}).height;
+  await scene.transact([{ type: "face", cardId: "card", face: "faceDown", axis: "y", angle: 180 }]).finished;
+  const concealedHeight = scene.snapshot().visual[0].pose.height;
+  assert.ok(frontHeight > expectedBackHeight);
+  assert.equal(concealedHeight, expectedBackHeight);
+  scene.destroy();
+});
+
 test("attachment updates preserve independent live move, rotation, and spin channels", () => {
   const clock = manualClock();
   const scene = createCardScene({ motion: { clock, duration: 320 } });

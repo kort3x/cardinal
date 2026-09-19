@@ -57,12 +57,14 @@ scene.transact([{
 Attachment IDs are unique within the card and cannot collide with ordinary
 face element IDs. `affinity` defaults to `front` and may be `front`, `back`, or
 `both`; `faceId` selects one named content face. Flow attachments participate
-in content sizing. Overlay attachments may anchor to `card`, an ordinary face
-element, or another attachment, provided the anchor graph is acyclic. Missing
-anchors hide by default or follow the card when `missingAnchor: "card"` is
-configured. A registered type may provide `accessibleLabel({ element })` and
-`onAction({ cardId, attachmentId, controlId })`; inspection previews never
-execute controls.
+in content sizing. A concealed card sizes from its public back face, so
+front-only flow attachments cannot change its concealed geometry; revealing a
+card animates to the newly presented face's size. Overlay attachments may
+anchor to `card`, an ordinary face element, or another attachment, provided the
+anchor graph is acyclic. Missing anchors hide by default or follow the card
+when `missingAnchor: "card"` is configured. A registered type may provide
+`accessibleLabel({ element })` and `onAction({ cardId, attachmentId, controlId })`;
+inspection previews never execute controls.
 
 ## Responsive zones
 
