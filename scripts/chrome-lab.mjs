@@ -888,9 +888,20 @@ const demoTogglesScenario = String.raw`(async () => {
   click("#rotate");
   click("#pitch");
   click("#scale");
+  const displacedByPreset = pose();
+  click('button[data-move-preset="right"]');
+  await sleep(850);
+  const displaced = pose();
+  click("#reset");
+  await sleep(850);
+  const resetPose = pose();
+  record("reset returns the selected card to its zone target", () => document.querySelector("#reset")?.disabled === false
+    && document.querySelector("#status")?.getAttribute("aria-label")?.includes("stable")
+    && Math.abs(resetPose.x - displaced.x) > 1
+    && Math.abs(displaced.x - displacedByPreset.x) > 1);
   click("#deselect-all");
   record("demo controls disable with no selected cards", () => [
-    "#move", "#rotate", "#pitch", "#scale", "#spin", "#flip", "#combined", "#random", "#animation-test",
+    "#move", "#rotate", "#pitch", "#scale", "#spin", "#reset", "#flip", "#combined", "#random", "#animation-test",
   ].every((selector) => document.querySelector(selector)?.disabled === true)
     && Number.parseFloat(getComputedStyle(document.querySelector("#pitch")).opacity) < 1
     && getComputedStyle(document.querySelector("#pitch")).cursor === "not-allowed");

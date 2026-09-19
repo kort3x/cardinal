@@ -177,6 +177,7 @@ const moveButton = document.querySelector("#move");
 const rotateButton = document.querySelector("#rotate");
 const pitchButton = document.querySelector("#pitch");
 const scaleButton = document.querySelector("#scale");
+const resetButton = document.querySelector("#reset");
 const flipButton = document.querySelector("#flip");
 const spinButton = document.querySelector("#spin");
 const randomButton = document.querySelector("#random");
@@ -365,6 +366,7 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["#move-y", "Set the selected card's scene Y position."],
   ["#motion-speed", "Adjust the speed of the animated controls."],
   ["#pitch", "Continuously spin the selected cards around their X axis."],
+  ["#reset", "Return the selected cards to their current zone layout and authored presentation."],
   ["#rotate-slider", "Set the selected card's authored rotation."],
   ["#scale-slider", "Set the selected card's authored scale."],
   ["#flip-axis", "Choose the axis used for flipping and spinning."],
@@ -972,6 +974,7 @@ let cardZoneIds = new Map([
 ]);
 
 let selectedCardIds = new Set([baseCard.id]);
+const resetCardBaselines = new Map();
 let selectionReason = "";
 let nextCardNumber = 2;
 let nextElementNumber = 1;
@@ -1625,6 +1628,16 @@ function desiredSnapshot(cards = sceneCards(), options = {}) {
   };
 }
 
+function rememberResetBaselines(cards) {
+  for (const card of cards) {
+    if (resetCardBaselines.has(card.id)) continue;
+    resetCardBaselines.set(card.id, {
+      angle: Number.isFinite(card.pose?.angle) ? card.pose.angle : 0,
+      scale: Number.isFinite(card.pose?.scale) && card.pose.scale > 0 ? card.pose.scale : defaultCardScale(),
+    });
+  }
+}
+
 function cardFootprint(card) {
   const scale = card.pose?.scale ?? 1;
   return {
@@ -1719,6 +1732,7 @@ function updateDemoButtons() {
   randomButton.textContent = randomMotion ? "Stop" : "Random";
   randomButton.setAttribute("aria-pressed", String(randomMotion));
   flipButton.disabled = !hasSelection;
+  resetButton.disabled = !hasSelection;
   combinedButton.disabled = !hasSelection;
   animationTestButton.disabled = !hasSelection || animationTestRunning;
 }
@@ -2362,6 +2376,7 @@ function respondToDrop(sceneInstance, lifecycle, intent) {
 
 function startScene(cards = sceneCards()) {
   const previousSelection = scene?.snapshot().selection;
+  rememberResetBaselines(cards);
   const desired = desiredSnapshot(cards);
   dragMotionState = normalizeDragMotion(readDragMotionControls(), dragMotionState);
   lastInteractionStatusAt = 0;
@@ -3389,6 +3404,43 @@ function selectedVisualEntries(state = scene.snapshot()) {
   })).filter(({ visual }) => visual?.pose);
 }
 
+function resetSelectedCards() {
+  const state = scene.snapshot();
+  const selected = new Set(selectedCardIdsArray());
+  if (selected.size === 0) return false;
+
+  stopDemoAnimations();
+  stopRandomMotion();
+  stopPitch();
+  stopContinuousFlip();
+
+  const operations = [];
+  for (const zone of state.desired.zones) {
+    const cardIds = zone.cardIds.filter((cardId) => selected.has(cardId));
+    if (cardIds.length === 0) continue;
+    operations.push({
+      type: "moveBatch",
+      cardIds,
+      to: zone.id,
+      index: zone.cardIds.indexOf(cardIds[0]),
+    });
+  }
+  for (const cardId of selected) {
+    const baseline = resetCardBaselines.get(cardId) ?? { angle: 0, scale: defaultCardScale() };
+    operations.push({ type: "rotate", cardId, angle: baseline.angle });
+    operations.push({ type: "scale", cardId, factor: baseline.scale });
+  }
+  try {
+    run(operations);
+    syncControlsFromSelection();
+    updateStatus();
+    return true;
+  } catch (error) {
+    showStatusMessage(`Reset failed: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
 function moveSelectedAsGroup(preset, state = scene.snapshot()) {
   const entries = selectedVisualEntries(state);
   const primary = currentVisual(state);
@@ -3536,6 +3588,10 @@ document.querySelectorAll("[data-scale]").forEach((button) => {
 
 flipButton.addEventListener("click", () => {
   flipSelectedCards();
+});
+
+resetButton.addEventListener("click", () => {
+  resetSelectedCards();
 });
 
 spinButton.addEventListener("click", () => {
