@@ -10,6 +10,46 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+const TUTORIAL_ZONE_TOKENS = Object.freeze({ Lake: "lake", River: "river", Ocean: "ocean" });
+const TUTORIAL_KEYWORDS = Object.freeze([
+  "Arrangement & alignment", "Cross-zone selection", "Record next drag", "Set up inspection",
+  "Run reshape demo", "Reduced motion", "Normally not pickable", "Preserve space", "Auto height",
+  "Fixed size", "Touch drag", "Select all", "Grab point", "Card center", "3D lift", "Sent to",
+  "Spawn in", "Not pickable", "Add", "Cards", "Selection", "Slot", "Zone controls", "Grid",
+  "Row", "Column", "Splay", "Pile", "Stack", "Hand", "Natural", "Crisp", "Floaty", "Wizzard",
+  "Dramatic dangle", "Lift scale", "Dangly", "Damping", "Landing", "Bounce", "Delay", "Move",
+  "Rotate", "Scale", "Flip", "Spin", "Demo", "Random", "Test", "Dimensions", "Weight", "Reveal",
+  "Conceal", "Inspection", "Content face", "Hide", "Remove", "Reflow", "Update text", "Benchmark",
+  "Refresh the report", "Refresh report", "Copy report", "Next", "Back", "Finish", "Close",
+]);
+const TUTORIAL_KEYWORD_SET = new Set(TUTORIAL_KEYWORDS.map((keyword) => keyword.toLowerCase()));
+const TUTORIAL_TOKEN_PATTERN = new RegExp(
+  `(?<![A-Za-z0-9])(${Object.keys(TUTORIAL_ZONE_TOKENS).concat(TUTORIAL_KEYWORDS)
+    .sort((first, second) => second.length - first.length)
+    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|")})(?![A-Za-z0-9])`,
+  "gi",
+);
+
+function renderTutorialBody(body, text) {
+  body.replaceChildren();
+  let cursor = 0;
+  for (const match of text.matchAll(TUTORIAL_TOKEN_PATTERN)) {
+    const token = match[0];
+    const start = match.index ?? 0;
+    if (start > cursor) body.append(document.createTextNode(text.slice(cursor, start)));
+    const normalized = token.toLowerCase();
+    const element = document.createElement("span");
+    const zoneId = Object.entries(TUTORIAL_ZONE_TOKENS).find(([name]) => name.toLowerCase() === normalized)?.[1];
+    element.className = zoneId ? `lab-tutorial__zone lab-tutorial__zone--${zoneId}`
+      : TUTORIAL_KEYWORD_SET.has(normalized) ? "lab-tutorial__keyword" : "";
+    element.textContent = token;
+    body.append(element);
+    cursor = start + token.length;
+  }
+  if (cursor < text.length) body.append(document.createTextNode(text.slice(cursor)));
+}
+
 function focusableElements(container) {
   return [...container.querySelectorAll(FOCUSABLE_SELECTOR)]
     .filter((element) => element.getClientRects().length > 0);
@@ -266,7 +306,7 @@ function createLabTutorial({ steps = [], trigger } = {}) {
     overlay.dataset.stepIndex = String(currentIndex);
     progress.textContent = `Step ${currentIndex + 1} of ${tutorialSteps.length}`;
     title.textContent = typeof step.title === "string" ? step.title : "Lab tutorial";
-    body.textContent = typeof step.body === "string" ? step.body : "";
+    renderTutorialBody(body, typeof step.body === "string" ? step.body : "");
     previousButton.disabled = currentIndex === 0;
     nextButton.textContent = currentIndex === tutorialSteps.length - 1 ? "Finish" : "Next";
     body.scrollTop = 0;

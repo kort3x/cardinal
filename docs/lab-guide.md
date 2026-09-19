@@ -135,7 +135,8 @@ The **Drag** panel controls both input and the physical feel of a carried card.
 - **Enable dragging** turns pointer dragging on or off.
 - **Touch drag** enables touch pickup. **Touch selection** makes taps toggle
   selection instead of immediately acting as ordinary card input.
-- **Carry** preserves selected-card offsets or compacts a multi-card selection.
+- **Carry** compacts a multi-card selection by default; choose **Preserve
+  offsets** when the original spacing should remain visible.
 - **Anchor** keeps the original grab point or places the card center under the
   pointer.
 - **Deny card**, **Deny zone**, and **Response** exercise accepted, rejected,
@@ -214,7 +215,7 @@ Open **Benchmark** below the stage:
 
 - **Refresh report** collects browser, WebGL, viewport, renderer, scene, and
   image readiness information.
-- **Run 1 / 5 / 10 / 50 / 100-card benchmark** compares setup, readiness,
+- **Run 1 / 5 / 10 / 50 / 100 / 200-card benchmark** compares setup, readiness,
   asset sources, and frame behavior at exact mounted card counts.
 - **Record next drag** captures pointer-to-render timing for one drag.
 - **Copy report** copies the report, or selects it for manual copying when

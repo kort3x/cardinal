@@ -21,7 +21,18 @@ scene.transact([
   { type: "rotate", cardId: "card-7", angle: 15 },
   { type: "face", cardId: "card-7", face: "faceDown", axis: "y" },
 ]);
+
+// Use the direct pose path for a high-frequency live motion loop.
+scene.updatePoses([
+  { cardId: "card-7", pose: { x: 320, y: 180 } },
+]);
 ```
+
+`updatePoses()` updates the current and authored pose without cloning the full
+snapshot or re-solving every zone. It is intended for continuous presentation
+motion such as a velocity loop. It emits a lightweight `pose-change` event and
+does not change zone membership or apply a target transition. Use `transact()`
+for committed moves, zone changes, and animated target behavior.
 
 ## Responsive zones
 
@@ -273,7 +284,7 @@ const scene = createCardScene({
   interaction: {
     touchDrag: false, // opt in before touch contact; otherwise preserve scrolling
     touchSelection: false, // explicit tap-to-toggle selection mode
-    dragPresentation: "preserve", // or an animated "compact" bundle
+    dragPresentation: "compact", // default; or "preserve" offsets
     dragAnchor: "grab", // or "center" to place the card midpoint under the pointer
     rules: {
       canTake: ({ sources }) => ({ allowed: sources.every(({ zoneId }) => zoneId === "hand") }),
@@ -345,7 +356,9 @@ Diagnostics are in `snapshot().interaction.sessions` and `interaction-change`.
 Pass multiple IDs to carry a batch. Default `order: "source"` uses configured
 zone order then committed card order; `order: "provided"` preserves the supplied
 ID order. `presentation: "preserve" | "compact"` overrides carrying presentation
-for one session. Compact offsets affect active carrying only: pending approval
+for one session. Carrying uses the animated compact bundle by default; set
+`dragPresentation: "preserve"` for the scene or `presentation: "preserve"`
+for one session when the original offsets should remain visible. Compact offsets affect active carrying only: pending approval
 always previews the actual solved destination slots. Cancellation returns every
 survivor and displaced neighbor to the latest committed source layouts.
 Cards are temporarily rendered at the configured `liftScale` while carried,

@@ -103,7 +103,7 @@ test("invalid nested drag options fail before a renderer is created", () => {
 test("physical grab correction carries the entire cohort without changing screen offsets", () => {
   const timer = clock();
   const scene = createCardScene({
-    motion: { clock: timer }, interaction: { rules, motion: { dangle: 0, upright: 0 } },
+    motion: { clock: timer }, interaction: { rules, dragPresentation: 'preserve', motion: { dangle: 0, upright: 0 } },
     renderer: () => ({
       ...createHeadlessRenderer(),
       captureGrab: () => ({ localX: 20 }),

@@ -1,7 +1,51 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { cardSideForIntersection, selectCardIntersection } from "../src/renderers/webgl.js";
+import { cardSideForIntersection, resolveFaceVisibility, selectCardIntersection } from "../src/renderers/webgl.js";
+
+test("concealed cards use a safe cover while their physical flip is still facing front", () => {
+  assert.deepEqual(resolveFaceVisibility({
+    faceUp: false,
+    frontSuppressed: true,
+    backReady: true,
+    poseVisible: true,
+    flipY: 0,
+  }), {
+    front: false,
+    frontBase: true,
+    back: true,
+    backBase: true,
+    card: true,
+  });
+
+  assert.deepEqual(resolveFaceVisibility({
+    faceUp: false,
+    frontSuppressed: true,
+    backReady: true,
+    poseVisible: true,
+    flipY: 180,
+  }), {
+    front: false,
+    frontBase: false,
+    back: true,
+    backBase: true,
+    card: true,
+  });
+});
+
+test("concealment may retain a public front until the back faces the camera", () => {
+  assert.equal(resolveFaceVisibility({ faceUp: false, frontReady: true, backReady: true, flipY: 0 }).front, true);
+  assert.equal(resolveFaceVisibility({ faceUp: false, frontReady: true, backReady: true, flipY: 90 }).front, true);
+  assert.equal(resolveFaceVisibility({ faceUp: false, frontReady: true, backReady: true, flipY: 180 }).front, false);
+});
+
+test("face visibility never exposes an unrevealed or unready front", () => {
+  assert.equal(resolveFaceVisibility({ faceUp: false, frontSuppressed: true, frontReady: true, backReady: true }).front, false);
+  assert.equal(resolveFaceVisibility({ faceUp: false, frontSuppressed: true, frontReady: true, backReady: true }).frontBase, true);
+  assert.equal(resolveFaceVisibility({ faceUp: true, frontReady: false, backReady: true }).card, false);
+  assert.equal(resolveFaceVisibility({ faceUp: true, frontReady: true, backReady: false }).card, false);
+  assert.equal(resolveFaceVisibility({ faceUp: true, frontReady: true, backReady: true, poseVisible: false }).card, false);
+});
 
 function mountedCard(cardId, drawOrder) {
   const cardGroup = new THREE.Group();

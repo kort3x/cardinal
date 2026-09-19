@@ -56,9 +56,14 @@
       .github-link svg { width: 16px; height: 16px; fill: currentColor; }
       p { color: var(--lab-muted); }
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
-      button, label, select { border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); padding: 9px 12px; color: var(--lab-text); background: var(--lab-panel); font: inherit; }
-      .motion-actions > button { height: 39px; box-sizing: border-box; }
-      .motion-actions .motion-speed-control { display: inline-flex; align-self: stretch; align-items: center; gap: 8px; min-width: 190px; height: 39px; box-sizing: border-box; margin: 0; padding: 9px 12px; }
+      button, label, select { border: 1px solid var(--lab-border-strong); border-radius: var(--lab-control-radius); padding: 9px 12px; color: var(--lab-text); background: var(--lab-panel); font: inherit; font-weight: 400; }
+      input { font-weight: 400; }
+      .motion-actions { align-items: center; gap: 10px; }
+      .motion-demo-group, .motion-tool-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); background: var(--lab-bg-deep); }
+      .motion-tool-group { background: transparent; }
+      .motion-group-label { padding: 0 5px; color: var(--lab-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+      .motion-actions > .motion-demo-group button, .motion-actions > .motion-tool-group button { height: 34px; box-sizing: border-box; padding: 6px 9px; font-size: 0.82rem; }
+      .motion-actions .motion-speed-control { display: inline-flex; align-items: center; gap: 8px; min-width: 170px; height: 34px; box-sizing: border-box; margin: 0; padding: 6px 8px; }
       .motion-actions .motion-speed-control input[type="range"] { width: 82px; margin: 0; accent-color: var(--lab-accent); }
       .motion-actions .motion-speed-control output { min-width: 2.5em; color: var(--lab-accent); text-align: right; white-space: nowrap; }
       button { cursor: pointer; }
@@ -71,7 +76,7 @@
       .control-panel { display: none; }
       .control-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
       .control-group { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); background: var(--lab-bg-deep); }
-      .control-group > summary, #diagnostics-panel > summary { display: flex; align-items: center; min-height: 20px; box-sizing: border-box; color: var(--lab-accent); font-weight: 700; cursor: pointer; user-select: none; list-style: none; }
+      .control-group > summary, #diagnostics-panel > summary { display: flex; align-items: center; min-height: 20px; box-sizing: border-box; color: var(--lab-accent); font-weight: 600; cursor: pointer; user-select: none; list-style: none; }
       .control-group > summary { margin: -12px; padding: 12px; }
       #diagnostics-panel > summary { padding: 8px 10px; }
       .control-group > summary::-webkit-details-marker, #diagnostics-panel > summary::-webkit-details-marker { display: none; }
@@ -173,7 +178,7 @@
       .zone-row[data-zone-id="lake"] .zone-name { color: var(--lab-zone-lake); }
       .zone-row[data-zone-id="ocean"] .zone-name { color: var(--lab-zone-ocean); }
       .zone-row[data-zone-id="river"] .zone-name { color: var(--lab-zone-river); }
-      .zone-actions-label { display: block; margin: 10px 0 6px; color: var(--lab-muted); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+      .zone-actions-label { display: block; margin: 10px 0 6px; color: var(--lab-muted); font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
       .zone-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
       .zone-actions button { min-width: 0; padding-inline: 7px; }
       .zone-actions button[data-transfer-zone="lake"] { color: var(--lab-zone-lake); }
@@ -257,6 +262,7 @@
       .status-meta { display: flex; align-items: baseline; gap: 12px; min-width: 0; margin-top: 7px; min-height: 1.4em; }
       #renderer-status { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--lab-muted); font-size: 0.82rem; text-overflow: ellipsis; white-space: nowrap; }
       #fps-status { flex: 0 0 5.5em; margin: 0; color: var(--lab-muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+      #full-window-fps { display: none; }
       #status { margin: 7px 0 0; min-height: 1.4em; overflow: hidden; color: var(--lab-accent); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
       #pointer-status { min-height: 1.5em; margin: 0; color: var(--lab-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; opacity: 0.72; }
       #diagnostics-panel { margin-top: 10px; overflow: hidden; border: 1px solid var(--lab-border); border-radius: var(--lab-box-radius); background: var(--lab-bg-deep); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
@@ -286,6 +292,7 @@
       body.stage-full-window #pointer-status,
       body.stage-full-window #diagnostics-panel { display: none; }
       body.stage-full-window .scene-column { position: fixed; inset: 0; z-index: 100; width: 100vw; height: 100vh; }
+      body.stage-full-window #full-window-fps { display: block; position: fixed; top: 14px; left: 50%; z-index: 120; margin: 0; padding: 6px 12px; border: 1px solid rgb(229 192 123 / 55%); border-radius: 999px; color: var(--lab-accent); background: rgb(33 37 43 / 88%); box-shadow: 0 3px 16px rgb(0 0 0 / 28%), 0 0 12px rgb(229 192 123 / 18%); font-size: 0.86rem; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; line-height: 1.2; text-align: center; transform: translateX(-50%); white-space: nowrap; }
       body.stage-full-window .stage-actions { display: flex; position: fixed; top: 14px; right: 14px; z-index: 110; margin: 0; }
       body.stage-full-window #stage { position: fixed; inset: 0; z-index: 1; width: 100vw; height: 100vh; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; }
       @media (min-width: 981px) {
@@ -341,15 +348,20 @@
         </nav>
       </div>
       <div class="toolbar motion-actions" aria-label="Animated card actions">
-        <button id="move" type="button" aria-pressed="false">Move</button>
-        <button id="rotate" type="button" aria-pressed="false">Rotate</button>
-        <button id="scale" type="button" aria-pressed="false">Scale</button>
-        <button id="flip" type="button" aria-pressed="false">Flip</button>
-        <button id="spin" type="button" aria-pressed="false">Spin</button>
-        <button id="combined">Demo</button>
-        <button id="random" type="button" aria-pressed="false">Random</button>
-        <button id="animation-test" type="button">Test</button>
-        <button id="reduced" type="button" aria-pressed="false">Reduced motion</button>
+        <div class="motion-demo-group" aria-label="Live card demos">
+          <span class="motion-group-label">Live demos</span>
+          <button id="move" type="button" aria-pressed="false">Move</button>
+          <button id="rotate" type="button" aria-pressed="false">Rotate</button>
+          <button id="scale" type="button" aria-pressed="false">Scale</button>
+          <button id="spin" type="button" aria-pressed="false">Spin</button>
+        </div>
+        <div class="motion-tool-group" aria-label="Motion tools">
+          <button id="flip" type="button">Flip</button>
+          <button id="combined">Combo</button>
+          <button id="random" type="button" aria-pressed="false">Random</button>
+          <button id="animation-test" type="button">Test</button>
+          <button id="reduced" type="button" aria-pressed="false">Reduced motion</button>
+        </div>
       </div>
       <section class="control-panel" aria-label="Card controls">
         <div class="control-section" aria-label="Card model controls">
@@ -434,7 +446,7 @@
             <button type="button" data-move-preset="bottom">Bottom</button>
           </div>
           <label id="motion-speed-control" class="control-row motion-speed-control" for="motion-speed">
-            <span>Speed</span>
+            <span>Demo speed</span>
             <input id="motion-speed" type="range" min="0.25" max="2" step="0.25" value="1" aria-describedby="motion-speed-value">
             <output id="motion-speed-value" for="motion-speed">1×</output>
           </label>
@@ -543,8 +555,8 @@
             <label class="control-row select-row" for="drag-presentation">
               <span>Carry</span>
               <select id="drag-presentation" aria-label="Selection drag layout">
-                <option value="preserve" selected>Preserve offsets</option>
-                <option value="compact">Compact bundle</option>
+                <option value="preserve">Preserve offsets</option>
+                <option value="compact" selected>Compact bundle</option>
               </select>
             </label>
             <label class="control-row select-row" for="drag-anchor">
@@ -717,6 +729,7 @@
             <p id="renderer-status" aria-live="polite">Renderer: detecting…</p>
             <p id="fps-status" aria-live="off">FPS: detecting…</p>
           </div>
+          <p id="full-window-fps" aria-live="off">FPS: detecting…</p>
           <p id="status" aria-live="polite"></p>
           <p id="pointer-status" data-pointer-state='{"status":"not-observed"}'>Pointer: not observed yet</p>
           <details id="diagnostics-panel">
@@ -859,7 +872,7 @@
         if (event.key === "Escape" && document.body.classList.contains("stage-full-window")) setFullWindow(false);
       });
       sceneColumn.prepend(toolbar);
-      toolbar.prepend(motionSpeedControl);
+      document.querySelector(".motion-demo-group").append(motionSpeedControl);
       sceneColumn.append(stage, statusMeta, status, pointerStatus, diagnosticsPanel);
       controlPanel.remove();
     </script>

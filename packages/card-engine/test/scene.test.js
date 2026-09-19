@@ -1526,6 +1526,31 @@ test("motion duration can be changed for future transitions", async () => {
   scene.destroy();
 });
 
+test("direct pose updates avoid target transitions while keeping state current", () => {
+  const scene = createCardScene();
+  scene.apply({ cards: [card], zones: [zone] });
+  const changes = [];
+  scene.on("pose-change", (detail) => changes.push(detail));
+
+  const result = scene.updatePoses([{
+    cardId: "card-1",
+    pose: { x: 320, y: 180, angle: 15, scale: 1.2 },
+  }]);
+  const snapshot = scene.snapshot();
+
+  assert.equal(result.length, 1);
+  assert.deepEqual(result[0].pose, snapshot.visual[0].pose);
+  assert.equal(snapshot.visual[0].pose.x, 320);
+  assert.equal(snapshot.visual[0].pose.y, 180);
+  assert.equal(snapshot.visual[0].pose.angle, 15);
+  assert.equal(snapshot.visual[0].pose.scale, 1.2);
+  assert.equal(snapshot.desired.cards[0].pose.x, 320);
+  assert.equal(snapshot.desired.cards[0].pose.y, 180);
+  assert.equal(snapshot.settling, false);
+  assert.deepEqual(changes, [result]);
+  scene.destroy();
+});
+
 test("one transaction composes move, rotation, scale, and flip", async () => {
   const clock = testClock();
   const scene = createCardScene({ motion: { clock, duration: 320 } });

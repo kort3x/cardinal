@@ -1379,7 +1379,7 @@ test('preserve mode reprojects each frozen screen offset at its own depth throug
   let pan = 0;
   const project = ({ x, y, z = 0 }) => ({ x: x * zoom / (1 + z / 1000) + pan, y: y * zoom / (1 + z / 1000) });
   const unproject = ({ x, y }, z = 0) => ({ x: (x - pan) * (1 + z / 1000) / zoom, y: y * (1 + z / 1000) / zoom });
-  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() }, renderer: () => ({
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules(), dragPresentation: 'preserve' }, renderer: () => ({
     update() {}, remove() {}, destroy() {}, sceneToClient: project, clientToScene: unproject,
   }) });
   const snapshot = threeZones();
@@ -1435,8 +1435,8 @@ test('compact carry animates on the engine clock and pending uses actual destina
   assert.equal(timer.pending(), 0);
 });
 
-test('compact reduced motion settles immediately and preserve overrides a compact default', () => {
-  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules(), dragPresentation: 'compact' } });
+test('compact carry is the default, and preserve can override it per drag', () => {
+  const scene = createCardScene({ motion: { reducedMotion: true }, interaction: { rules: permissiveRules() } });
   scene.apply(threeZones());
   const original = pose(scene, 'd').x - pose(scene, 'b').x;
   const preserve = scene.drag({ cardIds: ['b', 'd'], presentation: 'preserve' });

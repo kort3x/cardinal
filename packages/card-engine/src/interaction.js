@@ -34,7 +34,7 @@ const clamp = (value, min, max) => {
 
 // Gesture state and hypothetical layouts never mutate committed membership.
 export function createInteraction({ state, solve, sample, refresh, takePosition, present, commit, emit, rules, toClient, fromClient,
-  isSelectable = () => true, now = () => 0, reducedMotion = () => false, requestFrame = () => {}, defaultPresentation = 'preserve',
+  isSelectable = () => true, now = () => 0, reducedMotion = () => false, requestFrame = () => {}, defaultPresentation = 'compact',
   defaultAnchor = 'grab', motion, captureGrab, dragHangFactor, dragUprightFactor, dragSnapDelay }) {
   const sessions = new Map();
   let sequence = 0;

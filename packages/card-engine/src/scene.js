@@ -19,6 +19,7 @@ const copy = (value) => structuredClone(value);
 const DEFAULT_ZONE_MOTION_SPEED = 1.5;
 const WEIGHTED_MOTION_CHANNELS = new Set(["x", "y", "z", "angle", "scale", "layoutScale", "flipX", "flipY"]);
 const SNAP_ORIENTATION_CHANNELS = new Set(["angle", "tiltX", "tiltY"]);
+const DIRECT_POSE_CHANNELS = new Set(["x", "y", "z", "angle", "scale", "flipX", "flipY", "tiltX", "tiltY", "pivotX", "pivotY"]);
 const smoothStep = (progress) => progress * progress * (3 - 2 * progress);
 const bounceDamping = (bounce) => bounce <= 0 ? 1
   : -Math.log(Math.min(0.8, bounce)) / Math.hypot(Math.PI, Math.log(Math.min(0.8, bounce)));
@@ -809,6 +810,46 @@ export function createCardScene(config = {}) {
     return true;
   }
 
+  function updatePoses(updates) {
+    if (!desired) throw new Error("Call scene.apply before scene.updatePoses");
+    if (!Array.isArray(updates)) throw new TypeError("scene.updatePoses requires an updates array");
+    const changed = [];
+    for (const update of updates) {
+      if (!update || typeof update !== "object" || typeof update.cardId !== "string") {
+        throw new TypeError("scene.updatePoses updates require a cardId");
+      }
+      const card = desired.cards.find((candidate) => candidate.id === update.cardId);
+      if (!card) throw new Error(`Unknown card: ${update.cardId}`);
+      const changes = update.pose;
+      if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
+        throw new TypeError("scene.updatePoses updates require a pose object");
+      }
+      const names = Object.keys(changes);
+      if (names.some((name) => !DIRECT_POSE_CHANNELS.has(name))) {
+        throw new TypeError("scene.updatePoses supports position, rotation, scale, flip, tilt, and pivot pose fields");
+      }
+      for (const name of names) {
+        if (!Number.isFinite(changes[name])) throw new TypeError(`Pose.${name} must be finite`);
+        if (name === "scale" && changes[name] <= 0) throw new RangeError("Pose.scale must be positive");
+      }
+      if (names.length === 0) continue;
+      const authoredPose = card.pose ?? normalizePose();
+      Object.assign(authoredPose, changes);
+      card.pose = authoredPose;
+      if (names.includes("x") || names.includes("y")) card.positionMode = "absolute";
+      const pose = cardPose(card.id);
+      if (!pose) continue;
+      for (const name of names) cancelChannel(card.id, name);
+      Object.assign(pose, changes);
+      changed.push({ cardId: card.id, pose: copy(pose) });
+    }
+    if (changed.length === 0) return [];
+    for (const { cardId } of changed) renderCard(cardId, { render: false });
+    renderer.render?.();
+    emit("pose-change", changed);
+    return changed;
+  }
+
   function scheduleChannel(cardId, channelName, target, {
     transition, operationIndex, immediate = false, interactionOwned = false, snap = false, snapDelay = 0, zone,
     durationOverride, velocity, returning = false,
@@ -1541,7 +1582,7 @@ export function createCardScene(config = {}) {
       emit("inspection-change", detail);
     },
   });
-  const api = { apply, transact, sortBy, spin, stopSpin, select, hitTest, target, setMotion, setDragMotion, setSelectionHighlightVisible, snapshot, viewport, refreshGeometry, rendererDiagnostics: () => renderer.diagnostics?.() ?? null, on, destroy,
+  const api = { apply, transact, updatePoses, sortBy, spin, stopSpin, select, hitTest, target, setMotion, setDragMotion, setSelectionHighlightVisible, snapshot, viewport, refreshGeometry, rendererDiagnostics: () => renderer.diagnostics?.() ?? null, on, destroy,
     clientToScene, sceneToClient, drag, setDragAnchor, isSelectable: selection.isSelectable,
     resolveDrop: interaction.resolveDrop, invalidateRules, inspect, closeInspection };
   feedback = createFeedback({ element: config.element, scene: api });

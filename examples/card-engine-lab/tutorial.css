@@ -91,6 +91,27 @@
   white-space: pre-line;
 }
 
+.lab-tutorial__keyword,
+.lab-tutorial__zone {
+  font-weight: 650;
+}
+
+.lab-tutorial__keyword {
+  color: var(--tutorial-accent);
+}
+
+.lab-tutorial__zone--lake {
+  color: #56b6c2;
+}
+
+.lab-tutorial__zone--river {
+  color: #c678dd;
+}
+
+.lab-tutorial__zone--ocean {
+  color: #61afef;
+}
+
 .lab-tutorial__footer {
   flex-shrink: 0;
   display: flex;

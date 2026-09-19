@@ -739,9 +739,13 @@ const acceptanceScenario = String.raw`(async () => {
   setValue("#flip-y-slider", 90);
   record("edge-on pose keeps one shell", (await waitForStable()).status.includes("physical edge") && state().shells === 1);
 
+  click('button[data-flip="1"]');
+  await waitForStable();
   click("#combined");
   const combined = await waitForStable(1300);
-  record("combined move rotate scale flip settles", combined.status.includes("stable") && state().shells === 1);
+  record("combined move rotate scale flip settles face up", combined.status.includes("stable")
+    && combined.status.includes("physical front")
+    && state().shells === 1);
 
   click("#reduced");
   const reduced = await waitForStable();
@@ -775,8 +779,56 @@ const demoTogglesScenario = String.raw`(async () => {
   const afterMove = pose();
   record("move toggle starts continuous bounded motion", () => document.querySelector("#move")?.getAttribute("aria-pressed") === "true"
     && (Math.abs(afterMove.x - beforeMove.x) > 1 || Math.abs(afterMove.y - beforeMove.y) > 1));
+  const motionSamples = await new Promise((resolve) => {
+    const samples = [];
+    const startedAt = performance.now();
+    const sample = (now) => {
+      const current = pose();
+      if (current) samples.push({ x: current.x, y: current.y });
+      if (now - startedAt < 2500) requestAnimationFrame(sample);
+      else resolve(samples);
+    };
+    requestAnimationFrame(sample);
+  });
+  const motionDeltas = motionSamples.slice(1).map((current, index) => Math.hypot(current.x - motionSamples[index].x, current.y - motionSamples[index].y));
+  const movingDeltas = motionDeltas.filter((delta) => delta > 0.01).sort((first, second) => first - second);
+  const medianMotionDelta = movingDeltas[Math.floor(movingDeltas.length / 2)] ?? 0;
+  const nearStopFrames = motionDeltas.filter((delta) => delta < medianMotionDelta * 0.35).length;
+  record("move demo maintains continuous frame-to-frame motion", () => movingDeltas.length > 30 && nearStopFrames <= 3, {
+    samples: motionSamples.length,
+    medianMotionDelta,
+    p10MotionDelta: movingDeltas[Math.floor(movingDeltas.length * 0.1)] ?? 0,
+    p90MotionDelta: movingDeltas[Math.floor(movingDeltas.length * 0.9)] ?? 0,
+    maxMotionDelta: movingDeltas.at(-1) ?? 0,
+    nearStopFrames,
+  });
+  const bouncedMove = pose();
+  record("move demo keeps the card inside the stage while it bounces", () => {
+    const stage = document.querySelector("#stage")?.getBoundingClientRect();
+    const card = document.querySelector(".cardinal-webgl-card")?.getBoundingClientRect();
+    return Boolean(stage && card)
+      && card.left >= stage.left - 2
+      && card.right <= stage.right + 2
+      && card.top >= stage.top - 2
+      && card.bottom <= stage.bottom + 2
+      && (Math.abs(bouncedMove.x - afterMove.x) > 1 || Math.abs(bouncedMove.y - afterMove.y) > 1);
+  });
   click("#move");
   record("move toggle stops", () => document.querySelector("#move")?.getAttribute("aria-pressed") === "false");
+
+  click("#spin");
+  await sleep(100);
+  click("#move");
+  await sleep(150);
+  record("spin composes with the live move demo", () => document.querySelector("#spin")?.getAttribute("aria-pressed") === "true"
+    && document.querySelector("#move")?.getAttribute("aria-pressed") === "true", {
+      spin: document.querySelector("#spin")?.getAttribute("aria-pressed"),
+      move: document.querySelector("#move")?.getAttribute("aria-pressed"),
+      status: document.querySelector("#status")?.textContent,
+      engineSpinning: scene()?.spinning,
+    });
+  click("#move");
+  click("#spin");
 
   const beforeRotate = pose()?.angle;
   click("#rotate");
@@ -796,25 +848,26 @@ const demoTogglesScenario = String.raw`(async () => {
 
   click("#flip");
   await sleep(500);
-  record("flip toggle repeatedly changes the physical face", () => document.querySelector("#flip")?.getAttribute("aria-pressed") === "true"
+  record("flip is a one-shot action", () => !document.querySelector("#flip")?.hasAttribute("aria-pressed")
     && (() => {
       const snapshot = scene();
       const cardId = snapshot?.selection?.primaryCardId ?? snapshot?.selection?.cardIds?.[0];
       return snapshot?.visual?.find(({ cardId: visualCardId }) => visualCardId === cardId)?.physicalSide === "back";
     })());
   click("#flip");
+  await sleep(500);
+  record("flip action can return the card to the front", () => selectedPose()?.flipY === 0);
 
   click("#move");
   click("#rotate");
   click("#scale");
   click("#flip");
   await sleep(150);
-  record("demo toggles compose independently", () => ["move", "rotate", "scale", "flip"]
+  record("live demos compose with the one-shot flip", () => ["move", "rotate", "scale"]
     .every((id) => document.querySelector("#" + id)?.getAttribute("aria-pressed") === "true"));
   click("#move");
   click("#rotate");
   click("#scale");
-  click("#flip");
   return { ok: results.every((result) => result.pass), results };
 })()`;
 
@@ -1388,16 +1441,32 @@ const diagnosticsScenario = String.raw`(async () => {
   });
   document.querySelector("#run-diagnostics-benchmark")?.click();
   const benchmarkFullWindowStates = [];
+  const benchmarkFpsStates = [];
   const benchmarkStartStatuses = [];
   const deadline = performance.now() + 120000;
   while (performance.now() < deadline && !diagnosticsStatus().includes("Benchmark complete")) {
-    benchmarkFullWindowStates.push(document.body.classList.contains("stage-full-window"));
+    const isFullWindow = document.body.classList.contains("stage-full-window");
+    benchmarkFullWindowStates.push(isFullWindow);
+    if (isFullWindow) {
+      const fps = document.querySelector("#full-window-fps");
+      const style = fps ? getComputedStyle(fps) : null;
+      benchmarkFpsStates.push({
+        text: fps?.textContent ?? "",
+        display: style?.display,
+        color: style?.color,
+        position: style?.position,
+        textAlign: style?.textAlign,
+        centerX: fps ? fps.getBoundingClientRect().left + fps.getBoundingClientRect().width / 2 : null,
+        viewportCenterX: innerWidth / 2,
+        top: fps?.getBoundingClientRect().top ?? null,
+      });
+    }
     benchmarkStartStatuses.push(diagnosticsStatus());
     await sleep(100);
   }
   benchmarkFullWindowStates.push(document.body.classList.contains("stage-full-window"));
   let benchmarkParsed = null;
-  record("benchmark measures 1, 5, 10, 50, and 100 cards", () => {
+  record("benchmark measures 1, 5, 10, 50, 100, and 200 cards", () => {
     const text = report();
     let parsed;
     try { parsed = JSON.parse(text); } catch { return false; }
@@ -1408,9 +1477,10 @@ const diagnosticsScenario = String.raw`(async () => {
       && text.includes('"cards": 10')
       && text.includes('"cards": 50')
       && text.includes('"cards": 100')
+      && text.includes('"cards": 200')
       && text.includes('"readyMs"')
       && text.includes('"assets"')
-      && JSON.stringify(parsed.lab?.benchmark?.map(row => row.cards)) === '[1,5,10,50,100]'
+      && JSON.stringify(parsed.lab?.benchmark?.map(row => row.cards)) === '[1,5,10,50,100,200]'
       && parsed.lab?.cards === baseline.desired.cards.length
       && parsed.lab?.benchmark?.every((result) => result.assets?.total > 0
         && result.assets.pending === 0
@@ -1426,6 +1496,16 @@ const diagnosticsScenario = String.raw`(async () => {
   }, benchmarkParsed?.lab?.benchmark);
   record("benchmark runs in full window and exits it", () => benchmarkFullWindowStates.includes(true)
     && document.body.classList.contains("stage-full-window") === false);
+  record("full-window benchmark exposes a centered gold FPS readout", () => {
+    return benchmarkFpsStates.some(({ text, display, color, position, textAlign, centerX, viewportCenterX, top }) => text.includes("FPS:")
+      && display === "block"
+      && color === "rgb(229, 192, 123)"
+      && position === "fixed"
+      && textAlign === "center"
+      && Math.abs(centerX - viewportCenterX) <= 1
+      && top >= 0
+      && top <= 20);
+  });
   record("benchmark refreshes diagnostics at start", () => benchmarkStartStatuses.some((status) => status.includes("Collecting diagnostics")
     || status.includes("Starting benchmark")));
   record("benchmark restores the lab", () => {

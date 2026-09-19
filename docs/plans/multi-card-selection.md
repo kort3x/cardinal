@@ -89,7 +89,7 @@ createCardScene({
   },
   interaction: {
     touchSelection: false,
-    dragPresentation: "preserve", // or "compact"
+    dragPresentation: "compact", // default; or "preserve"
     rules,
   },
 });

@@ -7,6 +7,7 @@ const stage = document.querySelector("#stage");
 const rendererStatus = document.querySelector("#renderer-status");
 const status = document.querySelector("#status");
 const fpsStatus = document.querySelector("#fps-status");
+const fullWindowFpsStatus = document.querySelector("#full-window-fps");
 const pointerStatus = document.querySelector("#pointer-status");
 const collectDiagnosticsButton = document.querySelector("#collect-diagnostics");
 const runDiagnosticsBenchmarkButton = document.querySelector("#run-diagnostics-benchmark");
@@ -345,8 +346,8 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["#move", "Start or stop continuous movement of the selected cards."],
   ["#rotate", "Start or stop continuous rotation of the selected cards."],
   ["#scale", "Start or stop continuous scaling of the selected cards."],
-  ["#flip", "Start or stop continuous face flipping of the selected cards."],
-  ["#spin", "Spin the selected cards around the chosen flip axis."],
+  ["#flip", "Flip the selected cards over once."],
+  ["#spin", "Continuously spin the selected cards; combine it with Move, Rotate, or Scale."],
   ["#combined", "Run a short combined move, rotate, scale, and flip demo."],
   ["#random", "Start or stop random card movement."],
   ["#animation-test", "Run the animation and retargeting test."],
@@ -399,7 +400,7 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["[data-transfer-zone=river]", "Move the selected cards to River."],
   ["[data-transfer-zone=ocean]", "Move the selected cards to Ocean."],
   ["#collect-diagnostics", "Refresh the renderer and device diagnostics report."],
-  ["#run-diagnostics-benchmark", "Temporarily enter Full window mode, run the 1, 5, 10, 50, and 100-card benchmark, then restore the Lab layout."],
+  ["#run-diagnostics-benchmark", "Temporarily enter Full window mode, run the 1, 5, 10, 50, 100, and 200-card benchmark, then restore the Lab layout."],
   ["#record-drag", "Capture timing and input details for the next drag."],
   ["#copy-diagnostics", "Copy the current benchmark report."],
   ["#full-window-control", "Toggle the stage into full-window inspection mode."],
@@ -613,7 +614,9 @@ function updateFps(now) {
   const elapsed = now - fpsWindowStart;
   if (elapsed >= 500) {
     const fps = fpsFrameCount * 1000 / elapsed;
-    fpsStatus.textContent = `FPS: ${fps.toFixed(0)}`;
+    const label = `FPS: ${fps.toFixed(0)}`;
+    fpsStatus.textContent = label;
+    fullWindowFpsStatus.textContent = label;
     fpsStatus.dataset.fps = fps.toFixed(1);
     fpsFrameCount = 0;
     fpsWindowStart = now;
@@ -1133,7 +1136,7 @@ async function runDiagnosticsBenchmark() {
   runDiagnosticsBenchmarkButton.disabled = true;
   collectDiagnosticsButton.disabled = true;
   copyDiagnosticsButton.disabled = true;
-  diagnosticsStatus.textContent = "Running 1-, 5-, 10-, 50-, and 100-card benchmark…";
+  diagnosticsStatus.textContent = "Running 1-, 5-, 10-, 50-, 100-, and 200-card benchmark…";
   const originalCards = structuredClone(scene.snapshot().desired.cards);
   const originalSelection = [...selectedCardIds];
   const originalZoneMembership = new Map(cardZoneIds);
@@ -1184,7 +1187,7 @@ async function runDiagnosticsBenchmark() {
     stopDemoAnimations();
     scene.setSelectionHighlightVisible(false);
     const source = structuredClone(originalCards[0] ?? initialCards()[0]);
-    for (const count of [1, 5, 10, 50, 100]) {
+    for (const count of [1, 5, 10, 50, 100, 200]) {
       const cards = [];
       for (let index = 0; index < count; index += 1) {
         cards.push({
@@ -1669,14 +1672,12 @@ let spinning = false;
 let randomTimer;
 let randomGeneration = 0;
 let randomMotion = false;
-let demoFrame;
-let demoFrameTime;
-let demoTransaction = false;
 let moveAnimation;
 let rotateAnimation;
 let scaleAnimation;
-let flipAnimation;
-let flipGeneration = 0;
+let moveGeneration = 0;
+let rotateGeneration = 0;
+let scaleGeneration = 0;
 let animationTestGeneration = 0;
 let animationTestRunning = false;
 
@@ -1685,7 +1686,6 @@ function activeMotionLabels() {
     moveAnimation && "move",
     rotateAnimation && "rotate",
     scaleAnimation && "scale",
-    flipAnimation && "flip",
     spinning && "spin",
     randomMotion && "random motion",
   ].filter(Boolean);
@@ -1696,7 +1696,6 @@ function updateDemoButtons() {
     [moveButton, moveAnimation, "Move"],
     [rotateButton, rotateAnimation, "Rotate"],
     [scaleButton, scaleAnimation, "Scale"],
-    [flipButton, flipAnimation, "Flip"],
   ];
   for (const [button, active, label] of buttons) {
     button.textContent = active ? "Stop" : label;
@@ -1704,212 +1703,196 @@ function updateDemoButtons() {
   }
 }
 
-function stopDemoFrame() {
-  if (demoFrame !== undefined) cancelAnimationFrame(demoFrame);
-  demoFrame = undefined;
-  demoFrameTime = undefined;
-}
-
 function stopMoveAnimation() {
+  if (moveAnimation?.frame !== undefined) cancelAnimationFrame(moveAnimation.frame);
+  moveGeneration += 1;
   moveAnimation = undefined;
   updateDemoButtons();
-  if (!rotateAnimation && !scaleAnimation) stopDemoFrame();
+  if (scene) updateStatus();
 }
 
 function stopRotateAnimation() {
+  if (rotateAnimation?.frame !== undefined) cancelAnimationFrame(rotateAnimation.frame);
+  rotateGeneration += 1;
   rotateAnimation = undefined;
   updateDemoButtons();
-  if (!moveAnimation && !scaleAnimation) stopDemoFrame();
+  if (scene) updateStatus();
 }
 
 function stopScaleAnimation() {
+  if (scaleAnimation?.frame !== undefined) cancelAnimationFrame(scaleAnimation.frame);
+  scaleGeneration += 1;
   scaleAnimation = undefined;
   updateDemoButtons();
-  if (!moveAnimation && !rotateAnimation) stopDemoFrame();
+  if (scene) updateStatus();
 }
 
 function stopDemoAnimations() {
   stopMoveAnimation();
   stopRotateAnimation();
   stopScaleAnimation();
-  stopFlipAnimation();
 }
 
-function bouncePosition(value, velocity, minimum, maximum) {
-  if (maximum <= minimum) return { value: minimum, velocity: 0 };
-  let nextValue = value;
-  let nextVelocity = velocity;
-  while (nextValue < minimum || nextValue > maximum) {
-    if (nextValue < minimum) {
-      nextValue = minimum + (minimum - nextValue);
-      nextVelocity = Math.abs(nextVelocity);
-    } else if (nextValue > maximum) {
-      nextValue = maximum - (nextValue - maximum);
-      nextVelocity = -Math.abs(nextVelocity);
-    }
-  }
-  return { value: nextValue, velocity: nextVelocity };
-}
-
-function movementBounds(card, pose) {
-  const width = (card.dimensions?.width ?? 180) * (pose.scale ?? 1);
-  const height = (card.dimensions?.height ?? 250) * (pose.scale ?? 1);
-  const angle = (pose.angle ?? 0) * Math.PI / 180;
-  const halfWidth = (Math.abs(Math.cos(angle) * width) + Math.abs(Math.sin(angle) * height)) / 2;
-  const halfHeight = (Math.abs(Math.sin(angle) * width) + Math.abs(Math.cos(angle) * height)) / 2;
-  const stageBounds = visibleWorldBounds();
-  return {
-    left: Math.min(stageBounds.right, stageBounds.left + halfWidth),
-    right: Math.max(stageBounds.left, stageBounds.right - halfWidth),
-    top: Math.min(stageBounds.bottom, stageBounds.top + halfHeight),
-    bottom: Math.max(stageBounds.top, stageBounds.bottom - halfHeight),
-  };
-}
-
-function ensureDemoFrame() {
-  if (demoFrame !== undefined) return;
-  demoFrameTime = performance.now();
-  demoFrame = requestAnimationFrame(runDemoFrame);
-}
-
-function runDemoFrame(time) {
-  demoFrame = undefined;
-  if (!scene || (!moveAnimation && !rotateAnimation && !scaleAnimation)) return;
-  const elapsed = Math.min(0.05, Math.max(0, (time - (demoFrameTime ?? time)) / 1000));
-  demoFrameTime = time;
+function demoStateFor(cardIds) {
   const state = scene.snapshot();
-  const operations = [];
-  const live = (cardId) => state.visual.find(({ cardId: visualCardId }) => visualCardId === cardId)?.pose;
+  const cards = new Map(state.desired.cards.map((card) => [card.id, card]));
+  const visuals = new Map(state.visual.map((visual) => [visual.cardId, visual]));
+  return { cards, visuals };
+}
 
-  if (moveAnimation) {
-    for (const [cardId, velocity] of moveAnimation.cards) {
-      const card = state.desired.cards.find(({ id }) => id === cardId);
-      const pose = live(cardId);
-      if (!card || !pose) {
-        moveAnimation.cards.delete(cardId);
-        continue;
-      }
-      const bounds = movementBounds(card, pose);
-      const x = bouncePosition(pose.x + velocity.x * elapsed, velocity.x, bounds.left, bounds.right);
-      const y = bouncePosition(pose.y + velocity.y * elapsed, velocity.y, bounds.top, bounds.bottom);
-      velocity.x = x.velocity;
-      velocity.y = y.velocity;
-      operations.push({ type: "move", cardId, position: { x: x.value, y: y.value } });
-    }
-    if (moveAnimation.cards.size === 0) stopMoveAnimation();
+function runMoveFrame(generation, now) {
+  if (!scene || moveAnimation?.generation !== generation) return;
+  const animation = moveAnimation;
+  animation.frame = undefined;
+  const elapsed = Math.min(0.05, Math.max(0, (now - (animation.lastAt ?? now)) / 1000));
+  animation.lastAt = now;
+  const { cards, visuals } = demoStateFor(animation.cardIds);
+  const bounds = visibleWorldBounds();
+  const operations = animation.cardIds.flatMap((cardId) => {
+    const card = cards.get(cardId);
+    const pose = visuals.get(cardId)?.pose;
+    const velocity = animation.velocities.get(cardId);
+    if (!card || !pose || !velocity) return [];
+    const limits = movementBounds(card, pose, bounds);
+    const nextX = bouncePosition(pose.x + velocity.x * elapsed, velocity.x, limits.left, limits.right);
+    const nextY = bouncePosition(pose.y + velocity.y * elapsed, velocity.y, limits.top, limits.bottom);
+    velocity.x = nextX.velocity;
+    velocity.y = nextY.velocity;
+    return [{ type: "move", cardId, position: { x: nextX.value, y: nextY.value } }];
+  });
+  if (operations.length === 0) {
+    stopMoveAnimation();
+    return;
   }
-  if (rotateAnimation) {
-    for (const cardId of rotateAnimation) {
-      const pose = live(cardId);
-      if (!pose) {
-        rotateAnimation.delete(cardId);
-        continue;
-      }
-      operations.push({ type: "rotate", cardId, angle: normalizeAngle(pose.angle + 120 * elapsed * Number(motionSpeedSlider.value)) });
-    }
-    if (rotateAnimation.size === 0) stopRotateAnimation();
+  try {
+    // Move is a live velocity update. Immediate commits avoid layering a new
+    // easing target over the previous frame, which makes continuous motion
+    // visibly stutter at each retarget.
+    scene.updatePoses(operations.map(({ cardId, position }) => ({ cardId, pose: position })));
+  } catch {
+    stopMoveAnimation();
+    return;
   }
-  if (scaleAnimation) {
-    for (const [cardId, direction] of scaleAnimation) {
-      const pose = live(cardId);
-      if (!pose) {
-        scaleAnimation.delete(cardId);
-        continue;
-      }
-      const nextScale = pose.scale + direction * elapsed * 0.5 * Number(motionSpeedSlider.value);
-      if (nextScale >= 1.5) {
-        scaleAnimation.set(cardId, -1);
-        operations.push({ type: "scale", cardId, factor: 1.5 });
-      } else if (nextScale <= 0.75) {
-        scaleAnimation.set(cardId, 1);
-        operations.push({ type: "scale", cardId, factor: 0.75 });
-      } else {
-        operations.push({ type: "scale", cardId, factor: nextScale });
-      }
-    }
-    if (scaleAnimation.size === 0) stopScaleAnimation();
+  if (moveAnimation?.generation === generation) {
+    moveAnimation.frame = requestAnimationFrame((nextNow) => runMoveFrame(generation, nextNow));
   }
-  if (operations.length > 0) {
-    demoTransaction = true;
-    try {
-      scene.transact(operations, { immediate: true });
-    } finally {
-      demoTransaction = false;
-    }
+}
+
+function runRotateFrame(generation, now) {
+  if (!scene || rotateAnimation?.generation !== generation) return;
+  const animation = rotateAnimation;
+  animation.frame = undefined;
+  const elapsed = Math.min(0.05, Math.max(0, (now - (animation.lastAt ?? now)) / 1000));
+  animation.lastAt = now;
+  const { visuals } = demoStateFor(animation.cardIds);
+  const angleDelta = 36 * elapsed * Number(motionSpeedSlider.value);
+  const updates = animation.cardIds.flatMap((cardId) => {
+    const pose = visuals.get(cardId)?.pose;
+    return pose ? [{ cardId, pose: { angle: normalizeAngle(pose.angle + angleDelta) } }] : [];
+  });
+  if (updates.length === 0) {
+    stopRotateAnimation();
+    return;
   }
-  if (moveAnimation || rotateAnimation || scaleAnimation) ensureDemoFrame();
+  try {
+    scene.updatePoses(updates);
+  } catch {
+    stopRotateAnimation();
+    return;
+  }
+  if (rotateAnimation?.generation === generation) {
+    rotateAnimation.frame = requestAnimationFrame((nextNow) => runRotateFrame(generation, nextNow));
+  }
+}
+
+function runScaleFrame(generation, now) {
+  if (!scene || scaleAnimation?.generation !== generation) return;
+  const animation = scaleAnimation;
+  animation.frame = undefined;
+  const elapsed = Math.min(0.05, Math.max(0, (now - (animation.lastAt ?? now)) / 1000));
+  animation.lastAt = now;
+  const { visuals } = demoStateFor(animation.cardIds);
+  const scaleDelta = 0.3 * elapsed * Number(motionSpeedSlider.value);
+  const updates = animation.cardIds.flatMap((cardId) => {
+    const pose = visuals.get(cardId)?.pose;
+    if (!pose) return [];
+    const direction = animation.directions.get(cardId) ?? 1;
+    const nextScale = pose.scale + direction * scaleDelta;
+    if (nextScale >= 1.5) animation.directions.set(cardId, -1);
+    if (nextScale <= 0.75) animation.directions.set(cardId, 1);
+    return [{ cardId, pose: { scale: Math.min(1.5, Math.max(0.75, nextScale)) } }];
+  });
+  if (updates.length === 0) {
+    stopScaleAnimation();
+    return;
+  }
+  try {
+    scene.updatePoses(updates);
+  } catch {
+    stopScaleAnimation();
+    return;
+  }
+  if (scaleAnimation?.generation === generation) {
+    scaleAnimation.frame = requestAnimationFrame((nextNow) => runScaleFrame(generation, nextNow));
+  }
 }
 
 function startMoveAnimation() {
   const state = scene.snapshot();
   const cards = selectedVisualEntries(state);
   if (cards.length === 0) return false;
-  moveAnimation = { cards: new Map(cards.map(({ card }) => {
-    const direction = randomBetween(0, Math.PI * 2);
-    const speed = randomBetween(130, 210);
-    return [card.id, { x: Math.cos(direction) * speed, y: Math.sin(direction) * speed }];
-  })) };
+  const generation = ++moveGeneration;
+  const speed = 360 * Number(motionSpeedSlider.value);
+  moveAnimation = {
+    generation,
+    cardIds: cards.map(({ card }) => card.id),
+    lastAt: performance.now(),
+    velocities: new Map(cards.map(({ card }, index) => [card.id, {
+      x: speed * (index % 2 === 0 ? 1 : -1),
+      y: speed * 0.68 * (index % 3 === 1 ? -1 : 1),
+    }])),
+  };
   updateDemoButtons();
-  ensureDemoFrame();
+  updateStatus();
+  moveAnimation.frame = requestAnimationFrame((now) => runMoveFrame(generation, now));
   return true;
 }
 
 function startRotateAnimation() {
   const cards = selectedCardIdsArray();
   if (cards.length === 0) return false;
-  rotateAnimation = new Set(cards);
+  const generation = ++rotateGeneration;
+  rotateAnimation = { generation, cardIds: cards, lastAt: performance.now() };
   updateDemoButtons();
-  ensureDemoFrame();
+  updateStatus();
+  rotateAnimation.frame = requestAnimationFrame((now) => runRotateFrame(generation, now));
   return true;
 }
 
 function startScaleAnimation() {
   const cards = selectedVisualEntries();
   if (cards.length === 0) return false;
-  scaleAnimation = new Map(cards.map(({ card, visual }) => [
-    card.id,
-    visual.pose.scale >= 1.5 ? -1 : 1,
-  ]));
+  const generation = ++scaleGeneration;
+  scaleAnimation = {
+    generation,
+    cardIds: cards.map(({ card }) => card.id),
+    directions: new Map(cards.map(({ card }) => [card.id, 1])),
+  };
   updateDemoButtons();
-  ensureDemoFrame();
+  updateStatus();
+  scaleAnimation.frame = requestAnimationFrame((now) => runScaleFrame(generation, now));
   return true;
 }
 
-function startFlipAnimation() {
+function flipSelectedCards() {
   const cards = selectedCardIdsArray();
   if (cards.length === 0) return false;
-  const generation = ++flipGeneration;
-  flipAnimation = { generation, cardIds: cards };
-  updateDemoButtons();
-  runFlipCycle(generation);
-  return true;
-}
-
-async function runFlipCycle(generation) {
-  if (!flipAnimation || flipAnimation.generation !== generation || !scene) return;
-  const state = scene.snapshot();
-  const operations = flipAnimation.cardIds
-    .filter((cardId) => state.desired.cards.some(({ id }) => id === cardId))
-    .map((cardId) => toggleFaceOperation(cardId, state, flipAxis.value));
-  if (operations.length === 0) {
-    stopFlipAnimation();
-    return;
-  }
   try {
-    await scene.transact(operations, { zoneFacePolicy: "override" }).finished;
+    run(flipSelectedOperations(), { zoneFacePolicy: "override" });
   } catch {
-    return;
+    return false;
   }
-  if (flipAnimation?.generation === generation) {
-    flipAnimation.timer = setTimeout(() => runFlipCycle(generation), 700 / Number(motionSpeedSlider.value));
-  }
-}
-
-function stopFlipAnimation() {
-  if (flipAnimation?.timer) clearTimeout(flipAnimation.timer);
-  flipGeneration += 1;
-  flipAnimation = undefined;
-  updateDemoButtons();
+  return true;
 }
 
 function updateRandomButton() {
@@ -1927,6 +1910,36 @@ function stopRandomMotion() {
 
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
+}
+
+function movementBounds(card, pose, bounds = visibleWorldBounds()) {
+  const width = (card.dimensions?.width ?? 180) * (pose.scale ?? 1);
+  const height = (card.dimensions?.height ?? 250) * (pose.scale ?? 1);
+  const angle = (pose.angle ?? 0) * Math.PI / 180;
+  const halfWidth = (Math.abs(Math.cos(angle) * width) + Math.abs(Math.sin(angle) * height)) / 2;
+  const halfHeight = (Math.abs(Math.sin(angle) * width) + Math.abs(Math.cos(angle) * height)) / 2;
+  return {
+    left: Math.min(bounds.right, bounds.left + halfWidth),
+    right: Math.max(bounds.left, bounds.right - halfWidth),
+    top: Math.min(bounds.bottom, bounds.top + halfHeight),
+    bottom: Math.max(bounds.top, bounds.bottom - halfHeight),
+  };
+}
+
+function bouncePosition(value, velocity, minimum, maximum) {
+  if (maximum <= minimum) return { value: minimum, velocity: 0 };
+  let nextValue = value;
+  let nextVelocity = velocity;
+  for (let bounce = 0; bounce < 8 && (nextValue < minimum || nextValue > maximum); bounce += 1) {
+    if (nextValue < minimum) {
+      nextValue = minimum + (minimum - nextValue);
+      nextVelocity = Math.abs(nextVelocity);
+    } else if (nextValue > maximum) {
+      nextValue = maximum - (nextValue - maximum);
+      nextVelocity = -Math.abs(nextVelocity);
+    }
+  }
+  return { value: Math.min(maximum, Math.max(minimum, nextValue)), velocity: nextVelocity };
 }
 
 function randomMoveTarget(card, pose, bounds) {
@@ -2380,7 +2393,7 @@ function startScene(cards = sceneCards()) {
     const lifecycle = { active: true, scene: createdScene, timers: new Map(), pending: new Map(), outcome: "" };
     interactionLifecycle = lifecycle;
     createdScene.apply(desired);
-    createdScene.on("change", updateStatus);
+    createdScene.on("change", (state) => updateStatus(state, state.interaction, Boolean(moveAnimation)));
     createdScene.on("renderer-status", updateStatus);
     createdScene.on("inspection-change", () => {
       const open = createdScene.snapshot().inspection.sessions.length > 0;
@@ -2774,11 +2787,12 @@ function renderCardList(state = scene.snapshot()) {
       syncControlsFromSelection();
       updateStatus();
       renderCardList();
-      // Keep keyboard actions attached to the card the user just selected,
-      // rather than the checkbox that was replaced during list rendering.
-      const shell = [...stage.querySelectorAll(".cardinal-webgl-card")]
-        .find((candidate) => candidate.dataset.cardId === card.id);
-      shell?.focus?.({ preventScroll: true });
+      // Keep focus in the card list after rerendering. Focusing the WebGL card
+      // here would start the engine's focus-to-inspect dwell timer.
+      const replacementInput = [...cardList.querySelectorAll("label")]
+        .find((candidate) => candidate.dataset.cardId === card.id)
+        ?.querySelector("input");
+      replacementInput?.focus?.({ preventScroll: true });
     });
     label.append(input, title, zone, depth, pickability);
     return label;
@@ -3004,7 +3018,6 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
     interaction = state.interaction;
   }
   syncSpinState(state);
-  presentationOnly ||= demoTransaction;
   if (!presentationOnly) {
     updateMoveControlBounds(state);
     renderCardList(state);
@@ -3012,7 +3025,7 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
     renderElementList(state);
     syncInspectionControls(state);
   }
-  if (!demoTransaction) updateCardListDepth(state);
+  updateCardListDepth(state);
   updateSummaryMeta(state);
   const card = currentCard(state);
   const visual = card && state.visual.find(({ cardId }) => cardId === card.id);
@@ -3169,7 +3182,6 @@ function syncSpinState(state) {
 }
 
 function stopContinuousFlip() {
-  stopFlipAnimation();
   if (spinTimer) clearTimeout(spinTimer);
   spinTimer = undefined;
   if (!spinning) return;
@@ -3183,13 +3195,6 @@ function startFullSpin() {
   const state = scene.snapshot();
   const cards = state.desired.cards.filter(({ id }) => selectedCardIds.has(id));
   const axis = flipAxis.value;
-  const starts = new Map(cards.map((card) => {
-    const visual = state.visual.find(({ cardId }) => cardId === card.id);
-    return [card.id, {
-      face: faceUpForVisual(visual) ? "faceUp" : "faceDown",
-      angle: visual?.pose[axis === "x" ? "flipX" : "flipY"] ?? 0,
-    }];
-  }));
   spinHandles = new Map(cards.map(({ id }) => [id, scene.spin(id, {
     axis, direction: 1, speed: 360, zoneFacePolicy: "override",
   })]));
@@ -3202,9 +3207,9 @@ function startFullSpin() {
     spinHandles = new Map();
     spinning = false;
     spinTimer = undefined;
-    scene.transact([...starts.entries()].map(([cardId, { face, angle }]) => ({
-      type: "face", cardId, face, axis, angle,
-    })), { immediate: true });
+    scene.transact(cards.map(({ id: cardId }) => ({
+      type: "face", cardId, face: "faceUp", axis: ["x", "y"], angle: { x: 0, y: 0 },
+    })), { immediate: true, zoneFacePolicy: "override" });
     updateSpinButton();
   }, 1000);
 }
@@ -3467,8 +3472,7 @@ document.querySelectorAll("[data-scale]").forEach((button) => {
 });
 
 flipButton.addEventListener("click", () => {
-  if (flipAnimation) stopFlipAnimation();
-  else startFlipAnimation();
+  flipSelectedCards();
 });
 
 spinButton.addEventListener("click", () => {
@@ -3476,7 +3480,6 @@ spinButton.addEventListener("click", () => {
     stopContinuousFlip();
     return;
   }
-  stopFlipAnimation();
   spinHandles = new Map(selectedCardIdsArray().map((cardId) => [
     cardId,
     scene.spin(cardId, { axis: flipAxis.value, direction: 1, speed: 180, zoneFacePolicy: "override" }),

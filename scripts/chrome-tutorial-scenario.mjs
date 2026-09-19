@@ -63,6 +63,9 @@ export async function runTutorialScenario({ command }) {
       await waitFor(`document.querySelector('.lab-tutorial')?.dataset.stepId===tutorialSteps[${index}].id`);
       await waitFor(panelFits);
       await record(`Desktop step ${index + 1} is readable and highlights its target`, `(${panelFits})&&(!tutorialSteps[${index}].target||!document.querySelector('.lab-tutorial__spotlight').hidden)`);
+      if (index === 3) {
+        await record("Tutorial colors zone names and keywords", `(()=>{const body=document.querySelector('.lab-tutorial__body');const ocean=body?.querySelector('.lab-tutorial__zone--ocean');const keyword=body?.querySelector('.lab-tutorial__keyword');return ocean?.textContent==='Ocean'&&keyword&&getComputedStyle(ocean).color==='rgb(97, 175, 239)'&&getComputedStyle(keyword).color==='rgb(229, 192, 123)';})()`);
+      }
       if (index === 4 && process.env.CARDINAL_TUTORIAL_SCREENSHOT) {
         const screenshot = await command("Page.captureScreenshot", { format: "png" });
         await writeFile(process.env.CARDINAL_TUTORIAL_SCREENSHOT, Buffer.from(screenshot.data, "base64"));
