@@ -1,0 +1,55 @@
+.attachments-group .attachment-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.attachments-group .attachment-actions button {
+  min-width: 0;
+  padding: 7px 8px;
+  font-size: .78rem;
+}
+
+#attachment-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.attachment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 6px;
+  align-items: center;
+  padding: 6px 7px;
+  border: 1px solid var(--lab-border);
+  border-radius: var(--lab-control-radius);
+  background: var(--lab-panel);
+  font-size: .76rem;
+}
+
+.attachment-row small { grid-column: 1; color: var(--lab-muted); }
+.attachment-row button { grid-column: 2; grid-row: 1 / span 2; padding: 4px 6px; font-size: .72rem; }
+#attachment-status { margin: 9px 0 0; font-size: .74rem; }
+
+/* The engine owns these projected controls; the Lab owns their dark/gold skin. */
+.cardinal-webgl-attachment-controls button {
+  min-width: 30px;
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 1px solid var(--lab-accent);
+  border-radius: var(--lab-control-radius);
+  color: var(--lab-accent);
+  background: var(--lab-panel);
+  box-shadow: 0 3px 10px rgb(0 0 0 / 35%);
+  font: 700 .74rem system-ui, sans-serif;
+}
+
+.cardinal-webgl-attachment-controls button:hover,
+.cardinal-webgl-attachment-controls button:focus-visible {
+  border-color: #f2d69a;
+  color: #f2d69a;
+  background: #3a3429;
+  outline: 2px solid var(--lab-focus);
+  outline-offset: 1px;
+}

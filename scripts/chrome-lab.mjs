@@ -33,6 +33,7 @@ const inputScenarios = {
   drag: async (options) => (await import("./chrome-drag-scenario.mjs")).runDragScenario(options),
   "drag-geometry": async (options) => (await import("./chrome-drag-geometry.mjs")).runDragGeometryScenario(options),
   "drag-performance": async (options) => (await import("./chrome-drag-performance.mjs")).runDragPerformanceScenario(options),
+  attachments: async (options) => (await import("./chrome-attachments.mjs")).runAttachmentsScenario(options),
 };
 
 const args = new Set(process.argv.slice(2));

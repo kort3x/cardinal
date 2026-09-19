@@ -1,4 +1,5 @@
 import { cardById, normalizeElement, normalizePose, normalizeSnapshot, normalizeZonePolicies, normalizeZonePresentation, validateReorderPolicy, validateZonePolicies, zoneById } from "./model.js";
+import { normalizeAttachment, validateAttachmentAnchors } from "./attachments.js";
 import { cardDimensions, solveAllPoses } from "./layout.js";
 import { createClock, interpolate, shortestAngleTarget } from "./motion.js";
 import { createHeadlessRenderer, createRenderer } from "./renderer.js";
@@ -52,6 +53,7 @@ const operationResultChannels = {
   face: (operation) => flipAxes(operation.axis).length,
   contentFace: () => 1,
   element: () => 1,
+  attachment: () => 1,
 };
 
 function flipValue(pose, axis) {
@@ -159,6 +161,17 @@ export function createCardScene(config = {}) {
   const createRendererAdapter = config.renderer ?? (
     config.renderMode === "css" ? createRenderer : config.element ? createWebGLRenderer : createHeadlessRenderer
   );
+  const attachmentRendererLabel = ({ element, attachment, ...request } = {}) => {
+    const callback = config.elementRenderers?.[attachment?.type ?? element?.type]?.accessibleLabel;
+    return typeof callback === "function" ? callback({ element: attachment ?? element, control: element, ...request }) : undefined;
+  };
+  const attachmentRendererAction = (request = {}) => {
+    const card = desired?.cards?.find(({ id }) => id === request.cardId);
+    const attachment = card?.attachments?.find(({ id }) => id === request.attachmentId);
+    const callback = config.elementRenderers?.[attachment?.type]?.onAction;
+    if (typeof callback === "function") callback({ ...request });
+    config.onAction?.({ ...request });
+  };
   const listeners = new Map();
   let rendererReason = null;
   const renderer = createRendererAdapter({
@@ -171,6 +184,8 @@ export function createCardScene(config = {}) {
       rendererReason = detail.reason ?? null;
       emit("renderer-status", detail);
     },
+    accessibleLabel: attachmentRendererLabel,
+    onAction: attachmentRendererAction,
   });
   const channels = new Map();
   const transitions = new Set();
@@ -1193,6 +1208,32 @@ export function createCardScene(config = {}) {
         }
         throw new TypeError(`Unknown element action: ${operation.action}`);
       },
+      attachment(operation, card) {
+        if (typeof operation.attachmentId !== "string" || !operation.attachmentId) throw new TypeError("Attachment requires a non-empty attachmentId");
+        const attachments = card.attachments ?? (card.attachments = []);
+        const attachmentIndex = attachments.findIndex(({ id }) => id === operation.attachmentId);
+        if (operation.action === "add") {
+          if (attachmentIndex !== -1) throw new Error(`Attachment ${operation.attachmentId} already exists`);
+          if (!operation.attachment || typeof operation.attachment !== "object") throw new TypeError("Attachment add requires attachment data");
+          attachments.push(normalizeAttachment({ ...operation.attachment, id: operation.attachmentId }, operation.attachmentId, attachments.length));
+          validateAttachmentAnchors(attachments);
+          return;
+        }
+        if (attachmentIndex === -1) throw new Error(`Unknown attachment ${operation.attachmentId}`);
+        if (operation.action === "remove") { attachments.splice(attachmentIndex, 1); return; }
+        if (operation.action === "show" || operation.action === "hide") {
+          attachments[attachmentIndex] = { ...attachments[attachmentIndex], visible: operation.action === "show" };
+          return;
+        }
+        if (operation.action === "update") {
+          const current = attachments[attachmentIndex];
+          const next = normalizeAttachment({ ...current, ...operation.attachment, id: operation.attachmentId }, operation.attachmentId, attachmentIndex);
+          attachments[attachmentIndex] = next;
+          validateAttachmentAnchors(attachments);
+          return;
+        }
+        throw new TypeError(`Unknown attachment action: ${operation.action}`);
+      },
       reorder(operation, _card, operationIndex) {
         const zone = zones.get(operation.zoneId);
         if (!zone) throw new Error(`Unknown zone: ${operation.zoneId}`);
@@ -1281,7 +1322,7 @@ export function createCardScene(config = {}) {
     desired = next;
     resolvedZones = nextZones;
     const affected = new Set(operations.flatMap((operation) => operation.cardIds ?? [operation.cardId]).filter(Boolean));
-    if (operations.some((operation) => ["move", "moveBatch", "zone", "resize", "thickness", "contentFace", "element"].includes(operation.type))) {
+    if (operations.some((operation) => ["move", "moveBatch", "zone", "resize", "thickness", "contentFace", "element", "attachment"].includes(operation.type))) {
       for (const [cardId, targetPose] of targets) {
         const current = cardPose(cardId);
         if (current) affected.add(cardId);
@@ -1365,17 +1406,20 @@ export function createCardScene(config = {}) {
         element: (operationIndex) => {
           scheduleContentResize(cardId, targetPose, transition, operationIndex);
         },
+        attachment: (operationIndex) => {
+          scheduleContentResize(cardId, targetPose, transition, operationIndex);
+        },
       };
       for (const operationIndex of operationIndexes) {
         const operation = operations[operationIndex];
         scheduleOperations[operation.type](operationIndex);
       }
-      if (!operationIndexes.some((index) => ["move", "moveBatch", "reorder"].includes(operations[index].type)) && operations.some((op) => ["move", "moveBatch", "reorder", "zone", "resize", "contentFace", "element", "thickness"].includes(op.type))) {
+      if (!operationIndexes.some((index) => ["move", "moveBatch", "reorder"].includes(operations[index].type)) && operations.some((op) => ["move", "moveBatch", "reorder", "zone", "resize", "contentFace", "element", "attachment", "thickness"].includes(op.type))) {
         const layoutChannels = ["x", "y", "z", ...(hasExplicitScale ? [] : ["scale"]), "layoutScale", ...(hasExplicitRotation ? [] : ["angle"])];
         for (const name of layoutChannels) {
           const active = channels.get(cardId)?.[name];
           if (active && Math.abs(active.to - targetPose[name]) < 0.0001) continue;
-          const owner = operationIndexes[0] ?? operations.findIndex((op) => ["move", "moveBatch", "zone", "resize", "contentFace", "element", "thickness"].includes(op.type));
+          const owner = operationIndexes[0] ?? operations.findIndex((op) => ["move", "moveBatch", "zone", "resize", "contentFace", "element", "attachment", "thickness"].includes(op.type));
           scheduleTarget(name, targetPose[name], owner);
         }
       }

@@ -2,6 +2,7 @@ import { createCardScene } from "../../packages/card-engine/src/index.js";
 import { normalizeDragMotion } from "../../packages/card-engine/src/drag-motion.js";
 import { createLabTutorial } from "./tutorial.js";
 import { LAB_TUTORIAL_STEPS } from "./tutorial-steps.js";
+import { attachmentRenderers, counterAttachment, stampAttachment, stickerAttachment } from "./attachments.js";
 
 const stage = document.querySelector("#stage");
 const rendererStatus = document.querySelector("#renderer-status");
@@ -211,6 +212,8 @@ const scaleValue = document.querySelector("#scale-value");
 const flipXValue = document.querySelector("#flip-x-value");
 const flipYValue = document.querySelector("#flip-y-value");
 const elementList = document.querySelector("#element-list");
+const attachmentList = document.querySelector("#attachment-list");
+const attachmentStatus = document.querySelector("#attachment-status");
 const elementType = document.querySelector("#element-type");
 const addElementButton = document.querySelector("#add-element");
 const backgroundSide = document.querySelector("#background-side");
@@ -230,6 +233,10 @@ const LAB_CAMERA_FOV = 55;
 // Keep 1× at the lab's original 1.5× timing; the factor still scales
 // proportionally from that baseline (higher is faster, lower is slower).
 const LAB_MOTION_DURATION = 500 / 1.5;
+const attachmentRendererRegistry = attachmentRenderers;
+let attachmentScenarioBaseline;
+let attachmentScenarioGeneration = 0;
+const attachmentScenarioTimers = new Set();
 const DRAG_MOTION_CONTROL_FIELDS = Object.freeze([
   ["liftScale", dragLiftScale],
   ["liftTime", dragLiftTime],
@@ -1623,10 +1630,119 @@ function zoneSnapshot(cards) {
 
 function desiredSnapshot(cards = sceneCards(), options = {}) {
   return {
-    cards: cards.map((card) => configuredCard(card, options)),
+    cards: cards.map((card) => ({ ...configuredCard(card, options),
+      attachments: structuredClone(card.attachments ?? []),
+    })),
     zones: zoneSnapshot(cards),
   };
 }
+
+function selectedAttachmentCard(state = scene?.snapshot()) {
+  const cardId = state?.selection?.primaryCardId ?? [...selectedCardIds][0];
+  return state?.desired?.cards?.find((card) => card.id === cardId);
+}
+
+function attachmentOperation(action, attachment, cardId = selectedAttachmentCard()?.id) {
+  if (!cardId) return;
+  try {
+    const operation = { type: "attachment", cardId, attachmentId: attachment.id, action };
+    if (action !== "remove") operation.attachment = structuredClone(attachment);
+    scene.transact([operation], { origin: "user", zoneFacePolicy: "override" });
+    attachmentStatus.textContent = `${action[0].toUpperCase()}${action.slice(1)}d ${attachment.id}.`;
+  } catch (error) {
+    attachmentStatus.textContent = `Attachment update failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+function renderAttachmentList(state = scene?.snapshot()) {
+  if (!attachmentList) return;
+  const card = selectedAttachmentCard(state);
+  const attachments = card?.attachments ?? [];
+  attachmentList.replaceChildren(...attachments.map((attachment) => {
+    const row = document.createElement("div");
+    row.className = "attachment-row";
+    row.dataset.attachmentId = attachment.id;
+    const name = document.createElement("span");
+    name.textContent = attachment.id;
+    const meta = document.createElement("small");
+    meta.textContent = `${attachment.type} · ${attachment.affinity ?? "front"}`;
+    row.append(name, meta);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => attachmentOperation("remove", attachment));
+    row.append(remove);
+    return row;
+  }));
+  document.querySelectorAll("[data-attachment-demo]").forEach((button) => {
+    button.disabled = !card;
+  });
+}
+
+function clearAttachmentScenario() {
+  attachmentScenarioGeneration += 1;
+  for (const timer of attachmentScenarioTimers) clearTimeout(timer);
+  attachmentScenarioTimers.clear();
+  attachmentScenarioBaseline = undefined;
+  if (attachmentStatus) attachmentStatus.textContent = "Scene replacement cleared attachment state.";
+}
+
+function attachmentBaseline() {
+  if (!attachmentScenarioBaseline) attachmentScenarioBaseline = structuredClone(scene.snapshot().desired);
+  return attachmentScenarioBaseline;
+}
+
+document.querySelectorAll("[data-attachment-demo]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const card = selectedAttachmentCard();
+    if (!card) return;
+    const kind = button.dataset.attachmentDemo;
+    if (kind === "restore") {
+      const baseline = attachmentScenarioBaseline;
+      if (baseline) {
+        attachmentScenarioGeneration += 1;
+        for (const timer of attachmentScenarioTimers) clearTimeout(timer);
+        attachmentScenarioTimers.clear();
+        scene.apply(baseline);
+        selectLabCards([card.id]);
+        attachmentStatus.textContent = "Attachment scenario restored; original card state retained.";
+      }
+      return;
+    }
+    attachmentBaseline();
+    if (kind === "stamp") {
+      attachmentOperation("add", stampAttachment());
+      const pose = scene.snapshot().visual.find(({ cardId }) => cardId === card.id)?.pose ?? card.pose ?? { x: 450, y: 250 };
+      scene.transact([{ type: "move", cardId: card.id, position: { x: pose.x + 90, y: pose.y - 24 } }], { origin: "user" });
+    } else if (kind === "counter") {
+      attachmentOperation("add", counterAttachment());
+    } else if (kind === "stickers") {
+      attachmentOperation("add", stickerAttachment("sticker-alpha", "A"));
+      attachmentOperation("add", stickerAttachment("sticker-beta", "B"));
+    } else if (kind === "hide-anchor") {
+      const image = card.faces?.[card.activeFaceId]?.elements?.find(({ id }) => id === "image");
+      if (image) scene.transact([{ type: "element", cardId: card.id, elementId: "image", action: "hide" }], { origin: "user" });
+      attachmentStatus.textContent = "Image anchor hidden; stickers follow their missing-anchor policy.";
+    } else if (kind === "remove-mid-flip") {
+      const sticker = (card.attachments ?? []).find(({ id }) => id === "sticker-alpha");
+      if (sticker) {
+        const sceneInstance = scene;
+        const cardId = card.id;
+        const generation = attachmentScenarioGeneration;
+        scene.transact([{ type: "face", cardId: card.id, face: "faceDown", axis: "y", angle: 180 }], { origin: "user", zoneFacePolicy: "override" });
+        const timer = setTimeout(() => {
+          attachmentScenarioTimers.delete(timer);
+          if (scene !== sceneInstance || generation !== attachmentScenarioGeneration) return;
+          const current = scene.snapshot().desired.cards.find(({ id }) => id === cardId);
+          const currentSticker = current?.attachments?.find(({ id }) => id === sticker.id);
+          if (currentSticker) attachmentOperation("remove", currentSticker, cardId);
+        }, 80);
+        attachmentScenarioTimers.add(timer);
+        attachmentStatus.textContent = "Removing sticker-alpha during the flip.";
+      }
+    }
+  });
+});
 
 function rememberResetBaselines(cards) {
   for (const card of cards) {
@@ -2376,6 +2492,7 @@ function respondToDrop(sceneInstance, lifecycle, intent) {
 
 function startScene(cards = sceneCards()) {
   const previousSelection = scene?.snapshot().selection;
+  clearAttachmentScenario();
   rememberResetBaselines(cards);
   const desired = desiredSnapshot(cards);
   dragMotionState = normalizeDragMotion(readDragMotionControls(), dragMotionState);
@@ -2396,6 +2513,15 @@ function startScene(cards = sceneCards()) {
       templates: {
         illustrated: { width: 220, height: 307, thickness: 6, shape: "rounded-rectangle" },
         shield: { width: 220, height: 307, thickness: 6, shape: "shield" },
+      },
+      elementRenderers: attachmentRendererRegistry,
+      onAction: ({ cardId, attachmentId, controlId }) => {
+        if (controlId !== "increment" || !createdScene) return;
+        const current = createdScene.snapshot().desired.cards.find(({ id }) => id === cardId)?.attachments
+          ?.find(({ id }) => id === attachmentId);
+        if (!current) return;
+        createdScene.transact([{ type: "attachment", cardId, attachmentId, action: "update",
+          attachment: { ...current, content: { ...(current.content ?? {}), value: Number(current.content?.value ?? 0) + 1 } } }], { origin: "user" });
       },
       camera: {
         // A camera-facing lift is invisible in an orthographic projection.
@@ -2478,6 +2604,7 @@ function startScene(cards = sceneCards()) {
 }
 
 function applyLabCards(cards, options = {}) {
+  clearAttachmentScenario();
   const previousSelection = scene.snapshot().selection;
   const requestedSelection = [...selectedCardIds].filter((id) => cards.some((card) => card.id === id));
   scene.apply(desiredSnapshot(cards, options));
@@ -3068,6 +3195,7 @@ function updateStatus(state = scene.snapshot(), interaction = state.interaction,
     renderZones(state);
     renderElementList(state);
     syncInspectionControls(state);
+    renderAttachmentList(state);
   }
   updateCardListDepth(state);
   updateSummaryMeta(state);

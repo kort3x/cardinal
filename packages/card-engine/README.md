@@ -34,6 +34,36 @@ motion such as a velocity loop. It emits a lightweight `pose-change` event and
 does not change zone membership or apply a target transition. Use `transact()`
 for committed moves, zone changes, and animated target behavior.
 
+Cards may carry live, card-owned attachments through the public transaction
+interface. Attachments use the same registered `elementRenderers` as face
+elements:
+
+```js
+scene.transact([{
+  type: "attachment",
+  cardId: "card-7",
+  attachmentId: "votes",
+  action: "add",
+  attachment: {
+    type: "counter",
+    content: { value: 1 },
+    affinity: "front",
+    layout: { mode: "overlay", anchor: "card", x: 0.7, y: 0.05, width: 0.2, height: 0.1 },
+    controls: [{ id: "increment", label: "Increment" }],
+  },
+}]);
+```
+
+Attachment IDs are unique within the card and cannot collide with ordinary
+face element IDs. `affinity` defaults to `front` and may be `front`, `back`, or
+`both`; `faceId` selects one named content face. Flow attachments participate
+in content sizing. Overlay attachments may anchor to `card`, an ordinary face
+element, or another attachment, provided the anchor graph is acyclic. Missing
+anchors hide by default or follow the card when `missingAnchor: "card"` is
+configured. A registered type may provide `accessibleLabel({ element })` and
+`onAction({ cardId, attachmentId, controlId })`; inspection previews never
+execute controls.
+
 ## Responsive zones
 
 Zones own the sole ordered membership list. Supply either spatial `geometry` or

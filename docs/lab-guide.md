@@ -253,3 +253,26 @@ not persist changes.
 For the engine API and consumer integration examples, see the [Card Engine
 README](../packages/card-engine/README.md). For browser verification workflows,
 see the [browser testing guide](verification/browser-testing.md).
+
+
+## Dynamic attachments
+
+The right rail's **Attachments** panel is collapsed initially and its actions are enabled only when a card is selected. It demonstrates the consumer-facing attachment API with three project renderers:
+
+- **Stamp travelling card** adds a `stamp` overlay and moves the selected card.
+- **Add counter** adds a flow `counter`; its renderer-owned projected button supports pointer and keyboard input, and the Lab's `onAction` callback increments the value through an attachment transaction.
+- **Add two stickers** adds two independently identified `sticker` overlays anchored to the card's `image` element.
+- **Hide image anchor** exercises the default `missingAnchor: "hide"` behavior.
+- **Remove sticker mid-flip** removes one sticker while the card changes face.
+- **Restore scenario** reapplies the original desired snapshot captured before the demo.
+
+The existing scene fixtures clear the attachment demo state when they replace the scene. Attachment rendering and controls are owned by the engine renderer; the Lab supplies registered type renderers and business meaning in [attachments.js](../examples/card-engine-lab/attachments.js).
+
+Run the focused browser acceptance after the attachment engine is ready. Check that port 9469 is unused before starting it:
+
+```sh
+lsof -nP -iTCP:9469 -sTCP:LISTEN
+CARDINAL_CHROME_PORT=9469 npm run test:chrome:attachments
+```
+
+The acceptance uses public scene operations for setup and CDP mouse/keyboard input for the projected counter control. It records browser environment data and writes the visible attachment screenshot to `/tmp/cardinal-attachments-visible.png`. Follow [docs/verification/browser-testing.md](verification/browser-testing.md) for browser setup and evidence requirements.

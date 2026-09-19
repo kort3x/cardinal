@@ -1,3 +1,5 @@
+import { attachmentContent } from "./attachments.js";
+
 const DEFAULT_READABLE_SCALE = 1.25;
 const DEFAULT_LIFT = 24;
 const VIEWPORT_GUTTER = 12;
@@ -86,7 +88,7 @@ function cardVisible(parts, cardId, card) {
 }
 
 function contentFace(card, faceId) {
-  return card?.faces?.[faceId] ?? null;
+  return attachmentContent(card, faceId) ?? null;
 }
 
 function faceCopy(face) {

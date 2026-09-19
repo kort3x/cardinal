@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { createHeadlessRenderer, filterContentElements } from "../renderer.js";
+import { attachmentContent } from "../attachments.js";
 import { DEFAULT_CARD_THICKNESS, cardDimensions, cardThickness, spacerHeight } from "../layout.js";
 import { createTexturePool } from "./texture-pool.js";
+import { reconcileAttachmentControls, resolveAttachmentGeometry } from "./attachment-renderer.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
@@ -273,6 +275,9 @@ function imageSourcesForContent(content) {
     ...contentElements(content)
       .filter((element) => elementVisible(element) && element.type === "image")
       .map((element) => elementImageSource(element)),
+    ...contentElements(content)
+      .filter((element) => elementVisible(element) && element.type !== "image")
+      .map((element) => elementContent(element)?.src),
   ].filter(Boolean);
 }
 
@@ -430,55 +435,28 @@ export function drawCardTextureContent(context, content, dimensions, images = nu
   context.fillStyle = content?.background ?? "#ffffff";
   context.fillRect(0, 0, dimensions.width, dimensions.height);
   drawBackgroundImage(context, content, dimensions, images);
-  const inner = 18;
-  const innerWidth = Math.max(1, dimensions.width - inner * 2);
-  const deferredIds = new Set(deferFlowIds ?? []);
-  const entries = sortedElements(content, true);
-  const flow = entries.filter(({ element }) => (element.layout?.mode ?? "flow") === "flow" && !deferredIds.has(element.id));
-  const overlays = entries
-    .filter(({ element }) => element.layout?.mode === "overlay")
-    .filter(({ element }) => elementVisible(element))
-    .sort((first, second) => (first.element.layout?.zIndex ?? 0) - (second.element.layout?.zIndex ?? 0)
-      || String(first.element.id).localeCompare(String(second.element.id)));
-  const flowHeights = flow.map(({ element }) => registeredElementHeight(context, element, dimensions, innerWidth, elementRenderers)
-    ?? flowElementHeight(context, element, dimensions, innerWidth));
-  const requiredHeight = inner + flowHeights.reduce((total, height) => total + height + 10, 0) + 8;
-  const transientGap = preserveBottom && Number.isInteger(gapIndex) && gapIndex >= 0 && gapIndex <= flow.length
-    ? Math.max(0, dimensions.height - requiredHeight)
-    : 0;
-  let cursor = inner;
-
-  for (const [index, { element }] of flow.entries()) {
-    const elementHeight = flowHeights[index];
-    if (index === gapIndex) cursor += transientGap;
-    if (!elementVisible(element)) {
-      cursor += elementHeight + 10;
-      continue;
-    }
-    if (drawRegisteredElement(context, element, dimensions, inner, cursor, innerWidth, elementHeight, elementRenderers, images, content)) {
-      // Project-defined renderers own their drawing while Cardinal owns flow geometry.
-    } else {
-      drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, inner, cursor, innerWidth, "#a85f3f");
-    }
-    cursor += elementHeight + 10;
-  }
-
-  for (const { element } of overlays) {
-    const layout = element.layout ?? {};
-    const x = (layout.x ?? 0) * dimensions.width;
-    const y = (layout.y ?? 0) * dimensions.height;
-    const width = (layout.width ?? 0.5) * dimensions.width;
-    const height = (layout.height ?? 0.2) * dimensions.height;
-    if (drawRegisteredElement(context, element, dimensions, x, y, width, height, elementRenderers, images, content)) {
-      // Project-defined renderers own their drawing while Cardinal owns overlay geometry.
-    } else {
+  const boxes = resolveAttachmentGeometry(content, dimensions, elementRenderers,
+    (element, width) => registeredElementHeight(context, element, dimensions, width, elementRenderers)
+      ?? flowElementHeight(context, element, dimensions, width), null,
+    { preserveBottom, deferFlowIds, gapIndex });
+  const ordered = [...boxes.values()].filter(({ element }) => elementVisible(element))
+    .sort((a, b) => (a.mode === "overlay") - (b.mode === "overlay")
+      || (a.mode === "overlay" ? (a.zIndex ?? 0) - (b.zIndex ?? 0) || String(a.element.id).localeCompare(String(b.element.id)) : 0));
+  for (const { element, mode, x, y, width, height } of ordered) {
+    // Overlay attachments have their own ordered, optionally clipped surfaces.
+    if (mode === "overlay" && element.source === "attachment") continue;
+    if (!drawRegisteredElement(context, element, dimensions, x, y, width, height, elementRenderers, images, content)) {
       drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, dimensions, x, y, width, "#a85f3f");
     }
   }
 }
 
-function accessibleElementText(content) {
+function accessibleElementText(content, accessibleLabel, elementRenderers = {}) {
   return sortedElements(content).map(({ element }) => {
+    if (element.source === "attachment") {
+      const label = accessibleLabel?.({ element }) ?? elementRenderers[element.type]?.accessibleLabel?.({ element });
+      if (label !== undefined) return label;
+    }
     if (element.type === "text") return elementText(element);
     if (element.type === "image") return elementImageAlt(element);
     if (element.type === "spacer") return "";
@@ -487,13 +465,11 @@ function accessibleElementText(content) {
 }
 
 function logicalFaceContent(card, side, presentation) {
-  const activeFace = card.faces[card.activeFaceId] ?? {};
-  if (side === "back") return filterContentElements(card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed" }, style: { variant: "title" } }] }, presentation);
+  if (side === "back") return filterContentElements(attachmentContent(card, "back", presentation) ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed" }, style: { variant: "title" } }] }, presentation);
   if (card.faceUp === false) return { elements: [] };
-  if (!card.faceCycle || !card.faceCycleNextFaceId) return filterContentElements(activeFace, presentation);
+  if (!card.faceCycle || !card.faceCycleNextFaceId) return filterContentElements(attachmentContent(card, card.activeFaceId, presentation) ?? {}, presentation);
 
-  const destinationFace = card.faces[card.faceCycleNextFaceId ?? card.activeFaceId] ?? activeFace;
-  return filterContentElements(destinationFace, presentation);
+  return filterContentElements(attachmentContent(card, card.faceCycleNextFaceId ?? card.activeFaceId, presentation) ?? {}, presentation);
 }
 
 export function createCardGeometry(shape, {
@@ -813,6 +789,7 @@ export function selectCardIntersection(intersections, cards) {
 }
 
 export function cardSideForIntersection(object, mounted) {
+  if (object.userData?.attachmentId) return object.userData.cardSide ?? "edge";
   return object === mounted.back || object === mounted.backBase ? "back"
     : object === mounted.front || object === mounted.frontBase ? "front"
       : "edge";
@@ -821,11 +798,11 @@ export function cardSideForIntersection(object, mounted) {
 function accessibleContent(card, pose, presentation) {
   const side = card.faceUp === false ? "back" : physicalSide(pose);
   if (side === "edge") return { side, content: { elements: [{ id: "edge", type: "text", content: { text: "Card edge" } }] } };
-  if (side === "back") return { side, content: filterContentElements(card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, presentation) };
-  return { side, content: filterContentElements(card.faces?.[card.faceCycleNextFaceId ?? card.activeFaceId] ?? {}, presentation) };
+  if (side === "back") return { side, content: filterContentElements(attachmentContent(card, "back", presentation) ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, presentation) };
+  return { side, content: filterContentElements(attachmentContent(card, card.faceCycleNextFaceId ?? card.activeFaceId, presentation) ?? {}, presentation) };
 }
 
-export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {}, elementRenderers = {}, onStatus = () => {} } = {}) {
+export function createWebGLRenderer({ element, templates = {}, camera: cameraOptions = {}, elementRenderers = {}, onStatus = () => {}, onAction, accessibleLabel } = {}) {
   if (!element) return createHeadlessRenderer({ reason: "no-element" });
   if (typeof document === "undefined") throw new Error("Cardinal WebGL renderer requires a browser document");
 
@@ -882,6 +859,9 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   const accessibilityLayer = document.createElement("div");
   accessibilityLayer.className = "cardinal-webgl-accessibility";
   element.append(accessibilityLayer);
+  const attachmentControlsLayer = document.createElement("div");
+  attachmentControlsLayer.className = "cardinal-webgl-attachment-controls-layer";
+  element.append(attachmentControlsLayer);
 
   let contextAvailable = true;
   let disposed = false;
@@ -914,6 +894,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
   let selectionHighlightVisible = true;
   const imageCache = new Map();
   const texturePool = createTexturePool();
+  const measureContext = document.createElement("canvas").getContext("2d");
   const geometryCache = createGeometryCache();
   const selectionFrameMaterials = {
     primary: new THREE.LineBasicMaterial({ color: 0xffd166, depthWrite: false, toneMapped: false }),
@@ -1067,6 +1048,119 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     return texture;
   }
 
+  function makeAttachmentTexture(element, width, height) {
+    const resolution = Math.min(4, Math.max(2, (globalThis.devicePixelRatio || 1) * 2));
+    const canvas2d = document.createElement("canvas");
+    canvas2d.width = Math.max(1, Math.round(width * resolution));
+    canvas2d.height = Math.max(1, Math.round(height * resolution));
+    const context = canvas2d.getContext("2d");
+    if (!context) return null;
+    context.scale(resolution, resolution);
+    context.clearRect(0, 0, width, height);
+    const content = { textColor: "#17212b", mutedTextColor: "#78838c" };
+    const source = elementContent(element)?.src;
+    const images = source && imageCache.get(source)?.loaded ? new Map([[source, imageCache.get(source).image]]) : null;
+    if (!drawRegisteredElement(context, element, { width, height }, 0, 0, width, height, elementRenderers, images, content)) {
+      drawTextElement(context, { ...element, content: { text: `Unsupported element: ${element.type}` } }, { width, height }, 0, 0, width, "#a85f3f");
+    }
+    const texture = new THREE.CanvasTexture(canvas2d);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = webgl.capabilities.getMaxAnisotropy();
+    work.textureCreates += 1;
+    return texture;
+  }
+
+  function makeClippedAttachmentMaterial(texture, dimensions, box) {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: texture },
+        box: { value: new THREE.Vector4(box.x, box.y, box.width, box.height) },
+        dimensions: { value: new THREE.Vector2(dimensions.width, dimensions.height) },
+      },
+      vertexShader: `varying vec2 cardinalLocal; void main() { cardinalLocal = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform sampler2D map; uniform vec4 box; uniform vec2 dimensions; varying vec2 cardinalLocal;
+        void main() {
+          vec2 point = vec2(cardinalLocal.x + dimensions.x * 0.5, dimensions.y * 0.5 - cardinalLocal.y);
+          if (point.x < box.x || point.y < box.y || point.x > box.x + box.z || point.y > box.y + box.w) discard;
+          vec2 uv = vec2((point.x - box.x) / max(box.z, 0.0001), 1.0 - (point.y - box.y) / max(box.w, 0.0001));
+          gl_FragColor = texture2D(map, uv);
+          if (gl_FragColor.a < 0.001) discard;
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+  }
+
+  function attachmentGeometry(mounted, content, dimensions, side, presentation) {
+    return resolveAttachmentGeometry(content, dimensions, elementRenderers,
+      (element, width) => registeredElementHeight(measureContext, element, dimensions, width, elementRenderers)
+        ?? flowElementHeight(measureContext, element, dimensions, width), presentation,
+      mounted[`${side}LayoutOptions`]);
+  }
+
+  function updateAttachmentPlanes(mounted, card, content, dimensions, side, presentation) {
+    const boxes = attachmentGeometry(mounted, content, dimensions, side, presentation);
+    const wanted = new Map();
+    for (const [id, box] of side === "edge" ? [] : boxes) {
+      const element = box.element;
+      if (element?.source !== "attachment" || box.mode !== "overlay") continue;
+      const source = elementImageSource(element) ?? elementContent(element)?.src;
+      const imageEntry = source ? cachedImage(source) : null;
+      const key = JSON.stringify([mounted.geometryKey, id, element, box.width, box.height, box.x, box.y, box.clip, box.zIndex, side, imageEntry?.loaded === true]);
+      wanted.set(id, { element, box, key, imageEntry });
+    }
+    const orderedWanted = [...wanted.values()].sort((first, second) =>
+      (first.box.zIndex ?? 0) - (second.box.zIndex ?? 0)
+      || String(first.element.attachmentId ?? first.element.id).localeCompare(String(second.element.attachmentId ?? second.element.id)));
+    for (const [index, next] of orderedWanted.entries()) next.renderOrder = 3 + index;
+    for (const [id, current] of mounted.attachmentPlanes) {
+      const next = wanted.get(id);
+      if (next?.key === current.key) continue;
+      mounted.faceGroup.remove(current.mesh);
+      current.material.map = null;
+      current.texture.dispose();
+      current.material.dispose();
+      if (current.ownsGeometry) current.geometry.dispose();
+      mounted.attachmentPlanes.delete(id);
+    }
+    for (const [id, next] of wanted) {
+      const existing = mounted.attachmentPlanes.get(id);
+      if (existing) {
+        existing.mesh.renderOrder = next.renderOrder;
+        continue;
+      }
+      const texture = makeAttachmentTexture(next.element, Math.max(1, next.box.width), Math.max(1, next.box.height));
+      if (!texture) continue;
+      const material = next.box.clip
+        ? makeClippedAttachmentMaterial(texture, dimensions, next.box)
+        : new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+      const geometry = next.box.clip ? mounted.front.geometry : new THREE.PlaneGeometry(next.box.width, next.box.height);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(next.box.clip ? 0 : (side === "back" ? -(next.box.x + next.box.width / 2 - dimensions.width / 2) : next.box.x + next.box.width / 2 - dimensions.width / 2),
+        next.box.clip ? 0 : dimensions.height / 2 - next.box.y - next.box.height / 2,
+        side === "back" ? -mounted.thickness / 2 - 0.08 : mounted.thickness / 2 + 0.08);
+      mesh.rotation.y = side === "back" ? Math.PI : 0;
+      mesh.renderOrder = next.renderOrder;
+      mesh.userData.attachmentId = id;
+      mesh.userData.cardSide = side;
+      mesh.userData.clip = next.box.clip;
+      mounted.faceGroup.add(mesh);
+      const record = { mesh, material, geometry: mesh.geometry, texture, key: next.key, ownsGeometry: !next.box.clip };
+      mounted.attachmentPlanes.set(id, record);
+      if (next.imageEntry && !next.imageEntry.loaded) {
+        next.imageEntry.promise.then(() => {
+          if (disposed || cards.get(card.id) !== mounted || mounted.attachmentPlanes.get(id) !== record) return;
+          update(mounted.lastCard, mounted.lastPose, { render: true, presentation: mounted.lastPresentation });
+        }, () => {});
+      }
+    }
+  }
+
   function mount(card, dimensions, thickness) {
     if (cards.has(card.id)) return cards.get(card.id);
     const width = dimensions.width;
@@ -1194,6 +1288,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       width,
       height,
       thickness,
+      attachmentPlanes: new Map(),
+      controlsMounted: false,
     };
     mounted.body = body;
     mounted.frontBase = frontBase;
@@ -1262,6 +1358,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       deferFlowIds: isResizing && isGrowing ? transition.deferFlowIds : [],
       gapIndex: transition.gapIndex,
     };
+    mounted[`${side}LayoutOptions`] = options;
     const key = JSON.stringify([structureKey, contentKey(content, dimensions), options.preserveBottom === true, options.deferFlowIds, options.gapIndex]);
     const keyName = `${side}Key`;
     if (mounted[keyName] === key) {
@@ -1270,7 +1367,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     }
     // Project renderers can depend on state outside the serialized face inputs.
     // Give them private textures; built-in faces share only active references.
-    const poolKey = Object.keys(elementRenderers).length ? Symbol()
+    const usesCustomRenderer = contentElements(content).some((element) => elementRenderers[element.type]);
+    const poolKey = usesCustomRenderer ? Symbol()
       : JSON.stringify([globalThis.devicePixelRatio || 1, key]);
     const lease = texturePool.acquire(poolKey, () => makeTexture(content, dimensions, options));
     if (!lease) return;
@@ -1349,12 +1447,12 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (mounted.drawOrder !== drawOrder) drawOrderRevision += 1;
     mounted.drawOrder = drawOrder;
     updateGeometry(mounted, card, dimensions, thickness);
-    const renderedScale = pose.scale * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
+    const controlsRenderedScale = pose.scale * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
     const x = pose.x - center.x;
     const y = center.y - pose.y;
     mounted.cardGroup.position.set(x, y, pose.z);
     if (!interactionPriorityCardIds.has(card.id)) mounted.cardGroup.renderOrder = mounted.drawOrder;
-    mounted.cardGroup.scale.setScalar(renderedScale);
+    mounted.cardGroup.scale.setScalar(controlsRenderedScale);
     mounted.bodyGroup.rotation.order = "ZXY";
     mounted.bodyGroup.rotation.set(radians(pose.tiltX), radians(pose.tiltY), radians(pose.angle));
     mounted.faceGroup.rotation.order = "YXZ";
@@ -1398,6 +1496,12 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.textureTargetHeight = targetDimensions.height;
       mounted.texturePresentationKey = presentationKey;
     }
+    const attachmentSide = card.faceUp === false && physical !== "back" ? "edge" : physical;
+    const attachmentList = card.attachments ?? [];
+    if (attachmentList.length > 0 || mounted.attachmentPlanes.size > 0) {
+      updateAttachmentPlanes(mounted, card, logicalFaceContent(card, attachmentSide === "back" ? "back" : "front", presentation), dimensions,
+        attachmentSide, presentation);
+    }
     const accessibilitySelectionChanged = mounted.accessibilityCard !== card
       || mounted.accessibilityFaceId !== card.activeFaceId
       || mounted.accessibilityNextFaceId !== card.faceCycleNextFaceId
@@ -1406,7 +1510,8 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     if (accessibilitySelectionChanged) {
       const accessibleContentKey = contentIdentityKey(accessible.content);
       if (mounted.accessibilityContentKey !== accessibleContentKey || accessibilitySelectionChanged) {
-        const accessibleText = accessible.side === "back" ? "Concealed card" : accessibleElementText(accessible.content);
+        const description = accessibleElementText(accessible.content, accessibleLabel, elementRenderers);
+        const accessibleText = accessible.side === "back" ? ["Concealed card", description].filter(Boolean).join(". ") : description;
         mounted.accessibilityShell.textContent = accessibleText || "Card";
         mounted.accessibilityShell.setAttribute("aria-label", mounted.accessibilityShell.textContent);
       }
@@ -1418,6 +1523,59 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       mounted.accessibilityPresentationKey = presentationKey;
     }
     updateReadyVisibility(mounted);
+    const controlsSide = card.faceUp === false
+      ? (physical === "back" ? "back" : "edge")
+      : physical;
+    const controlsVisible = mounted.cardGroup.visible && pose.visible !== false && controlsSide !== "edge"
+      && card.feedback?.disabled !== true;
+    if (attachmentList.length > 0 || mounted.controlsMounted) {
+      const controlsContent = logicalFaceContent(card, controlsSide === "back" ? "back" : "front", presentation);
+      const controlsBoxes = attachmentGeometry(mounted, controlsContent, dimensions, controlsSide, presentation);
+      reconcileAttachmentControls({
+        shell: mounted.accessibilityShell,
+        layer: attachmentControlsLayer,
+        card,
+        content: controlsContent,
+        accessibleLabel: accessibleLabel ?? (({ element }) => elementRenderers[element.type]?.accessibleLabel?.({ element })),
+        onAction,
+        canActivate: (event) => {
+          if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return true;
+          const point = clientToScene({ x: event.clientX, y: event.clientY });
+          const hit = point ? hitTest(point) : null;
+          return !hit || hit.cardId === card.id;
+        },
+        visible: controlsVisible,
+        positionFor: (attachment) => {
+          const box = controlsBoxes.get(attachment.id);
+          if (!box) return null;
+          const clipped = box.clip !== false;
+          const left = clipped ? Math.max(0, box.x) : box.x;
+          const top = clipped ? Math.max(0, box.y) : box.y;
+          const right = clipped ? Math.min(dimensions.width, box.x + box.width) : box.x + box.width;
+          const bottom = clipped ? Math.min(dimensions.height, box.y + box.height) : box.y + box.height;
+          if (right <= left || bottom <= top) return null;
+          const project = (localX, localY) => {
+            const point = new THREE.Vector3(
+              (controlsSide === "back" ? -1 : 1) * (localX - dimensions.width / 2),
+              dimensions.height / 2 - localY,
+              (controlsSide === "back" ? -1 : 1) * (mounted.thickness / 2 + 0.1),
+            );
+            const world = mounted.faceGroup.localToWorld(point);
+            return sceneToClient({ x: world.x + center.x, y: center.y - world.y, z: world.z });
+          };
+          const anchor = project((left + right) / 2, (top + bottom) / 2);
+          const hit = hitTest(clientToScene(anchor));
+          if ((clipped && !hit) || (hit && hit.cardId !== card.id)) return null;
+          const points = [[left, top], [right, top], [right, bottom], [left, bottom]].map(([x, y]) => project(x, y));
+          const bounds = canvasBounds();
+          return {
+            x: Math.min(...points.map((point) => point.x)) - bounds.left,
+            y: Math.min(...points.map((point) => point.y)) - bounds.top,
+          };
+        },
+      });
+      mounted.controlsMounted = attachmentList.length > 0;
+    }
     if (interactionSessions.length > 0 && !interactionPriorityCardIds.has(card.id)) applyInteractionPriority();
     if (shouldRender) render();
   }
@@ -1731,6 +1889,15 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
     mounted.backLease?.release();
     mounted.frontMaterial.dispose();
     mounted.backMaterial.dispose();
+    for (const { material, texture, geometry, ownsGeometry } of mounted.attachmentPlanes.values()) {
+      texture?.dispose?.();
+      material.map = null;
+      material.dispose();
+      if (ownsGeometry) geometry.dispose();
+    }
+    mounted.attachmentPlanes.clear();
+    const escapedCardId = globalThis.CSS?.escape?.(String(cardId)) ?? String(cardId).replaceAll('"', '\\"');
+    attachmentControlsLayer.querySelector?.(`.cardinal-webgl-attachment-controls[data-card-id="${escapedCardId}"]`)?.remove();
     cards.delete(cardId);
     cardsRevision += 1;
     render();
@@ -1835,6 +2002,7 @@ export function createWebGLRenderer({ element, templates = {}, camera: cameraOpt
       webgl.dispose();
       canvas.remove();
       accessibilityLayer.remove();
+      attachmentControlsLayer.remove();
       element.classList.remove("cardinal-stage--webgl");
     },
     get reason() {

@@ -1,4 +1,5 @@
 import { DEFAULT_CARD_THICKNESS, cardDimensions, spacerHeight } from "./layout.js";
+import { attachmentContent } from "./attachments.js";
 
 const noop = () => {};
 
@@ -10,7 +11,7 @@ export function filterContentElements(content = {}, presentation) {
     ...content,
     elements: (content.elements ?? [])
       .filter((element) => !allowed || allowed.has(element.id))
-      .map((element) => Object.hasOwn(visibility, element.id)
+      .map((element) => element.attachmentVisibilityResolved ? element : Object.hasOwn(visibility, element.id)
         ? { ...element, visible: visibility[element.id] }
         : element),
   };
@@ -146,7 +147,7 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
     const mounted = mount(card);
     const presentation = options.presentation;
     const dimensions = cardDimensions(card, templates, elementRenderers, presentation);
-    const face = card.faces?.[card.activeFaceId] ?? {};
+    const face = attachmentContent(card, card.activeFaceId, presentation) ?? {};
     const renderedScale = pose.scale * (pose.layoutScale ?? 1) * (pose.depthScale ?? 1);
     const renderedWidth = dimensions.width * renderedScale;
     const renderedHeight = dimensions.height * renderedScale;
@@ -175,7 +176,8 @@ export function createRenderer({ element, templates = {}, elementRenderers = {},
     mounted.back.setAttribute("aria-hidden", String(card.faceUp !== false));
     updateExtrusionLayers(mounted.edgeLayers, renderedScale);
     renderContent(mounted.front, card.faceUp !== false ? face : { elements: [] }, dimensions, presentation);
-    renderContent(mounted.back, card.back ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, dimensions, presentation);
+    renderContent(mounted.back, attachmentContent(card, "back", presentation)
+      ?? { elements: [{ id: "concealed", type: "text", content: { text: "Concealed card" } }] }, dimensions, presentation);
   }
 
   function updateExtrusionLayers(edgeLayers, renderedScale) {

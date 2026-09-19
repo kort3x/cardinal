@@ -715,6 +715,42 @@ departing elements cannot retain active hit targets. Removing a focused attachme
 returns focus to the stable card shell. Projects provide attachment rendering and
 business meaning; the engine owns lifecycle, placement, and animation.
 
+The public attachment collection is `card.attachments`. Each instance has an
+`id`, a registered `type`, content, and an element `layout`. Its ID is unique
+within the card and cannot collide with ordinary face elements. Use the existing
+`elementRenderers` registry to supply `measure` and `draw` behavior. Attachments
+are projected into face content for layout, rendering and inspection; projection
+does not duplicate the stored instance.
+
+```js
+scene.transact([{
+  type: "attachment", cardId: "card-1", attachmentId: "sticker-1",
+  action: "add",
+  attachment: {
+    type: "sticker", content: { label: "Approved" }, affinity: "front",
+    layout: {
+      mode: "overlay", anchor: "image", missingAnchor: "hide",
+      x: 0.7, y: 0.1, width: 0.25, height: 0.25,
+      offsetX: 0, offsetY: 0, clip: true, zIndex: 1,
+    },
+  },
+}]);
+```
+
+`update`, `hide`, `show`, and `remove` address the same `attachmentId`.
+`affinity` defaults to `front`; `back` and `both` select physical surface
+affinity, while an optional `faceId` targets a particular named content face.
+Overlay coordinates and size are normalized to the anchor box; offsets use
+unscaled local card units. `anchor: "card"` uses the card bounds. A missing or
+hidden region hides its attachments unless `missingAnchor: "card"` explicitly
+requests fallback. `clip: false` permits rendering outside the card silhouette.
+
+An instance may supply serialized `controls: [{ id, label, disabled }]`.
+Registered renderers can provide `accessibleLabel({ element })` and
+`onAction({ cardId, attachmentId, controlId })`. The consumer supplies localized
+labels and decides which transaction an action causes. Controls are available
+only on the visible, permitted surface; inspection remains read-only.
+
 ## Content faces and concealment
 
 Each named content face can define its own elements, layout constraints, and art.

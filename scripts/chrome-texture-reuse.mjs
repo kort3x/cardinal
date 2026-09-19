@@ -181,8 +181,8 @@ export async function runTextureReuse({ command }) {
           }]}},back:{elements:[]},
         }));
         custom.apply({cards:customCards,zones:[{id:'custom',geometry:{x:0,y:0,width:400,height:300,depth:0},cardIds:customCards.map(card=>card.id)}]});
-        record('custom drawing keeps private textures per card',draws === 2
-          && custom.rendererDiagnostics().textures.active === 4,custom.rendererDiagnostics());
+        record('custom faces stay private while ordinary backs still share',draws === 2
+          && custom.rendererDiagnostics().textures.active === 3,custom.rendererDiagnostics());
       } finally {
         custom?.destroy();
         host.remove();

@@ -1,4 +1,5 @@
 import { DEFAULT_POSE } from "./model.js";
+import { attachmentContent } from "./attachments.js";
 
 export const DEFAULT_CARD_DIMENSIONS = Object.freeze({ width: 180, height: 250 });
 export const DEFAULT_CARD_THICKNESS = 6;
@@ -16,6 +17,7 @@ function elementIncluded(element, presentation) {
 
 function elementVisible(element, presentation) {
   if (!elementIncluded(element, presentation)) return false;
+  if (element.attachmentVisibilityResolved) return element.visible !== false;
   if (Object.hasOwn(presentation?.visibility ?? {}, element?.id)) {
     return presentation.visibility[element.id] === true;
   }
@@ -96,7 +98,7 @@ export function cardDimensions(card, templates = {}, elementRenderers = {}, pres
     height: card.dimensions?.height ?? template.height ?? DEFAULT_CARD_DIMENSIONS.height,
   };
   const sizing = card.sizing ?? template.sizing;
-  if (sizing?.mode === "content") dimensions.height = contentHeight(card.faces?.[card.activeFaceId], dimensions, sizing, elementRenderers, presentation);
+  if (sizing?.mode === "content") dimensions.height = contentHeight(attachmentContent(card, card.activeFaceId, presentation), dimensions, sizing, elementRenderers, presentation);
   return dimensions;
 }
 

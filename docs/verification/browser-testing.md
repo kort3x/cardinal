@@ -12,6 +12,7 @@ skill is required. Run commands from the repository root.
 | Chrome guided Lab tutorial | `npm run test:chrome:tutorial` | Spotlight tour, keyboard isolation, restoration and narrow viewport navigation |
 | Chrome inspection and content faces | `npm run test:chrome:inspection` | Live previews, face selection, privacy, keyboard/touch and viewport bounds |
 | Chrome element regressions | `npm run test:chrome` | The `elements` scenario only |
+| Chrome attachment lifecycle | `npm run test:chrome:attachments` | Stamps, counters, anchors, face affinity and control cleanup |
 | Chrome drag verification | `npm run test:chrome:drag` | Real mouse, keyboard and emulated touch input |
 | Chrome batch selection/drag | `npm run test:chrome:batch` | Cohort selection, atomic transfers and real input |
 | Chrome drag geometry | `npm run test:chrome:drag-geometry` | Mesh picking, overlap precedence and perspective drag fixtures |
@@ -37,6 +38,7 @@ is necessary only when extending or diagnosing them.
 | Guided tutorial content, overlays and navigation | `tutorial` |
 | Inspection, named content faces, concealed previews and related navigation | `inspection` |
 | Elements, backgrounds, content resize | `elements` |
+| Dynamic attachments, anchor fallback, face affinity and controls | `attachments` |
 | Rails, controls, full-window layout | `layout` |
 | Camera/stage resizing and movement bounds | `resize`, `movement` |
 | Composed motion, flipping, scale, reduced motion | `acceptance` |

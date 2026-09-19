@@ -1,4 +1,5 @@
 import { normalizeSortPolicy } from "./sort.js";
+import { normalizeAttachment, validateAttachmentAnchors } from "./attachments.js";
 
 export const DEFAULT_POSE = Object.freeze({
   x: 0,
@@ -296,6 +297,20 @@ export function normalizeElement(element, index = 0) {
   if (layout.zIndex !== undefined && !Number.isFinite(layout.zIndex)) {
     throw new TypeError(`Element ${element.id} overlay zIndex must be finite`);
   }
+  if (layout.anchor !== undefined && (typeof layout.anchor !== "string" || !layout.anchor)) {
+    throw new TypeError(`Element ${element.id} anchor must be card or a non-empty element ID`);
+  }
+  if (layout.missingAnchor !== undefined && !["hide", "card"].includes(layout.missingAnchor)) {
+    throw new TypeError(`Element ${element.id} missingAnchor must be hide or card`);
+  }
+  for (const name of ["offsetX", "offsetY"]) {
+    if (layout[name] !== undefined && !Number.isFinite(layout[name])) {
+      throw new TypeError(`Element ${element.id} ${name} must be finite`);
+    }
+  }
+  if (layout.clip !== undefined && typeof layout.clip !== "boolean") {
+    throw new TypeError(`Element ${element.id} clip must be boolean`);
+  }
   let content = element.content;
   if (element.type === "spacer") {
     const height = content?.height ?? 20;
@@ -442,6 +457,16 @@ export function normalizeSnapshot(snapshot) {
     else normalizedCard.feedback = feedback;
     normalizedCard.faces = Object.fromEntries(Object.entries(faces).map(([faceId, face]) => [faceId, normalizeFace(face)]));
     if (card.back) normalizedCard.back = normalizeFace(card.back);
+    const ordinaryIds = new Set(Object.values(normalizedCard.faces).flatMap((face) => face.elements.map(({ id }) => id)));
+    if (normalizedCard.back) for (const element of normalizedCard.back.elements) ordinaryIds.add(element.id);
+    const attachments = (card.attachments ?? []).map((attachment, index) => normalizeAttachment(attachment, attachment?.id, index));
+    if (new Set(attachments.map(({ id }) => id)).size !== attachments.length) throw new Error(`Card ${card.id} attachment ids must be unique`);
+    for (const attachment of attachments) if (ordinaryIds.has(attachment.id)) throw new Error(`Card ${card.id} attachment ${attachment.id} collides with an element id`);
+    for (const attachment of attachments) if (attachment.faceId !== undefined && !normalizedCard.faces[attachment.faceId]) {
+      throw new Error(`Attachment ${attachment.id} references unknown face ${attachment.faceId}`);
+    }
+    validateAttachmentAnchors(attachments);
+    normalizedCard.attachments = attachments;
     return normalizedCard;
   });
   if (new Set(cards.map((card) => card.id)).size !== cards.length) {

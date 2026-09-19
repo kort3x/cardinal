@@ -6,6 +6,7 @@
     <title>Cardinal · Card Lab</title>
     <link rel="stylesheet" href="../../packages/card-engine/src/styles.css">
     <link rel="stylesheet" href="/examples/card-engine-lab/tutorial.css">
+    <link rel="stylesheet" href="/examples/card-engine-lab/styles.css">
     <style>
       :root {
         --lab-control-radius: 3px;
@@ -827,6 +828,19 @@
             </div>
             <p>Elements belong to the selected cards’ active logical face. Reorder changes flow order; overlay elements use normalized position.</p>
           </details>
+          <details class="control-group attachments-group">
+            <summary>Attachments</summary>
+            <div class="attachment-actions">
+              <button type="button" data-attachment-demo="stamp">Stamp travelling card</button>
+              <button type="button" data-attachment-demo="counter">Add counter</button>
+              <button type="button" data-attachment-demo="stickers">Add two stickers</button>
+              <button type="button" data-attachment-demo="hide-anchor">Hide image anchor</button>
+              <button type="button" data-attachment-demo="remove-mid-flip">Remove sticker mid-flip</button>
+              <button type="button" data-attachment-demo="restore">Restore scenario</button>
+            </div>
+            <div id="attachment-list" aria-live="polite"></div>
+            <p id="attachment-status">Select a card to try live stamps, counters, and stickers.</p>
+          </details>
         </aside>
       </section>
     </main>
@@ -841,6 +855,7 @@
       const group = (parent, title) => [...parent.querySelectorAll("details.control-group")]
         .find((candidate) => candidate.querySelector(":scope > summary")?.textContent.trim() === title);
       const elementsGroup = group(rightRail, "Elements");
+      const attachmentsGroup = group(rightRail, "Attachments");
       const cardsGroup = group(leftRail, "Cards");
       const zonesGroup = group(leftRail, "Zones");
       const dragGroup = group(leftRail, "Drag");
@@ -852,7 +867,7 @@
       leftRail.append(cardsGroup, zonesGroup, dragGroup);
       rightRail.append(scaleGroup, shapeGroup, dimensionsGroup,
         group(motionControls, "Move"), group(motionControls, "Rotate"), group(motionControls, "Flip"),
-        facesGroup, elementsGroup);
+        facesGroup, elementsGroup, attachmentsGroup);
       const sceneColumn = document.querySelector(".scene-column");
       const toolbar = document.querySelector(".motion-actions");
       const motionSpeedControl = document.querySelector("#motion-speed-control");
