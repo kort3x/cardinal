@@ -175,11 +175,13 @@ const flipYSlider = document.querySelector("#flip-y-slider");
 const flipAxis = document.querySelector("#flip-axis");
 const moveButton = document.querySelector("#move");
 const rotateButton = document.querySelector("#rotate");
+const tiltZButton = document.querySelector("#tilt-z");
 const scaleButton = document.querySelector("#scale");
 const flipButton = document.querySelector("#flip");
 const spinButton = document.querySelector("#spin");
 const randomButton = document.querySelector("#random");
 const animationTestButton = document.querySelector("#animation-test");
+const combinedButton = document.querySelector("#combined");
 const moveXValue = document.querySelector("#move-x-value");
 const moveYValue = document.querySelector("#move-y-value");
 const motionSpeedValue = document.querySelector("#motion-speed-value");
@@ -362,6 +364,7 @@ const LAB_CONTROL_TOOLTIPS = Object.freeze([
   ["#move-x", "Set the selected card's scene X position."],
   ["#move-y", "Set the selected card's scene Y position."],
   ["#motion-speed", "Adjust the speed of the animated controls."],
+  ["#tilt-z", "Oscillate the selected cards around their Z axis."],
   ["#rotate-slider", "Set the selected card's authored rotation."],
   ["#scale-slider", "Set the selected card's authored scale."],
   ["#flip-axis", "Choose the axis used for flipping and spinning."],
@@ -1674,9 +1677,11 @@ let randomGeneration = 0;
 let randomMotion = false;
 let moveAnimation;
 let rotateAnimation;
+let tiltZAnimation;
 let scaleAnimation;
 let moveGeneration = 0;
 let rotateGeneration = 0;
+let tiltZGeneration = 0;
 let scaleGeneration = 0;
 let animationTestGeneration = 0;
 let animationTestRunning = false;
@@ -1685,6 +1690,7 @@ function activeMotionLabels() {
   return [
     moveAnimation && "move",
     rotateAnimation && "rotate",
+    tiltZAnimation && "tilt Z",
     scaleAnimation && "scale",
     spinning && "spin",
     randomMotion && "random motion",
@@ -1692,15 +1698,27 @@ function activeMotionLabels() {
 }
 
 function updateDemoButtons() {
+  const hasSelection = selectedCardIds.size > 0;
   const buttons = [
     [moveButton, moveAnimation, "Move"],
     [rotateButton, rotateAnimation, "Rotate"],
+    [tiltZButton, tiltZAnimation, "Tilt Z"],
     [scaleButton, scaleAnimation, "Scale"],
   ];
   for (const [button, active, label] of buttons) {
     button.textContent = active ? "Stop" : label;
     button.setAttribute("aria-pressed", String(Boolean(active)));
+    button.disabled = !hasSelection;
   }
+  spinButton.disabled = !hasSelection;
+  spinButton.textContent = spinning ? "Stop" : "Spin";
+  spinButton.setAttribute("aria-pressed", String(spinning));
+  randomButton.disabled = !hasSelection;
+  randomButton.textContent = randomMotion ? "Stop" : "Random";
+  randomButton.setAttribute("aria-pressed", String(randomMotion));
+  flipButton.disabled = !hasSelection;
+  combinedButton.disabled = !hasSelection;
+  animationTestButton.disabled = !hasSelection || animationTestRunning;
 }
 
 function stopMoveAnimation() {
@@ -1719,6 +1737,14 @@ function stopRotateAnimation() {
   if (scene) updateStatus();
 }
 
+function stopTiltZAnimation() {
+  if (tiltZAnimation?.frame !== undefined) cancelAnimationFrame(tiltZAnimation.frame);
+  tiltZGeneration += 1;
+  tiltZAnimation = undefined;
+  updateDemoButtons();
+  if (scene) updateStatus();
+}
+
 function stopScaleAnimation() {
   if (scaleAnimation?.frame !== undefined) cancelAnimationFrame(scaleAnimation.frame);
   scaleGeneration += 1;
@@ -1730,6 +1756,7 @@ function stopScaleAnimation() {
 function stopDemoAnimations() {
   stopMoveAnimation();
   stopRotateAnimation();
+  stopTiltZAnimation();
   stopScaleAnimation();
 }
 
@@ -1837,6 +1864,37 @@ function runScaleFrame(generation, now) {
   }
 }
 
+function runTiltZFrame(generation, now) {
+  if (!scene || tiltZAnimation?.generation !== generation) return;
+  const animation = tiltZAnimation;
+  animation.frame = undefined;
+  const elapsed = Math.max(0, (now - animation.startedAt) / 1000);
+  const amplitude = 14;
+  const cyclesPerSecond = 0.75 * Number(motionSpeedSlider.value);
+  const tilt = Math.sin(elapsed * Math.PI * 2 * cyclesPerSecond) * amplitude;
+  const { visuals } = demoStateFor(animation.cardIds);
+  const updates = animation.cardIds.flatMap((cardId) => {
+    const pose = visuals.get(cardId)?.pose;
+    const baseAngle = animation.baseAngles.get(cardId);
+    return pose && Number.isFinite(baseAngle)
+      ? [{ cardId, pose: { angle: normalizeAngle(baseAngle + tilt) } }]
+      : [];
+  });
+  if (updates.length === 0) {
+    stopTiltZAnimation();
+    return;
+  }
+  try {
+    scene.updatePoses(updates);
+  } catch {
+    stopTiltZAnimation();
+    return;
+  }
+  if (tiltZAnimation?.generation === generation) {
+    tiltZAnimation.frame = requestAnimationFrame((nextNow) => runTiltZFrame(generation, nextNow));
+  }
+}
+
 function startMoveAnimation() {
   const state = scene.snapshot();
   const cards = selectedVisualEntries(state);
@@ -1869,6 +1927,22 @@ function startRotateAnimation() {
   return true;
 }
 
+function startTiltZAnimation() {
+  const entries = selectedVisualEntries();
+  if (entries.length === 0) return false;
+  const generation = ++tiltZGeneration;
+  tiltZAnimation = {
+    generation,
+    cardIds: entries.map(({ card }) => card.id),
+    baseAngles: new Map(entries.map(({ card, visual }) => [card.id, visual.pose.angle ?? 0])),
+    startedAt: performance.now(),
+  };
+  updateDemoButtons();
+  updateStatus();
+  tiltZAnimation.frame = requestAnimationFrame((now) => runTiltZFrame(generation, now));
+  return true;
+}
+
 function startScaleAnimation() {
   const cards = selectedVisualEntries();
   if (cards.length === 0) return false;
@@ -1898,6 +1972,7 @@ function flipSelectedCards() {
 function updateRandomButton() {
   randomButton.textContent = randomMotion ? "Stop" : "Random";
   randomButton.setAttribute("aria-pressed", String(randomMotion));
+  randomButton.disabled = selectedCardIds.size === 0;
 }
 
 function stopRandomMotion() {
@@ -2129,8 +2204,8 @@ async function runAnimationTest() {
   } finally {
     if (generation === animationTestGeneration) {
       animationTestRunning = false;
-      animationTestButton.disabled = false;
       animationTestButton.textContent = "Test";
+      updateDemoButtons();
     }
   }
 }
@@ -2406,6 +2481,12 @@ function startScene(cards = sceneCards()) {
       if (scene !== createdScene || !lifecycle.active) return;
       selectedCardIds = new Set(selection.cardIds);
       selectionReason = "";
+      if (selectedCardIds.size === 0) {
+        stopDemoAnimations();
+        stopRandomMotion();
+        stopContinuousFlip();
+      }
+      updateDemoButtons();
       syncControlsFromSelection();
     });
     createdScene.on("interaction-change", (interaction) => {
@@ -2422,6 +2503,7 @@ function startScene(cards = sceneCards()) {
     } : {});
     renderCardList();
     syncControlsFromSelection();
+    updateDemoButtons();
     updateStatus();
   } catch (error) {
     disposeInteractionLifecycle();
@@ -3170,6 +3252,7 @@ function run(operations, options) {
 function updateSpinButton() {
   spinButton.textContent = spinning ? "Stop" : "Spin";
   spinButton.setAttribute("aria-pressed", String(spinning));
+  spinButton.disabled = selectedCardIds.size === 0;
 }
 
 function syncSpinState(state) {
@@ -3461,6 +3544,11 @@ rotateButton.addEventListener("click", () => {
   else startRotateAnimation();
 });
 
+tiltZButton.addEventListener("click", () => {
+  if (tiltZAnimation) stopTiltZAnimation();
+  else startTiltZAnimation();
+});
+
 scaleButton.addEventListener("click", () => {
   if (scaleAnimation) stopScaleAnimation();
   else startScaleAnimation();
@@ -3725,7 +3813,7 @@ document.querySelectorAll("[data-background-preset]").forEach((button) => {
   });
 });
 
-document.querySelector("#combined").addEventListener("click", () => {
+combinedButton.addEventListener("click", () => {
   stopDemoAnimations();
   const state = scene.snapshot();
   const primary = currentVisual(state);

@@ -778,6 +778,7 @@ const demoTogglesScenario = String.raw`(async () => {
   await sleep(350);
   const afterMove = pose();
   record("move toggle starts continuous bounded motion", () => document.querySelector("#move")?.getAttribute("aria-pressed") === "true"
+    && document.querySelector("#move")?.textContent.trim() === "Stop"
     && (Math.abs(afterMove.x - beforeMove.x) > 1 || Math.abs(afterMove.y - beforeMove.y) > 1));
   const motionSamples = await new Promise((resolve) => {
     const samples = [];
@@ -840,6 +841,15 @@ const demoTogglesScenario = String.raw`(async () => {
 
   const beforeScale = pose()?.scale;
   click("#scale");
+
+  const beforeTiltZ = pose()?.angle;
+  click("#tilt-z");
+  await sleep(350);
+  const afterTiltZ = pose()?.angle;
+  record("tilt Z toggle oscillates the card angle", () => document.querySelector("#tilt-z")?.getAttribute("aria-pressed") === "true"
+    && document.querySelector("#tilt-z")?.textContent.trim() === "Stop"
+    && Math.abs(afterTiltZ - beforeTiltZ) > 1);
+  click("#tilt-z");
   await sleep(350);
   const afterScale = pose()?.scale;
   record("scale toggle continuously changes size", () => document.querySelector("#scale")?.getAttribute("aria-pressed") === "true"
@@ -860,14 +870,20 @@ const demoTogglesScenario = String.raw`(async () => {
 
   click("#move");
   click("#rotate");
+  click("#tilt-z");
   click("#scale");
   click("#flip");
   await sleep(150);
-  record("live demos compose with the one-shot flip", () => ["move", "rotate", "scale"]
+  record("live demos compose with the one-shot flip", () => ["move", "rotate", "tilt-z", "scale"]
     .every((id) => document.querySelector("#" + id)?.getAttribute("aria-pressed") === "true"));
   click("#move");
   click("#rotate");
+  click("#tilt-z");
   click("#scale");
+  click("#deselect-all");
+  record("demo controls disable with no selected cards", () => [
+    "#move", "#rotate", "#tilt-z", "#scale", "#spin", "#flip", "#combined", "#random", "#animation-test",
+  ].every((selector) => document.querySelector(selector)?.disabled === true));
   return { ok: results.every((result) => result.pass), results };
 })()`;
 
@@ -989,10 +1005,13 @@ const layoutScenario = String.raw`(async () => {
       speedHeight: speedRect?.height,
       buttonHeight: buttonRect?.height,
       heightMatch: speedRect && buttonRect && Math.abs(speedRect.height - buttonRect.height) <= 2,
+      speedBackground: speed ? getComputedStyle(speed).backgroundColor : null,
+      demoBackground: demoGroup ? getComputedStyle(demoGroup).backgroundColor : null,
     };
   })();
   record("demo speed is grouped with the live demos", () => speedLayout.inToolbar
-    && speedLayout.isGrouped && speedLayout.heightMatch);
+    && speedLayout.isGrouped && speedLayout.heightMatch
+    && speedLayout.speedBackground === speedLayout.demoBackground);
   const cardActions = document.querySelector(".cards-sidebar .presets");
   const cardList = document.querySelector("#card-list");
   const spawnZone = document.querySelector("#spawn-zone");
