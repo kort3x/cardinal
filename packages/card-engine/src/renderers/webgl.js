@@ -5,9 +5,9 @@ import { createTexturePool } from "./texture-pool.js";
 
 const radians = (degrees) => degrees * Math.PI / 180;
 const CARD_BEVEL_SIZE = 1.2;
-const CARD_BEVEL_SEGMENTS = 4;
+const CARD_BEVEL_SEGMENTS = 2;
 const CARD_CURVE_SEGMENTS = 24;
-const CARD_FACE_CURVE_SEGMENTS = 12;
+const CARD_FACE_CURVE_SEGMENTS = 8;
 const SELECTION_FRAME_CURVE_SEGMENTS = 64;
 const SELECTION_FRAME_PADDING = 8;
 const zeroShaderPrecision = Object.freeze({ rangeMin: 0, rangeMax: 0, precision: 0 });

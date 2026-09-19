@@ -171,13 +171,44 @@ test("a rounded cuboid geometry includes a real bevel", () => {
   );
 
   assert.equal(geometry.parameters.options.bevelEnabled, true);
-  assert.equal(geometry.parameters.options.bevelSegments, 4);
+  assert.equal(geometry.parameters.options.bevelSegments, 2);
+  assert.equal(geometry.parameters.options.curveSegments, 24);
   assert.equal(geometry.parameters.options.bevelSize, 1.2);
   const position = geometry.getAttribute("position");
   const zValues = Array.from({ length: position.count }, (_, index) => position.getZ(index));
   assert.equal(Math.min(...zValues) >= -3.001, true);
   assert.equal(Math.max(...zValues) <= 3.001, true);
   geometry.dispose();
+});
+
+test("card geometry keeps higher tessellation configurable for consumers", () => {
+  const shape = createCardShape("rounded-rectangle", { width: 180, height: 250 });
+  const defaultGeometry = createCardGeometry(shape);
+  const highQualityGeometry = createCardGeometry(shape, { bevelSegments: 4, curveSegments: 24 });
+  const defaultBundle = createCardGeometryBundle("rounded-rectangle", { width: 180, height: 250 }, 6);
+  const highQualityBundle = createCardGeometryBundle("rounded-rectangle", { width: 180, height: 250 }, 6, { faceCurveSegments: 12 });
+
+  assert.equal(defaultGeometry.parameters.options.bevelSegments, 2);
+  assert.equal(defaultGeometry.parameters.options.curveSegments, 24);
+  assert.equal(highQualityGeometry.parameters.options.bevelSegments, 4);
+  assert.equal(highQualityGeometry.parameters.options.curveSegments, 24);
+  assert.equal(
+    defaultGeometry.getAttribute("position").count < highQualityGeometry.getAttribute("position").count,
+    true,
+  );
+  assert.equal(
+    defaultBundle.faceGeometry.index.count < highQualityBundle.faceGeometry.index.count,
+    true,
+  );
+  assert.equal(
+    defaultBundle.selectionHaloGeometry.index.count < highQualityBundle.selectionHaloGeometry.index.count,
+    true,
+  );
+
+  defaultGeometry.dispose();
+  highQualityGeometry.dispose();
+  for (const geometry of Object.values(defaultBundle)) geometry.dispose();
+  for (const geometry of Object.values(highQualityBundle)) geometry.dispose();
 });
 
 test("a thin cuboid keeps the front content surface outside its bevel", () => {
